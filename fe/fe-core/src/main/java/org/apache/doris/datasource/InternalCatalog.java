@@ -136,6 +136,7 @@ import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
+import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
@@ -2218,6 +2219,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         olapTable.initSchemaColumnUniqueId();
+        olapTable.initAutoIncrentGenerator(db.getId());
         olapTable.rebuildFullSchema();
 
         // analyze version info
@@ -2944,5 +2946,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public ConcurrentHashMap<Long, Database> getIdToDb() {
         return new ConcurrentHashMap<>(idToDb);
+    }
+
+    public void replayAutoIncrementIdUpdateLog(AutoIncrementIdUpdateLog log) throws MetaNotFoundException {
+        Database db = getDbOrMetaException(log.getDbId());
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(log.getTableId(), TableType.OLAP);
+        olapTable.getAutoIncrementGenerator().applyChange(log.getColumnId(), log.getBatchEndId());
     }
 }

@@ -17,7 +17,6 @@
 
 suite("test_dup_table_auto_inc_col") {
 
-    // duplicate table with a auto-increment key column
     def table1 = "test_dup_tab_auto_inc_col1"
     sql "drop table if exists ${table1}"
     sql """
@@ -36,6 +35,7 @@ suite("test_dup_table_auto_inc_col") {
     """
     qt_desc "desc ${table1}"
     qt_sql "show create table ${table1};"
+    sql "drop table if exists ${table1};"
 
     // duplicate table with a auto-increment value column
     def table2 = "test_dup_tab_auto_inc_col2"
@@ -56,6 +56,7 @@ suite("test_dup_table_auto_inc_col") {
     """
     qt_desc "desc ${table2}"
     qt_sql "show create table ${table2};"
+    sql "drop table if exists ${table2};"
 
     // duplicate table with two auto-increment columns
     def table3 = "test_dup_tab_auto_inc_col3"

@@ -37,8 +37,10 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <queue>
+#include <ranges>
 #include <set>
 #include <string>
 #include <thread>
@@ -448,6 +450,65 @@ private:
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_received_rows;
 };
 
+struct FetchAutoIncIDExecutor {
+    FetchAutoIncIDExecutor();
+
+    static FetchAutoIncIDExecutor* GetInstance() {
+        static FetchAutoIncIDExecutor instance;
+        return &instance;
+    }
+
+    std::unique_ptr<ThreadPool> _pool;
+};
+
+class AutoIncIDBuffer {
+    // GenericReader::_MIN_BATCH_SIZE = 4064
+    static constexpr size_t MIN_BATCH_SIZE = 4064;
+
+public:
+    // all public functions are thread safe
+    AutoIncIDBuffer(int64_t _db_id, int64_t _table_id);
+    void set_column_id(int64_t column_id);
+    void set_batch_size_at_least(size_t batch_size);
+    Status consume(size_t length, std::vector<std::pair<size_t, size_t>>* result);
+
+private:
+    void _prefetch_ids(size_t length);
+    Status _wait_for_prefetching();
+
+    size_t _batch_size {MIN_BATCH_SIZE};
+    size_t _prefetch_size {_batch_size * config::auto_inc_prefetch_size_ratio};
+    size_t _low_water_level_mark {_batch_size * config::auto_inc_low_water_level_mark_size_ratio};
+
+    int64_t _db_id;
+    int64_t _table_id;
+    int64_t _column_id;
+
+    std::unique_ptr<ThreadPoolToken> _token;
+    Status _rpc_status {Status::OK()};
+    std::atomic<bool> _is_fetching {false};
+
+    std::pair<size_t, size_t> _front_buffer {0, 0};
+    std::pair<size_t, size_t> _backend_buffer {0, 0};
+    std::mutex _latch; // for _backend_buffer
+    std::mutex _mutex;
+};
+
+class GlobalAutoIncBuffers {
+public:
+    static GlobalAutoIncBuffers* GetInstance() {
+        static GlobalAutoIncBuffers buffers;
+        return &buffers;
+    }
+
+    std::shared_ptr<AutoIncIDBuffer> get_auto_inc_buffer(std::pair<size_t, size_t> key,
+                                                         bool* is_first_created);
+
+private:
+    std::unordered_map<std::pair<size_t, size_t>, std::shared_ptr<AutoIncIDBuffer>> _buffers;
+    std::mutex _mutex;
+};
+
 // Write block data to Olap Table.
 // When OlapTableSink::open() called, there will be a consumer thread running in the background.
 // When you call VOlapTableSink::send(), you will be the producer who products pending batches.
@@ -500,6 +561,8 @@ private:
                        bool& stop_processing, bool& is_continue);
 
     void _open_partition(const VOlapTablePartition* partition);
+
+    Status _fill_auto_inc_cols(vectorized::Block* block, size_t rows, bool eos);
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
@@ -606,6 +669,9 @@ private:
     RuntimeState* _state = nullptr;
 
     std::unordered_set<int64_t> _opened_partitions;
+
+    std::shared_ptr<AutoIncIDBuffer> _auto_inc_id_buffer;
+    std::optional<size_t> _auto_inc_col_idx;
 };
 
 } // namespace stream_load

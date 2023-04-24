@@ -1043,6 +1043,10 @@ public class EditLog {
                     LOG.info("replay barrier");
                     break;
                 }
+                case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
+                    env.replayAutoIncrementIdUpdateLog((AutoIncrementIdUpdateLog) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1817,7 +1821,17 @@ public class EditLog {
         return logEdit(OperationType.OP_GC_BINLOG, log);
     }
 
+<<<<<<< HEAD
     public long logBarrier() {
         return logEdit(OperationType.OP_BARRIER, new BarrierLog());
+=======
+<<<<<<< HEAD
+    public void logGcBinlog(BinlogGcInfo log) {
+        logEdit(OperationType.OP_GC_BINLOG, log);
+=======
+    public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
+        logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
+>>>>>>> [feature-wip](auto-inc)(step-2)support auto-increment column for duplicate table
+>>>>>>> [feature-wip](auto-inc)(step-2)support auto-increment column for duplicate table
     }
 }

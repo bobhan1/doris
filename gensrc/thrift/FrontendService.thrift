@@ -1044,6 +1044,20 @@ struct TGetMasterTokenResult {
     2: optional string token
 }
 
+struct TAutoIncrementRangeRequest {
+    1: required i64 db_id;
+    2: required i64 table_id;
+    3: required i64 column_id;
+    4: required i64 length
+    5: optional i64 lower_bound // if set, values in result range must larger than `lower_bound`
+}
+
+struct TAutoIncrementRangeResult {
+    1: required Status.TStatus status
+    2: optional i64 start
+    3: optional i64 length
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1106,4 +1120,6 @@ service FrontendService {
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
+
+    TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 }
