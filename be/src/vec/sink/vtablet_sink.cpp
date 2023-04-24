@@ -25,16 +25,21 @@
 #include <fmt/format.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 #include <google/protobuf/stubs/common.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <sys/param.h>
 #include <sys/types.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cstddef>
 #include <iterator>
 #include <mutex>
 #include <string>
@@ -46,6 +51,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -64,6 +70,7 @@
 #include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -84,6 +91,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -968,6 +976,95 @@ void VNodeChannel::mark_close() {
     _eos_is_produced = true;
 }
 
+FetchAutoIncIDExecutor::FetchAutoIncIDExecutor() {
+    ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
+            .set_min_threads(1)
+            .set_max_threads(3)
+            .set_max_queue_size(std::numeric_limits<int>::max())
+            .build(&_pool);
+}
+
+AutoIncIDBuffer::AutoIncIDBuffer(size_t batch_size, int64_t db_id, int64_t table_id,
+                                 TNetworkAddress master_addr)
+        : _batch_size(std::max(batch_size, MIN_BATCH_SIZE)),
+          _fetch_batch_interval(_batch_size * 10),
+          _low_water_level_mark(_batch_size * 3),
+          _db_id(db_id),
+          _table_id(table_id),
+          _master_addr(master_addr),
+          _token(FetchAutoIncIDExecutor::GetInstance()->_pool->new_token(
+                  ThreadPool::ExecutionMode::CONCURRENT)) {
+    _token->submit_func([this]() { _async_fetch(_fetch_batch_interval); });
+}
+
+void AutoIncIDBuffer::set_column_id(int64_t column_id) {
+    _column_id = column_id;
+}
+
+Status AutoIncIDBuffer::consume(size_t length, bool eos,
+                                std::vector<std::pair<size_t, size_t>>* result) {
+    result->reserve(2);
+    if (_front_buffer.second > 0) {
+        auto min_length = std::min(_front_buffer.second, length);
+        length -= min_length;
+        result->emplace_back(_front_buffer.first, min_length);
+        _front_buffer.first += min_length;
+        _front_buffer.second -= min_length;
+    }
+    if (length > 0) {
+        _token->wait();
+        if (_rpc_status != Status::OK()) {
+            return _rpc_status;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            std::swap(_front_buffer, _backend_buffer);
+        }
+
+        DCHECK(length <= _front_buffer.second);
+        result->emplace_back(_front_buffer.first, length);
+        _front_buffer.first += length;
+        _front_buffer.second -= length;
+    }
+    if (!eos && _front_buffer.second <= _low_water_level_mark) {
+        _token->submit_func([this]() { _async_fetch(_fetch_batch_interval); });
+    }
+    return Status::OK();
+}
+
+void AutoIncIDBuffer::_async_fetch(size_t length) {
+    TAutoIncrementRangeRequest request;
+    TAutoIncrementRangeResult result;
+    request.db_id = _db_id;
+    request.table_id = _table_id;
+    request.column_id = _column_id;
+    request.length = length;
+
+    auto rpc_begin = std::chrono::system_clock::now();
+    _rpc_status = ThriftRpcHelper::rpc<FrontendServiceClient>(
+            _master_addr.hostname, _master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->getAutoIncrementRange(result, request);
+            });
+    auto rpc_end = std::chrono::system_clock::now();
+    LOG(INFO) << "[auto-inc-range][start=" << result.start << ",length=" << result.length
+              << "][elapsed="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(rpc_end - rpc_begin).count()
+              << " ms]";
+
+    if (!_rpc_status.ok()) {
+        LOG(WARNING) << "Failed to fetch auto-incremnt range, encounter rpc failure. "
+                     << "errmsg=" << _rpc_status.to_string();
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _backend_buffer = {result.start, result.length};
+    }
+}
+
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
         : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
@@ -1051,6 +1148,17 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     if (_output_tuple_desc == nullptr) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
         return Status::InternalError("unknown destination tuple descriptor");
+    }
+
+    _auto_inc_id_buffer.reset(
+            new AutoIncIDBuffer(_state->batch_size(), _schema->db_id(), _schema->table_id(),
+                                _state->exec_env()->master_info()->network_address));
+    for (size_t idx = 0; idx < _output_tuple_desc->slots().size(); idx++) {
+        if (_output_tuple_desc->slots()[idx]->is_auto_increment()) {
+            _auto_inc_col_idx = idx;
+            _auto_inc_id_buffer->set_column_id(_output_tuple_desc->slots()[idx]->col_unique_id());
+            break;
+        }
     }
 
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
@@ -1173,6 +1281,50 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
         }
         VLOG_DEBUG << "list of lazy open index id = " << fmt::to_string(buf);
     }
+}
+
+Status VOlapTableSink::_fill_auto_inc_cols(vectorized::Block* block, size_t rows, bool eos) {
+    size_t idx = _auto_inc_col_idx.value();
+    SlotDescriptor* slot = _output_tuple_desc->slots()[idx];
+    DCHECK(slot->type().type == PrimitiveType::TYPE_BIGINT);
+    DCHECK(!slot->is_nullable());
+
+    vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
+    auto src_nested_column_ptr =
+            assert_cast<const vectorized::ColumnNullable&>(*src_column_ptr).get_nested_column_ptr();
+
+    auto dst_column = vectorized::ColumnInt64::create();
+    vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
+    dst_values.reserve(rows);
+
+    size_t count = 0;
+    for (size_t i = 0; i < rows; i++) {
+        if (src_column_ptr->is_null_at(i)) {
+            ++count;
+        }
+    }
+    std::vector<std::pair<size_t, size_t>> ids;
+    RETURN_IF_ERROR(_auto_inc_id_buffer->consume(count, eos, &ids));
+    std::vector<std::ranges::iota_view<size_t, size_t>> v;
+    v.reserve(ids.size());
+    std::for_each(ids.cbegin(), ids.cend(), [&](const auto& p) {
+        v.emplace_back(std::views::iota(p.first, p.first + p.second));
+    });
+    auto id_gen = (v | std::views::join);
+    auto id_gen_it = id_gen.begin();
+    for (size_t i = 0; i < rows; i++) {
+        if (src_column_ptr->is_null_at(i)) {
+            dst_values.emplace_back(*id_gen_it);
+            ++id_gen_it;
+        } else {
+            dst_values.emplace_back(src_nested_column_ptr->get_int(i));
+        }
+    }
+    DCHECK(id_gen_it == id_gen.end());
+    block->get_by_position(idx).column = std::move(dst_column);
+    block->get_by_position(idx).type =
+            vectorized::DataTypeFactory::instance().create_data_type(slot->type(), false);
+    return Status::OK();
 }
 
 void VOlapTableSink::_send_batch_process() {
@@ -1299,6 +1451,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     DorisMetrics::instance()->load_bytes->increment(bytes);
 
     vectorized::Block block(input_block->get_columns_with_type_and_name());
+    // fill the valus for auto-increment columns
+    if (_auto_inc_col_idx.has_value()) {
+        RETURN_IF_ERROR(_fill_auto_inc_cols(&block, rows, eos));
+    }
+
     if (!_output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(

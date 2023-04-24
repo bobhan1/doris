@@ -180,6 +180,13 @@ public abstract class FileScanNode extends ExternalScanNode {
                     } else {
                         expr = NullLiteral.create(column.getType());
                     }
+                } else if (column.isAutoInc()) {
+                    // the auto-increment column will be not-null and has no default value
+                    // if the user don't specify thee auto-increment column,
+                    // it will be filled with NullLiteral in VFileScanner
+                    // to indicate that it should be filled with generated value
+                    // and it will be finally filled with generated value in VOlapTableSink::_fill_auto_inc_cols()
+                    expr = NullLiteral.create(column.getType());
                 } else {
                     expr = null;
                 }

@@ -70,6 +70,7 @@ public class SlotDescriptor {
     // If set to false, then such slots will be ignored during
     // materialize them.Used to optimize to read less data and less memory usage
     private boolean needMaterialize = true;
+    private boolean isAutoInc = false;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
         this.id = id;
@@ -172,6 +173,14 @@ public class SlotDescriptor {
 
     public void setIsMaterialized(boolean value) {
         isMaterialized = value;
+    }
+
+    public boolean isAutoInc() {
+        return isAutoInc;
+    }
+
+    public void setAutoInc(boolean isAutoInc) {
+        this.isAutoInc = isAutoInc;
     }
 
     public void materializeSrcExpr() {
@@ -314,6 +323,7 @@ public class SlotDescriptor {
                 type.toThrift(), -1, byteOffset, nullIndicatorByte,
                 nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
         tSlotDescriptor.setNeedMaterialize(needMaterialize);
+        tSlotDescriptor.setIsAutoIncrement(isAutoInc);
         if (column != null) {
             LOG.debug("column name:{}, column unique id:{}", column.getName(), column.getUniqueId());
             tSlotDescriptor.setColUniqueId(column.getUniqueId());
@@ -329,7 +339,8 @@ public class SlotDescriptor {
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
                 .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
                 .add("byteOffset", byteOffset).add("nullIndicatorByte", nullIndicatorByte)
-                .add("nullIndicatorBit", nullIndicatorBit).add("slotIdx", slotIdx).toString();
+                .add("nullIndicatorBit", nullIndicatorBit).add("slotIdx", slotIdx)
+                .add("isAutoIncrement", isAutoInc).toString();
     }
 
     @Override
@@ -345,6 +356,7 @@ public class SlotDescriptor {
                 .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
                 .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)
+                .append(", isAutoIncrement=").append(isAutoInc)
                 .append("}")
                 .toString();
     }

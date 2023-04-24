@@ -37,8 +37,10 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <queue>
+#include <ranges>
 #include <set>
 #include <string>
 #include <thread>
@@ -447,6 +449,74 @@ private:
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_received_rows;
 };
 
+struct FetchAutoIncIDExecutor {
+    FetchAutoIncIDExecutor();
+
+    static FetchAutoIncIDExecutor* GetInstance() {
+        static FetchAutoIncIDExecutor instance;
+        return &instance;
+    }
+
+    std::unique_ptr<ThreadPool> _pool;
+};
+
+// estimate the number of remaining rows based on the rows read and bytes read
+struct RowsEstimator {
+    static constexpr size_t BATCH_INTERVAL = 5000;
+
+    RowsEstimator() {}
+    RowsEstimator(size_t total_files_size_in_bytes)
+            : _total_files_size_in_bytes(total_files_size_in_bytes) {}
+
+    void read(size_t rows, size_t bytes) {
+        _rows_read += rows;
+        _bytes_read += bytes;
+    }
+
+    size_t estimate() const {
+        return (_bytes_read == 0 ? BATCH_INTERVAL
+                                 : ((_total_files_size_in_bytes - _bytes_read) * 1.0 / _bytes_read *
+                                    _rows_read));
+    }
+
+    size_t _total_files_size_in_bytes {0};
+    size_t _rows_read {0};
+    size_t _bytes_read {0};
+};
+
+struct AutoIncIDBuffer {
+    // GenericReader::_MIN_BATCH_SIZE = 4096
+    static constexpr size_t MIN_BATCH_SIZE = 4064;
+
+    AutoIncIDBuffer(size_t batch_size, int64_t _db_id, int64_t _table_id,
+                    TNetworkAddress _master_addr);
+    void set_column_id(int64_t column_id);
+
+    Status consume(size_t length, bool eos, std::vector<std::pair<size_t, size_t>>* result);
+
+    void _async_fetch(size_t length);
+
+    const size_t _batch_size;
+    const size_t _fetch_batch_interval;
+    const size_t _low_water_level_mark;
+
+    int64_t _db_id;
+    int64_t _table_id;
+    int64_t _column_id;
+    TNetworkAddress _master_addr;
+
+    std::unique_ptr<ThreadPoolToken> _token;
+    Status _rpc_status;
+
+    size_t _total_length {0};
+    std::pair<size_t, size_t> _front_buffer {0, 0};
+    std::pair<size_t, size_t> _backend_buffer {0, 0};
+    std::mutex _mutex; // for _backend_buffer
+
+    // RowsEstimator _estimator;
+    // bool _use_estimator {false};
+};
+
 // Write block data to Olap Table.
 // When OlapTableSink::open() called, there will be a consumer thread running in the background.
 // When you call VOlapTableSink::send(), you will be the producer who products pending batches.
@@ -518,6 +588,8 @@ private:
                        bool& stop_processing, bool& is_continue);
 
     void _open_partition(const VOlapTablePartition* partition);
+
+    Status _fill_auto_inc_cols(vectorized::Block* block, size_t rows, bool eos);
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
@@ -633,6 +705,9 @@ private:
     RuntimeState* _state = nullptr;
 
     std::unordered_set<int64_t> _opened_partitions;
+
+    std::unique_ptr<AutoIncIDBuffer> _auto_inc_id_buffer;
+    std::optional<size_t> _auto_inc_col_idx;
 };
 
 } // namespace stream_load

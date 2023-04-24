@@ -261,6 +261,8 @@ public class FileLoadScanNode extends FileScanNode {
                     } else {
                         if (column.isAllowNull()) {
                             expr = NullLiteral.create(column.getType());
+                        } else if (column.isAutoInc()) {
+                            expr = NullLiteral.create(column.getType());
                         } else {
                             throw new AnalysisException("column has no source field, column=" + column.getName());
                         }

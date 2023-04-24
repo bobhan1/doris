@@ -1031,6 +1031,10 @@ public class EditLog {
                             alterDatabasePropertyInfo.getProperties());
                     break;
                 }
+                case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
+                    env.replayAutoIncrementIdUpdateLog((AutoIncrementIdUpdateLog) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1794,7 +1798,12 @@ public class EditLog {
         logEdit(OperationType.OP_DELETE_ANALYSIS_TASK, log);
     }
 
+<<<<<<< HEAD
     public void logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {
         logEdit(OperationType.OP_ALTER_DATABASE_PROPERTY, log);
+=======
+    public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
+        logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
+>>>>>>> 37cdde3b4a ([feature-wip](auto-inc)(step-2)support auto-increment column for duplicate table)
     }
 }
