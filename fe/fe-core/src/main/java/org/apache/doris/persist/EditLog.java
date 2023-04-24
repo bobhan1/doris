@@ -1031,6 +1031,10 @@ public class EditLog {
                             alterDatabasePropertyInfo.getProperties());
                     break;
                 }
+                case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
+                    env.replayAutoIncrementIdUpdateLog((AutoIncrementIdUpdateLog) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1796,5 +1800,9 @@ public class EditLog {
 
     public void logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {
         logEdit(OperationType.OP_ALTER_DATABASE_PROPERTY, log);
+    }
+
+    public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
+        logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
     }
 }

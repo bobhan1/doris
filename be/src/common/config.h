@@ -1050,6 +1050,12 @@ DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
 
+// the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
+DECLARE_mInt64(auto_inc_prefetch_size_ratio);
+
+// the ratio of _low_level_water_level_mark/_batch_size in AutoIncIDBuffer
+DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

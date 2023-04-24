@@ -1035,6 +1035,12 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 
+// the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
+DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
+
+// the ratio of _low_level_water_level_mark/_batch_size in AutoIncIDBuffer
+DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");

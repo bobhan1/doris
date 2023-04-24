@@ -306,6 +306,8 @@ public class OperationType {
 
     public static final short OP_ALTER_DATABASE_PROPERTY = 434;
 
+    // change an auto increment id for a column
+    public static final short OP_UPDATE_AUTO_INCREMENT_ID = 440;
 
     /**
      * Get opcode name by op code.

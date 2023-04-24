@@ -364,6 +364,7 @@ public class NativeInsertStmt extends InsertStmt {
                 slotDesc.setType(col.getType());
                 slotDesc.setColumn(col);
                 slotDesc.setIsNullable(col.isAllowNull());
+                slotDesc.setAutoInc(col.isAutoInc());
             }
         } else if (targetTable instanceof MysqlTable || targetTable instanceof OdbcTable
                 || targetTable instanceof JdbcTable) {
