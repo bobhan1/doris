@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -42,6 +43,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "util/thrift_rpc_helper.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -478,12 +480,51 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     size_t rows = _src_block.rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
+    TNetworkAddress master_addr = _state->exec_env()->master_info()->network_address;
 
     for (auto slot_desc : _output_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
         int dest_index = ctx_idx++;
+
+        if (slot_desc->is_auto_increment() &&
+            _exist_auto_increment_cols.find(slot_desc->id()) == _exist_auto_increment_cols.end()) {
+            // fill values of auto-increment columns that doesn't exist in _input_slot_desc
+            TAutoIncrementRangeRequest request;
+            TAutoIncrementRangeResult result;
+            request.db_id = 1; //FIXME
+            request.table_id = _output_tuple_desc->table_desc()->table_id();
+            request.column_name = slot_desc->col_name();
+            request.length = rows;
+            RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                    master_addr.hostname, master_addr.port,
+                    [&request, &result](FrontendServiceConnection& client) {
+                        client->getAutoIncrementRange(result, request);
+                    }));
+            Status status = result.status;
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to query auto increment column value range, errmsg="
+                             << status;
+                return status;
+            }
+
+            // auto-increment columns should always be non-nullable
+            DataTypePtr data_type =
+                    DataTypeFactory::instance().create_data_type(slot_desc->type(), false);
+            MutableColumnPtr data_column = data_type->create_column();
+            data_column->reserve(rows);
+            DCHECK(result.length == rows);
+            size_t start = result.start;
+            for (size_t i = 0; i < rows; i++) {
+                data_column->insert(start + i);
+            }
+            block->insert(dest_index,
+                          vectorized::ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                            slot_desc->col_name()));
+            continue;
+        }
+
         vectorized::ColumnPtr column_ptr;
 
         auto& ctx = _dest_vexpr_ctx[dest_index];
@@ -857,6 +898,13 @@ Status VFileScanner::_init_expr_ctxes() {
     if (!_conjuncts.empty()) {
         _split_conjuncts();
     }
+
+    for (auto slot_desc : _input_tuple_desc->slots()) {
+        if (slot_desc->is_auto_increment()) {
+            _exist_auto_increment_cols.insert(slot_desc->id());
+        }
+    }
+
     return Status::OK();
 }
 

@@ -76,6 +76,8 @@ import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddColumnsRequest;
 import org.apache.doris.thrift.TAddColumnsResult;
+import org.apache.doris.thrift.TAutoIncrementRangeRequest;
+import org.apache.doris.thrift.TAutoIncrementRangeResult;
 import org.apache.doris.thrift.TBeginTxnRequest;
 import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
@@ -2083,6 +2085,44 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setTabletReplicaInfos(tabletReplicaInfos);
         result.setToken(Env.getCurrentEnv().getToken());
         result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    @Override
+    public TAutoIncrementRangeResult getAutoIncrementRange(TAutoIncrementRangeRequest request) {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get auto-increement range request: {}, backend: {}", request, clientAddr);
+
+        TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            Env env = Env.getCurrentEnv();
+            Database db = env.getInternalCatalog().getDbOrMetaException(request.getDbId());
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(request.getTableId(), TableType.OLAP);
+            String columnName = request.getColumnName();
+            Column column = olapTable.getColumn(columnName);
+            if (column == null) {
+                throw new UserException("unknow column name:" + columnName + " in database: " + db.getFullName());
+            }
+            long length = request.getLength();
+            long lower_bound = -1;
+            if (request.isSetLowerBound()) {
+                lower_bound = request.getLowerBound();
+            }
+            // TODO: check if (start + length) overflows the max value of the column type
+            Pair<Long, Long> range = olapTable.getAutoIncrentGenerator().getAutoIncrementRange(columnName, length, lower_bound);
+            result.setStart(range.first);
+            result.setLength(range.second);
+        } catch (UserException e) {
+            LOG.warn("failed to get auto-increment range of column {}: {}", request.getColumnName(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
+        }
         return result;
     }
 

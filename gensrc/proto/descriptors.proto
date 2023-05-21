@@ -36,6 +36,7 @@ message PSlotDescriptor {
     required bool is_materialized = 10;
     required int32 col_unique_id = 11;
     required bool is_key = 12;
+    required bool is_auto_increment = 13;
 };
 
 message PTupleDescriptor {

@@ -151,6 +151,8 @@ public class OlapTable extends Table {
 
     private TableProperty tableProperty;
 
+    private AutoIncrementGenerator autoIncrementGenerator;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -1268,6 +1270,14 @@ public class OlapTable extends Table {
             tableProperty.write(out);
         }
 
+        // autoIncrementGenerator
+        if (autoIncrementGenerator == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            autoIncrementGenerator.write(out);
+        }
+
         tempPartitions.write(out);
     }
 
@@ -1348,6 +1358,13 @@ public class OlapTable extends Table {
         if (in.readBoolean()) {
             tableProperty = TableProperty.read(in);
         }
+
+        // autoIncrementGenerator
+        if (in.readBoolean()) {
+            autoIncrementGenerator = AutoIncrementGenerator.read(in);
+            autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
+        }
+
         if (isAutoBucket()) {
             defaultDistributionInfo.markAutoBucket();
         }
@@ -2109,5 +2126,9 @@ public class OlapTable extends Table {
         return getKeysType() == KeysType.DUP_KEYS
                 || (getKeysType() == KeysType.UNIQUE_KEYS
                 && getEnableUniqueKeyMergeOnWrite());
+    }
+
+    public AutoIncrementGenerator getAutoIncrentGenerator() {
+        return autoIncrementGenerator;
     }
 }

@@ -303,6 +303,8 @@ public class OperationType {
 
     public static final short OP_DELETE_ANALYSIS_JOB = 433;
 
+    // change an auto increment id for a column
+    public static final short OP_UPDATE_AUTO_INCREMENT_ID = 440;
 
     /**
      * Get opcode name by op code.

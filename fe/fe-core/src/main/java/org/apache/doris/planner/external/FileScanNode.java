@@ -190,6 +190,11 @@ public class FileScanNode extends ExternalScanNode {
                     } else {
                         expr = NullLiteral.create(column.getType());
                     }
+                } else if (column.isAutoInc()) {
+                    // the auto-increment column will be not-null and has no default value
+                    // we just assign an meaningless StringLiteral expr here
+                    // FileScanner will skip this expr when filling thee values of this column
+                    expr = new StringLiteral("0");
                 } else {
                     expr = null;
                 }

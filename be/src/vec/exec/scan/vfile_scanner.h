@@ -156,6 +156,9 @@ protected:
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
 
+    // auto-increment columns that exsits in input
+    std::unordered_set<SlotId> _exist_auto_increment_cols;
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
