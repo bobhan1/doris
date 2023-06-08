@@ -75,11 +75,10 @@ public class AutoIncrementGenerator implements Writable {
 
     public synchronized Pair<Long, Long> getAutoIncrementRange(long columnId,
             long length, long lowerBound) throws UserException {
-        LOG.warn("[getAutoIncrementRange request][col:{}][length:{}], [{}]", columnId, length, this.columnId);
+        LOG.info("[getAutoIncrementRange request][col:{}][length:{}], [{}]", columnId, length, this.columnId);
         if (this.columnId != columnId) {
             throw new UserException("column dosen't exist, columnId=" + columnId);
         }
-        LOG.warn("pass check column");
         long startId = Math.max(nextId, lowerBound);
         long endId = startId + length;
         nextId = startId + length;
@@ -90,7 +89,7 @@ public class AutoIncrementGenerator implements Writable {
                 editLog.logUpdateAutoIncrementId(info);
             }
         }
-        LOG.warn("[getAutoIncrementRange result][{}, {}]", startId, length);
+        LOG.info("[getAutoIncrementRange result][{}, {}]", startId, length);
         return Pair.of(startId, length);
     }
 

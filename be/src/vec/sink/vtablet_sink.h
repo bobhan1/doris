@@ -493,11 +493,10 @@ struct AutoIncIDBuffer {
     void set_column_id(int64_t column_id);
 
     Status consume(size_t length, bool eos, std::vector<std::pair<size_t, size_t>>* result);
-
-    void _async_fetch(size_t length);
+    void prefetch_ids(size_t length);
 
     const size_t _batch_size;
-    const size_t _fetch_batch_interval;
+    const size_t _prefetch_size;
     const size_t _low_water_level_mark;
 
     int64_t _db_id;

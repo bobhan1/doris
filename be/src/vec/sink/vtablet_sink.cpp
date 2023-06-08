@@ -987,14 +987,14 @@ FetchAutoIncIDExecutor::FetchAutoIncIDExecutor() {
 AutoIncIDBuffer::AutoIncIDBuffer(size_t batch_size, int64_t db_id, int64_t table_id,
                                  TNetworkAddress master_addr)
         : _batch_size(std::max(batch_size, MIN_BATCH_SIZE)),
-          _fetch_batch_interval(_batch_size * 10),
+          _prefetch_size(_batch_size * 10),
           _low_water_level_mark(_batch_size * 3),
           _db_id(db_id),
           _table_id(table_id),
           _master_addr(master_addr),
           _token(FetchAutoIncIDExecutor::GetInstance()->_pool->new_token(
                   ThreadPool::ExecutionMode::CONCURRENT)) {
-    _token->submit_func([this]() { _async_fetch(_fetch_batch_interval); });
+    prefetch_ids(_prefetch_size);
 }
 
 void AutoIncIDBuffer::set_column_id(int64_t column_id) {
@@ -1028,41 +1028,44 @@ Status AutoIncIDBuffer::consume(size_t length, bool eos,
         _front_buffer.second -= length;
     }
     if (!eos && _front_buffer.second <= _low_water_level_mark) {
-        _token->submit_func([this]() { _async_fetch(_fetch_batch_interval); });
+        prefetch_ids(_prefetch_size);
     }
     return Status::OK();
 }
 
-void AutoIncIDBuffer::_async_fetch(size_t length) {
-    TAutoIncrementRangeRequest request;
-    TAutoIncrementRangeResult result;
-    request.db_id = _db_id;
-    request.table_id = _table_id;
-    request.column_id = _column_id;
-    request.length = length;
+void AutoIncIDBuffer::prefetch_ids(size_t length) {
+    _token->submit_func([=, this]() {
+        TAutoIncrementRangeRequest request;
+        TAutoIncrementRangeResult result;
+        request.db_id = _db_id;
+        request.table_id = _table_id;
+        request.column_id = _column_id;
+        request.length = length;
 
-    auto rpc_begin = std::chrono::system_clock::now();
-    _rpc_status = ThriftRpcHelper::rpc<FrontendServiceClient>(
-            _master_addr.hostname, _master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->getAutoIncrementRange(result, request);
-            });
-    auto rpc_end = std::chrono::system_clock::now();
-    LOG(INFO) << "[auto-inc-range][start=" << result.start << ",length=" << result.length
-              << "][elapsed="
-              << std::chrono::duration_cast<std::chrono::milliseconds>(rpc_end - rpc_begin).count()
-              << " ms]";
+        auto rpc_begin = std::chrono::system_clock::now();
+        _rpc_status = ThriftRpcHelper::rpc<FrontendServiceClient>(
+                _master_addr.hostname, _master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->getAutoIncrementRange(result, request);
+                });
+        auto rpc_end = std::chrono::system_clock::now();
+        LOG(INFO) << "[auto-inc-range][start=" << result.start << ",length=" << result.length
+                  << "][elapsed="
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(rpc_end - rpc_begin)
+                             .count()
+                  << " ms]";
 
-    if (!_rpc_status.ok()) {
-        LOG(WARNING) << "Failed to fetch auto-incremnt range, encounter rpc failure. "
-                     << "errmsg=" << _rpc_status.to_string();
-        return;
-    }
+        if (!_rpc_status.ok() || result.length <= 0) {
+            LOG(WARNING) << "Failed to fetch auto-incremnt range, encounter rpc failure."
+                         << "errmsg=" << _rpc_status.to_string();
+            return;
+        }
 
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _backend_buffer = {result.start, result.length};
-    }
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _backend_buffer = {result.start, result.length};
+        }
+    });
 }
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -1451,15 +1454,15 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     DorisMetrics::instance()->load_bytes->increment(bytes);
 
     vectorized::Block block(input_block->get_columns_with_type_and_name());
-    // fill the valus for auto-increment columns
-    if (_auto_inc_col_idx.has_value()) {
-        RETURN_IF_ERROR(_fill_auto_inc_cols(&block, rows, eos));
-    }
 
     if (!_output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 _output_vexpr_ctxs, *input_block, &block));
+    }
+    // fill the valus for auto-increment columns
+    if (_auto_inc_col_idx.has_value()) {
+        RETURN_IF_ERROR(_fill_auto_inc_cols(&block, rows, eos));
     }
 
     auto num_rows = block.rows();
