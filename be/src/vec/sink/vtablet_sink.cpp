@@ -994,9 +994,7 @@ AutoIncIDBuffer::AutoIncIDBuffer(size_t batch_size, int64_t db_id, int64_t table
           _table_id(table_id),
           _master_addr(master_addr),
           _token(FetchAutoIncIDExecutor::GetInstance()->_pool->new_token(
-                  ThreadPool::ExecutionMode::CONCURRENT)) {
-    prefetch_ids(_prefetch_size);
-}
+                  ThreadPool::ExecutionMode::CONCURRENT)) {}
 
 void AutoIncIDBuffer::set_column_id(int64_t column_id) {
     _column_id = column_id;
@@ -1161,6 +1159,7 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
         if (_output_tuple_desc->slots()[idx]->is_auto_increment()) {
             _auto_inc_col_idx = idx;
             _auto_inc_id_buffer->set_column_id(_output_tuple_desc->slots()[idx]->col_unique_id());
+            _auto_inc_id_buffer->prefetch_ids(_auto_inc_id_buffer->_prefetch_size);
             break;
         }
     }
