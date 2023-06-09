@@ -114,7 +114,8 @@ distribution_desc
             HLL_UNION: The aggregation method of HLL type columns, aggregated by HyperLogLog algorithm.
             BITMAP_UNION: The aggregation mode of BIMTAP type columns, which performs the union aggregation of bitmaps.
             ```
-        * `AUTO_INCREMENT`
+        * `AUTO_INCREMENT`(supported in 在Apache Doris 2.0.0 beta)
+
             To indicate if the column is a auto-increment column. Auto-increment column can be used to generate a unique identity for new row. If no values are assgined for auto-increment column when inserting, Doris will generate sequence numbers automatically. You can also assign the auto-increment column with NULL literal to indicate Doris to generate sequence numbers.
             A table can have at most one auto-incremnt column. The auto-increment column should be BIGINT type and be NOT NULL.
             Currently, only table of duplicate model supports auto-increment column.
