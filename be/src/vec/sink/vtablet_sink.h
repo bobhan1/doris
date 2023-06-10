@@ -460,60 +460,52 @@ struct FetchAutoIncIDExecutor {
     std::unique_ptr<ThreadPool> _pool;
 };
 
-// estimate the number of remaining rows based on the rows read and bytes read
-struct RowsEstimator {
-    static constexpr size_t BATCH_INTERVAL = 5000;
-
-    RowsEstimator() {}
-    RowsEstimator(size_t total_files_size_in_bytes)
-            : _total_files_size_in_bytes(total_files_size_in_bytes) {}
-
-    void read(size_t rows, size_t bytes) {
-        _rows_read += rows;
-        _bytes_read += bytes;
-    }
-
-    size_t estimate() const {
-        return (_bytes_read == 0 ? BATCH_INTERVAL
-                                 : ((_total_files_size_in_bytes - _bytes_read) * 1.0 / _bytes_read *
-                                    _rows_read));
-    }
-
-    size_t _total_files_size_in_bytes {0};
-    size_t _rows_read {0};
-    size_t _bytes_read {0};
-};
-
-struct AutoIncIDBuffer {
-    // GenericReader::_MIN_BATCH_SIZE = 4096
+class AutoIncIDBuffer {
+    // GenericReader::_MIN_BATCH_SIZE = 4064
     static constexpr size_t MIN_BATCH_SIZE = 4064;
 
-    AutoIncIDBuffer(size_t batch_size, int64_t _db_id, int64_t _table_id,
-                    TNetworkAddress _master_addr);
+public:
+    // all public functions are thread safe
+    AutoIncIDBuffer(int64_t _db_id, int64_t _table_id);
     void set_column_id(int64_t column_id);
+    void set_batch_size_at_least(size_t batch_size);
+    Status consume(size_t length, std::vector<std::pair<size_t, size_t>>* result);
 
-    Status consume(size_t length, bool eos, std::vector<std::pair<size_t, size_t>>* result);
-    void prefetch_ids(size_t length);
+private:
+    void _prefetch_ids(size_t length);
+    Status _wait_for_prefetching();
 
-    const size_t _batch_size;
-    const size_t _prefetch_size;
-    const size_t _low_water_level_mark;
+    size_t _batch_size {MIN_BATCH_SIZE};
+    size_t _prefetch_size {_batch_size * config::auto_inc_prefetch_size_ratio};
+    size_t _low_water_level_mark {_batch_size * config::auto_inc_low_water_level_mark_size_ratio};
 
     int64_t _db_id;
     int64_t _table_id;
     int64_t _column_id;
-    TNetworkAddress _master_addr;
 
     std::unique_ptr<ThreadPoolToken> _token;
-    Status _rpc_status;
+    Status _rpc_status {Status::OK()};
+    std::atomic<bool> _is_fetching {false};
 
-    size_t _total_length {0};
     std::pair<size_t, size_t> _front_buffer {0, 0};
     std::pair<size_t, size_t> _backend_buffer {0, 0};
-    std::mutex _mutex; // for _backend_buffer
+    std::mutex _latch; // for _backend_buffer
+    std::mutex _mutex;
+};
 
-    // RowsEstimator _estimator;
-    // bool _use_estimator {false};
+class GlobalAutoIncBuffers {
+public:
+    static GlobalAutoIncBuffers* GetInstance() {
+        static GlobalAutoIncBuffers buffers;
+        return &buffers;
+    }
+
+    std::shared_ptr<AutoIncIDBuffer> get_auto_inc_buffer(std::pair<size_t, size_t> key,
+                                                         bool* is_first_created);
+
+private:
+    std::unordered_map<std::pair<size_t, size_t>, std::shared_ptr<AutoIncIDBuffer>> _buffers;
+    std::mutex _mutex;
 };
 
 // Write block data to Olap Table.
@@ -705,7 +697,7 @@ private:
 
     std::unordered_set<int64_t> _opened_partitions;
 
-    std::unique_ptr<AutoIncIDBuffer> _auto_inc_id_buffer;
+    std::shared_ptr<AutoIncIDBuffer> _auto_inc_id_buffer;
     std::optional<size_t> _auto_inc_col_idx;
 };
 

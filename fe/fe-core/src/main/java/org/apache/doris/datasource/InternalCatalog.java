@@ -2950,6 +2950,6 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void replayAutoIncrementIdUpdateLog(AutoIncrementIdUpdateLog log) throws MetaNotFoundException {
         Database db = getDbOrMetaException(log.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(log.getTableId(), TableType.OLAP);
-        olapTable.getAutoIncrentGenerator().applyChange(log.getColumnId(), log.getBatchEndId());
+        olapTable.getAutoIncrementGenerator().applyChange(log.getColumnId(), log.getBatchEndId());
     }
 }

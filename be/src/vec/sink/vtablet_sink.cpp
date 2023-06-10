@@ -48,6 +48,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -985,54 +986,67 @@ FetchAutoIncIDExecutor::FetchAutoIncIDExecutor() {
             .build(&_pool);
 }
 
-AutoIncIDBuffer::AutoIncIDBuffer(size_t batch_size, int64_t db_id, int64_t table_id,
-                                 TNetworkAddress master_addr)
-        : _batch_size(std::max(batch_size, MIN_BATCH_SIZE)),
-          _prefetch_size(_batch_size * 10),
-          _low_water_level_mark(_batch_size * 3),
-          _db_id(db_id),
+AutoIncIDBuffer::AutoIncIDBuffer(int64_t db_id, int64_t table_id)
+        : _db_id(db_id),
           _table_id(table_id),
-          _master_addr(master_addr),
           _token(FetchAutoIncIDExecutor::GetInstance()->_pool->new_token(
                   ThreadPool::ExecutionMode::CONCURRENT)) {}
 
+void AutoIncIDBuffer::set_batch_size_at_least(size_t batch_size) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (batch_size > _batch_size) {
+        _batch_size = batch_size;
+        _prefetch_size = _batch_size * config::auto_inc_prefetch_size_ratio;
+        _low_water_level_mark = _batch_size * config::auto_inc_low_water_level_mark_size_ratio;
+    }
+}
+
 void AutoIncIDBuffer::set_column_id(int64_t column_id) {
+    std::lock_guard<std::mutex> lock(_mutex);
     _column_id = column_id;
 }
 
-Status AutoIncIDBuffer::consume(size_t length, bool eos,
-                                std::vector<std::pair<size_t, size_t>>* result) {
-    result->reserve(2);
-    if (_front_buffer.second > 0) {
-        auto min_length = std::min(_front_buffer.second, length);
-        length -= min_length;
-        result->emplace_back(_front_buffer.first, min_length);
-        _front_buffer.first += min_length;
-        _front_buffer.second -= min_length;
-    }
-    if (length > 0) {
+Status AutoIncIDBuffer::_wait_for_prefetching() {
+    if (_is_fetching) {
         _token->wait();
-        if (_rpc_status != Status::OK()) {
-            return _rpc_status;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            std::swap(_front_buffer, _backend_buffer);
-        }
-
-        DCHECK(length <= _front_buffer.second);
-        result->emplace_back(_front_buffer.first, length);
-        _front_buffer.first += length;
-        _front_buffer.second -= length;
     }
-    if (!eos && _front_buffer.second <= _low_water_level_mark) {
-        prefetch_ids(_prefetch_size);
+    return _rpc_status;
+}
+
+Status AutoIncIDBuffer::consume(size_t length, std::vector<std::pair<size_t, size_t>>* result) {
+    result->reserve(2);
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _prefetch_ids(_prefetch_size);
+        if (_front_buffer.second > 0) {
+            auto min_length = std::min(_front_buffer.second, length);
+            length -= min_length;
+            result->emplace_back(_front_buffer.first, min_length);
+            _front_buffer.first += min_length;
+            _front_buffer.second -= min_length;
+        }
+        if (length > 0) {
+            RETURN_IF_ERROR(_wait_for_prefetching());
+            {
+                std::lock_guard<std::mutex> lock(_latch);
+                std::swap(_front_buffer, _backend_buffer);
+            }
+            DCHECK(length <= _front_buffer.second);
+            result->emplace_back(_front_buffer.first, length);
+            _front_buffer.first += length;
+            _front_buffer.second -= length;
+        }
+        _prefetch_ids(_prefetch_size);
     }
     return Status::OK();
 }
 
-void AutoIncIDBuffer::prefetch_ids(size_t length) {
+void AutoIncIDBuffer::_prefetch_ids(size_t length) {
+    if (_front_buffer.second > _low_water_level_mark || _is_fetching) {
+        return;
+    }
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    _is_fetching = true;
     _token->submit_func([=, this]() {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
@@ -1041,18 +1055,17 @@ void AutoIncIDBuffer::prefetch_ids(size_t length) {
         request.column_id = _column_id;
         request.length = length;
 
-        auto rpc_begin = std::chrono::system_clock::now();
-        _rpc_status = ThriftRpcHelper::rpc<FrontendServiceClient>(
-                _master_addr.hostname, _master_addr.port,
-                [&request, &result](FrontendServiceConnection& client) {
-                    client->getAutoIncrementRange(result, request);
-                });
-        auto rpc_end = std::chrono::system_clock::now();
+        int64_t get_auto_inc_range_rpc_ns;
+        {
+            SCOPED_RAW_TIMER(&get_auto_inc_range_rpc_ns);
+            _rpc_status = ThriftRpcHelper::rpc<FrontendServiceClient>(
+                    master_addr.hostname, master_addr.port,
+                    [&request, &result](FrontendServiceConnection& client) {
+                        client->getAutoIncrementRange(result, request);
+                    });
+        }
         LOG(INFO) << "[auto-inc-range][start=" << result.start << ",length=" << result.length
-                  << "][elapsed="
-                  << std::chrono::duration_cast<std::chrono::milliseconds>(rpc_end - rpc_begin)
-                             .count()
-                  << " ms]";
+                  << "][elapsed=" << get_auto_inc_range_rpc_ns / 1000 << " ms]";
 
         if (!_rpc_status.ok() || result.length <= 0) {
             LOG(WARNING) << "Failed to fetch auto-incremnt range, encounter rpc failure."
@@ -1064,7 +1077,20 @@ void AutoIncIDBuffer::prefetch_ids(size_t length) {
             std::lock_guard<std::mutex> lock(_mutex);
             _backend_buffer = {result.start, result.length};
         }
+        _is_fetching = false;
     });
+}
+
+std::shared_ptr<AutoIncIDBuffer> GlobalAutoIncBuffers::get_auto_inc_buffer(
+        std::pair<size_t, size_t> key, bool* is_first_created) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    auto it = _buffers.find(key);
+    if (it == _buffers.end()) {
+        *is_first_created = true;
+        _buffers.emplace(
+                std::make_pair(key, std::make_shared<AutoIncIDBuffer>(key.first, key.second)));
+    }
+    return _buffers[key];
 }
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -1152,14 +1178,17 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
         return Status::InternalError("unknown destination tuple descriptor");
     }
 
-    _auto_inc_id_buffer.reset(
-            new AutoIncIDBuffer(_state->batch_size(), _schema->db_id(), _schema->table_id(),
-                                _state->exec_env()->master_info()->network_address));
     for (size_t idx = 0; idx < _output_tuple_desc->slots().size(); idx++) {
         if (_output_tuple_desc->slots()[idx]->is_auto_increment()) {
             _auto_inc_col_idx = idx;
-            _auto_inc_id_buffer->set_column_id(_output_tuple_desc->slots()[idx]->col_unique_id());
-            _auto_inc_id_buffer->prefetch_ids(_auto_inc_id_buffer->_prefetch_size);
+            bool is_first_created {false};
+            _auto_inc_id_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
+                    {_schema->db_id(), _schema->table_id()}, &is_first_created);
+            if (is_first_created) {
+                _auto_inc_id_buffer->set_column_id(
+                        _output_tuple_desc->slots()[idx]->col_unique_id());
+            }
+            _auto_inc_id_buffer->set_batch_size_at_least(_state->batch_size());
             break;
         }
     }
@@ -1307,7 +1336,7 @@ Status VOlapTableSink::_fill_auto_inc_cols(vectorized::Block* block, size_t rows
         }
     }
     std::vector<std::pair<size_t, size_t>> ids;
-    RETURN_IF_ERROR(_auto_inc_id_buffer->consume(count, eos, &ids));
+    RETURN_IF_ERROR(_auto_inc_id_buffer->consume(count, &ids));
     std::vector<std::ranges::iota_view<size_t, size_t>> v;
     v.reserve(ids.size());
     std::for_each(ids.cbegin(), ids.cend(), [&](const auto& p) {

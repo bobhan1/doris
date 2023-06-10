@@ -25,6 +25,7 @@ import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -84,10 +85,9 @@ public class AutoIncrementGenerator implements Writable {
         nextId = startId + length;
         if (endId > batchEndId) {
             batchEndId = (endId / BATCH_ID_INTERVAL + 1) * BATCH_ID_INTERVAL;
-            if (editLog != null) {
-                AutoIncrementIdUpdateLog info = new AutoIncrementIdUpdateLog(dbId, tableId, columnId, batchEndId);
-                editLog.logUpdateAutoIncrementId(info);
-            }
+            Preconditions.checkState(editLog != null);
+            AutoIncrementIdUpdateLog info = new AutoIncrementIdUpdateLog(dbId, tableId, columnId, batchEndId);
+            editLog.logUpdateAutoIncrementId(info);
         }
         LOG.info("[getAutoIncrementRange result][{}, {}]", startId, length);
         return Pair.of(startId, length);

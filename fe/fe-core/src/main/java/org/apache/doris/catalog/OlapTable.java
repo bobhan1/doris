@@ -2164,7 +2164,7 @@ public class OlapTable extends Table {
         }
     }
 
-    public AutoIncrementGenerator getAutoIncrentGenerator() {
+    public AutoIncrementGenerator getAutoIncrementGenerator() {
         return autoIncrementGenerator;
     }
 }

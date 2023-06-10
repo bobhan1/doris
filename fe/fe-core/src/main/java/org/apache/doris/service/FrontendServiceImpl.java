@@ -2258,7 +2258,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Database db = env.getInternalCatalog().getDbOrMetaException(request.getDbId());
             OlapTable olapTable = (OlapTable) db.getTableOrMetaException(request.getTableId(), TableType.OLAP);
             AutoIncrementGenerator autoIncrementGenerator = null;
-            autoIncrementGenerator = olapTable.getAutoIncrentGenerator();
+            autoIncrementGenerator = olapTable.getAutoIncrementGenerator();
             long columnId = request.getColumnId();
             long length = request.getLength();
             long lowerBound = -1;
