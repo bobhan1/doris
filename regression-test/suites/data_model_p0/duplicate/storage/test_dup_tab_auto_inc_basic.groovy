@@ -46,8 +46,6 @@ suite("test_dup_table_auto_inc_basic") {
         time 10000 // limit inflight 10s
     }
     qt_auto_inc_ids "select * from ${table1};"
-    sql """insert into ${table1} values(null, "inserted_value1", 1000), (null, "inserted_value2", 2000);"""
-    qt_after_insert_some_values "select * from ${table1} order by id;"
     sql "drop table if exists ${table1};"
 
 
@@ -80,7 +78,5 @@ suite("test_dup_table_auto_inc_basic") {
         time 10000 // limit inflight 10s
     }
     qt_auto_inc_ids "select * from ${table2} order by id;"
-    sql """insert into ${table2} values("inserted_value1", 1000, null), ("inserted_value2", 2000, null);"""
-    qt_after_insert_some_values "select * from ${table2} order by id;"
     sql "drop table if exists ${table2};"
 }

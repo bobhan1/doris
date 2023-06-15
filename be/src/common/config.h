@@ -1052,6 +1052,12 @@ DECLARE_mInt64(auto_inc_prefetch_size_ratio);
 // the ratio of _low_level_water_level_mark/_batch_size in AutoIncIDBuffer
 DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 
+// number of threads that fetch auto-inc ranges from FE
+DECLARE_mInt64(auto_inc_fetch_thread_num);
+
+// number of threads that handle auto-inc ranges requests
+DECLARE_mInt64(auto_inc_request_handler_thread_num);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

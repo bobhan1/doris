@@ -979,74 +979,87 @@ void VNodeChannel::mark_close() {
 
 FetchAutoIncIDExecutor::FetchAutoIncIDExecutor() {
     ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
-            .set_min_threads(1)
-            .set_max_threads(3)
+            .set_min_threads(config::auto_inc_fetch_thread_num)
+            .set_max_threads(config::auto_inc_fetch_thread_num)
             .set_max_queue_size(std::numeric_limits<int>::max())
             .build(&_pool);
 }
 
-AutoIncIDBuffer::AutoIncIDBuffer(int64_t db_id, int64_t table_id)
+AutoIncIDRequestHandlerExecutor::AutoIncIDRequestHandlerExecutor() {
+    ThreadPoolBuilder("AutoIncIDRequestHandlerExecutor")
+            .set_min_threads(config::auto_inc_request_handler_thread_num)
+            .set_max_threads(config::auto_inc_request_handler_thread_num)
+            .set_max_queue_size(std::numeric_limits<int>::max())
+            .build(&_pool);
+}
+
+AutoIncIDBuffer::AutoIncIDBuffer(int64_t db_id, int64_t table_id, int64_t column_id)
         : _db_id(db_id),
           _table_id(table_id),
-          _token(FetchAutoIncIDExecutor::GetInstance()->_pool->new_token(
+          _column_id(column_id),
+          _rpc_token(FetchAutoIncIDExecutor::GetInstance()->_pool->new_token(
+                  ThreadPool::ExecutionMode::CONCURRENT)),
+          _request_handler_token(AutoIncIDRequestHandlerExecutor::GetInstance()->_pool->new_token(
                   ThreadPool::ExecutionMode::CONCURRENT)) {}
 
 void AutoIncIDBuffer::set_batch_size_at_least(size_t batch_size) {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (batch_size > _batch_size) {
         _batch_size = batch_size;
-        _prefetch_size = _batch_size * config::auto_inc_prefetch_size_ratio;
-        _low_water_level_mark = _batch_size * config::auto_inc_low_water_level_mark_size_ratio;
     }
 }
 
-void AutoIncIDBuffer::set_column_id(int64_t column_id) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _column_id = column_id;
-}
-
-Status AutoIncIDBuffer::_wait_for_prefetching() {
+void AutoIncIDBuffer::_wait_for_prefetching() {
     if (_is_fetching) {
-        _token->wait();
+        _rpc_token->wait();
     }
-    return _rpc_status;
 }
 
-Status AutoIncIDBuffer::consume(size_t length, std::vector<std::pair<size_t, size_t>>* result) {
-    result->reserve(2);
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _prefetch_ids(_prefetch_size);
-        if (_front_buffer.second > 0) {
-            auto min_length = std::min(_front_buffer.second, length);
-            length -= min_length;
-            result->emplace_back(_front_buffer.first, min_length);
-            _front_buffer.first += min_length;
-            _front_buffer.second -= min_length;
-        }
-        if (length > 0) {
-            RETURN_IF_ERROR(_wait_for_prefetching());
-            {
-                std::lock_guard<std::mutex> lock(_latch);
-                std::swap(_front_buffer, _backend_buffer);
-            }
-            DCHECK(length <= _front_buffer.second);
-            result->emplace_back(_front_buffer.first, length);
-            _front_buffer.first += length;
-            _front_buffer.second -= length;
-        }
-        _prefetch_ids(_prefetch_size);
-    }
-    return Status::OK();
+void AutoIncIDBuffer::async_request_ids(VOlapTableSink* vsink, size_t length) {
+    length = std::max(length, MIN_BATCH_SIZE);
+    vsink->set_is_waiting_for_auto_inc(true);
+    std::shared_ptr<std::promise<Status>> promise {std::make_shared<std::promise<Status>>()};
+    vsink->set_request_future(*promise);
+    _request_handler_token->submit_func(
+            [this, length, vsink, promise = std::move(promise)]() mutable {
+                std::unique_lock<std::mutex> lock(_mutex);
+                _prefetch_ids(_prefetch_size());
+                if (_front_buffer.second > 0) {
+                    auto min_length = std::min(_front_buffer.second, length);
+                    length -= min_length;
+                    vsink->auto_inc_id_allocator().insert_ids(_front_buffer.first, min_length);
+                    _front_buffer.first += min_length;
+                    _front_buffer.second -= min_length;
+                }
+                if (length > 0) {
+                    _wait_for_prefetching();
+                    if (_rpc_status != Status::OK()) {
+                        vsink->set_is_waiting_for_auto_inc(false);
+                        promise->set_value(_rpc_status);
+                        return;
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(_backend_buffer_latch);
+                        std::swap(_front_buffer, _backend_buffer);
+                    }
+
+                    DCHECK(length <= _front_buffer.second);
+                    vsink->auto_inc_id_allocator().insert_ids(_front_buffer.first, length);
+                    _front_buffer.first += length;
+                    _front_buffer.second -= length;
+                }
+                vsink->set_is_waiting_for_auto_inc(false);
+                promise->set_value(_rpc_status);
+            });
 }
 
 void AutoIncIDBuffer::_prefetch_ids(size_t length) {
-    if (_front_buffer.second > _low_water_level_mark || _is_fetching) {
+    if (_front_buffer.second > _low_water_level_mark() || _is_fetching) {
         return;
     }
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     _is_fetching = true;
-    _token->submit_func([=, this]() {
+    _rpc_token->submit_func([=, this]() {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
         request.db_id = _db_id;
@@ -1073,23 +1086,11 @@ void AutoIncIDBuffer::_prefetch_ids(size_t length) {
         }
 
         {
-            std::lock_guard<std::mutex> lock(_latch);
+            std::lock_guard<std::mutex> lock(_backend_buffer_latch);
             _backend_buffer = {result.start, result.length};
         }
         _is_fetching = false;
     });
-}
-
-std::shared_ptr<AutoIncIDBuffer> GlobalAutoIncBuffers::get_auto_inc_buffer(
-        std::pair<size_t, size_t> key, bool* is_first_created) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    auto it = _buffers.find(key);
-    if (it == _buffers.end()) {
-        *is_first_created = true;
-        _buffers.emplace(
-                std::make_pair(key, std::make_shared<AutoIncIDBuffer>(key.first, key.second)));
-    }
-    return _buffers[key];
 }
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -1180,14 +1181,11 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     for (size_t idx = 0; idx < _output_tuple_desc->slots().size(); idx++) {
         if (_output_tuple_desc->slots()[idx]->is_auto_increment()) {
             _auto_inc_col_idx = idx;
-            bool is_first_created {false};
             _auto_inc_id_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
-                    {_schema->db_id(), _schema->table_id()}, &is_first_created);
-            if (is_first_created) {
-                _auto_inc_id_buffer->set_column_id(
-                        _output_tuple_desc->slots()[idx]->col_unique_id());
-            }
+                    _schema->db_id(), _schema->table_id(),
+                    _output_tuple_desc->slots()[idx]->col_unique_id());
             _auto_inc_id_buffer->set_batch_size_at_least(_state->batch_size());
+            _auto_inc_id_buffer->async_request_ids(this, _state->batch_size());
             break;
         }
     }
@@ -1335,24 +1333,20 @@ Status VOlapTableSink::_fill_auto_inc_cols(vectorized::Block* block, size_t rows
             ++count;
         }
     }
-    std::vector<std::pair<size_t, size_t>> ids;
-    RETURN_IF_ERROR(_auto_inc_id_buffer->consume(count, &ids));
-    std::vector<std::ranges::iota_view<size_t, size_t>> v;
-    v.reserve(ids.size());
-    std::for_each(ids.cbegin(), ids.cend(), [&](const auto& p) {
-        v.emplace_back(std::views::iota(p.first, p.first + p.second));
-    });
-    auto id_gen = (v | std::views::join);
-    auto id_gen_it = id_gen.begin();
+
+    DCHECK(_request_future.valid());
+
+    // if the pipeline is enabled, this will not be blocked,
+    // if the pipeline is not enabled, this will not be blocked in most occasions
+    RETURN_IF_ERROR(_request_future.get());
+    DCHECK(_auto_inc_id_allocator.total_count >= count);
     for (size_t i = 0; i < rows; i++) {
         if (src_column_ptr->is_null_at(i)) {
-            dst_values.emplace_back(*id_gen_it);
-            ++id_gen_it;
+            dst_values.emplace_back(_auto_inc_id_allocator.next_id());
         } else {
             dst_values.emplace_back(src_nested_column_ptr->get_int(i));
         }
     }
-    DCHECK(id_gen_it == id_gen.end());
     block->get_by_position(idx).column = std::move(dst_column);
     block->get_by_position(idx).type =
             vectorized::DataTypeFactory::instance().create_data_type(slot->type(), false);
@@ -1542,6 +1536,10 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     // fill the valus for auto-increment columns
     if (_auto_inc_col_idx.has_value()) {
         RETURN_IF_ERROR(_fill_auto_inc_cols(&block, rows, eos));
+        if (!eos && _auto_inc_id_allocator.total_count < _state->batch_size()) {
+            // reserve enough ids to fill the next batch
+            _auto_inc_id_buffer->async_request_ids(this, _state->batch_size());
+        }
     }
 
     auto num_rows = block.rows();

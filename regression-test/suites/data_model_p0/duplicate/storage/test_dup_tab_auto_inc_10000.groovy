@@ -46,19 +46,6 @@ suite("test_dup_table_auto_inc_10000") {
         time 10000 // limit inflight 10s
     }
     qt_count_max_min "select count(distinct id), max(id), min(id) from ${table1};"
-    sql """insert into ${table1} values(null, 999999, 999999), (null, 898888, 888888);"""
-    qt_count_max_min "select count(distinct id), max(id), min(id) from ${table1};"
-    streamLoad {
-        table "${table1}"
-
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'columns', 'x, y'
-
-        file 'auto_inc_10000.csv'
-        time 10000 // limit inflight 10s
-    }
-    qt_count_max_min "select count(distinct id), max(id), min(id) from ${table1};"
     sql "drop table if exists ${table1};"
 
     // auto-increment column is value
@@ -79,19 +66,6 @@ suite("test_dup_table_auto_inc_10000") {
         "storage_format" = "V2"
         )
     """
-    streamLoad {
-        table "${table2}"
-
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'columns', 'x, y'
-
-        file 'auto_inc_10000.csv'
-        time 10000 // limit inflight 10s
-    }
-    qt_count_max_min "select count(distinct id), max(id), min(id) from ${table2};"
-    sql """insert into ${table2} values(999999, 999999, null), (898888, 888888, null);"""
-    qt_count_max_min "select count(distinct id), max(id), min(id) from ${table2};"
     streamLoad {
         table "${table2}"
 

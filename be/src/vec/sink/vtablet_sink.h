@@ -33,6 +33,7 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <functional>
+#include <future>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -40,7 +41,6 @@
 #include <optional>
 #include <ostream>
 #include <queue>
-#include <ranges>
 #include <set>
 #include <string>
 #include <thread>
@@ -452,7 +452,6 @@ private:
 
 struct FetchAutoIncIDExecutor {
     FetchAutoIncIDExecutor();
-
     static FetchAutoIncIDExecutor* GetInstance() {
         static FetchAutoIncIDExecutor instance;
         return &instance;
@@ -461,36 +460,75 @@ struct FetchAutoIncIDExecutor {
     std::unique_ptr<ThreadPool> _pool;
 };
 
+struct AutoIncIDRequestHandlerExecutor {
+    AutoIncIDRequestHandlerExecutor();
+    static AutoIncIDRequestHandlerExecutor* GetInstance() {
+        static AutoIncIDRequestHandlerExecutor instance;
+        return &instance;
+    }
+
+    std::unique_ptr<ThreadPool> _pool;
+};
+
+struct AutoIncIDAllocator {
+    int64_t next_id() {
+        DCHECK(!ids.empty());
+        if (ids.front().second > 0) {
+            --ids.front().second;
+            --total_count;
+            return ids.front().first++;
+        }
+        ids.pop_front();
+        DCHECK(!ids.empty() && ids.front().second > 0);
+        --ids.front().second;
+        --total_count;
+        return ids.front().first++;
+    }
+
+    void insert_ids(int64_t start, size_t length) {
+        total_count += length;
+        ids.emplace_back(start, length);
+    }
+
+    size_t total_count {0};
+    std::list<std::pair<int64_t, size_t>> ids;
+};
+
 class AutoIncIDBuffer {
     // GenericReader::_MIN_BATCH_SIZE = 4064
     static constexpr size_t MIN_BATCH_SIZE = 4064;
 
 public:
     // all public functions are thread safe
-    AutoIncIDBuffer(int64_t _db_id, int64_t _table_id);
-    void set_column_id(int64_t column_id);
+    AutoIncIDBuffer(int64_t _db_id, int64_t _table_id, int64_t column_id);
     void set_batch_size_at_least(size_t batch_size);
-    Status consume(size_t length, std::vector<std::pair<size_t, size_t>>* result);
+    void async_request_ids(VOlapTableSink* vsink, size_t length);
+    void handle_requests(VOlapTableSink* vsink, size_t length);
 
 private:
     void _prefetch_ids(size_t length);
-    Status _wait_for_prefetching();
+    size_t _prefetch_size() const { return _batch_size * config::auto_inc_prefetch_size_ratio; }
+    size_t _low_water_level_mark() const {
+        return _batch_size * config::auto_inc_low_water_level_mark_size_ratio;
+    };
+    void _wait_for_prefetching();
 
-    size_t _batch_size {MIN_BATCH_SIZE};
-    size_t _prefetch_size {_batch_size * config::auto_inc_prefetch_size_ratio};
-    size_t _low_water_level_mark {_batch_size * config::auto_inc_low_water_level_mark_size_ratio};
+    std::atomic<size_t> _batch_size {MIN_BATCH_SIZE};
 
     int64_t _db_id;
     int64_t _table_id;
     int64_t _column_id;
 
-    std::unique_ptr<ThreadPoolToken> _token;
+    std::unique_ptr<ThreadPoolToken> _rpc_token;
     Status _rpc_status {Status::OK()};
     std::atomic<bool> _is_fetching {false};
 
-    std::pair<size_t, size_t> _front_buffer {0, 0};
-    std::pair<size_t, size_t> _backend_buffer {0, 0};
-    std::mutex _latch; // for _backend_buffer
+    std::unique_ptr<ThreadPoolToken> _request_handler_token;
+    Status _request_handler_status {Status::OK()};
+
+    std::pair<int64_t, size_t> _front_buffer {0, 0};
+    std::pair<int64_t, size_t> _backend_buffer {0, 0};
+    std::mutex _backend_buffer_latch; // for _backend_buffer
     std::mutex _mutex;
 };
 
@@ -501,11 +539,24 @@ public:
         return &buffers;
     }
 
-    std::shared_ptr<AutoIncIDBuffer> get_auto_inc_buffer(std::pair<size_t, size_t> key,
-                                                         bool* is_first_created);
+    ~GlobalAutoIncBuffers() {
+        for (auto [_, buffer] : _buffers) {
+            delete buffer;
+        }
+    }
+
+    AutoIncIDBuffer* get_auto_inc_buffer(int64_t db_id, int64_t table_id, int64_t column_id) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        auto key = std::make_tuple(db_id, table_id, column_id);
+        auto it = _buffers.find(key);
+        if (it == _buffers.end()) {
+            _buffers.emplace(std::make_pair(key, new AutoIncIDBuffer(db_id, table_id, column_id)));
+        }
+        return _buffers[{db_id, table_id, column_id}];
+    }
 
 private:
-    std::unordered_map<std::pair<size_t, size_t>, std::shared_ptr<AutoIncIDBuffer>> _buffers;
+    std::map<std::tuple<int64_t, int64_t, int64_t>, AutoIncIDBuffer*> _buffers;
     std::mutex _mutex;
 };
 
@@ -541,6 +592,16 @@ public:
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
+
+    virtual bool can_write() override { return !_is_waiting_for_autoinc_ids; }
+
+    AutoIncIDAllocator& auto_inc_id_allocator() { return _auto_inc_id_allocator; }
+
+    void set_is_waiting_for_auto_inc(bool is_waiting_for_autoinc_ids) {
+        _is_waiting_for_autoinc_ids = is_waiting_for_autoinc_ids;
+    }
+
+    void set_request_future(std::promise<Status>& p) { _request_future = p.get_future(); }
 
 private:
     friend class VNodeChannel;
@@ -670,8 +731,11 @@ private:
 
     std::unordered_set<int64_t> _opened_partitions;
 
-    std::shared_ptr<AutoIncIDBuffer> _auto_inc_id_buffer;
     std::optional<size_t> _auto_inc_col_idx;
+    AutoIncIDBuffer* _auto_inc_id_buffer;
+    AutoIncIDAllocator _auto_inc_id_allocator;
+    std::atomic_bool _is_waiting_for_autoinc_ids {false};
+    std::future<Status> _request_future; // used when pipeline is not enabled
 };
 
 } // namespace stream_load

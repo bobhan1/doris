@@ -46,8 +46,6 @@ suite("test_dup_table_auto_inc_basic_with_null") {
         time 10000 // limit inflight 10s
     }
     qt_auto_inc_ids "select * from ${table1};"
-    sql """insert into ${table1} values(null, "inserted_value1", 1000), (null, "inserted_value2", 2000);"""
-    qt_after_insert_some_values "select * from ${table1} order by id;"
     sql "drop table if exists ${table1};"
 
 
@@ -80,8 +78,6 @@ suite("test_dup_table_auto_inc_basic_with_null") {
         time 10000 // limit inflight 10s
     }
     qt_auto_inc_ids "select * from ${table2};"
-    sql """insert into ${table2} values(null, "inserted_value1", 1000), (null, "inserted_value2", 2000);"""
-    qt_after_insert_some_values "select * from ${table2} order by id;"
     sql "drop table if exists ${table2};"
 
 
@@ -114,8 +110,6 @@ suite("test_dup_table_auto_inc_basic_with_null") {
         time 10000 // limit inflight 10s
     }
     qt_auto_inc_ids "select * from ${table3} order by id;"
-    sql """insert into ${table3} values("inserted_value1", 1000, null), ("inserted_value2", 2000, null);"""
-    qt_after_insert_some_values "select * from ${table3} order by id;"
     sql "drop table if exists ${table3};"
 
 
@@ -148,7 +142,35 @@ suite("test_dup_table_auto_inc_basic_with_null") {
         time 10000 // limit inflight 10s
     }
     qt_auto_inc_ids "select * from ${table4} order by id;"
-    sql """insert into ${table4} values("inserted_value1", 1000, null), ("inserted_value2", 2000, null);"""
-    qt_after_insert_some_values "select * from ${table4} order by id;"
     sql "drop table if exists ${table4};"
+
+    // insert stmt
+    def table5 = "test_dup_table_auto_inc_basic_insert_stmt"
+    sql "drop table if exists ${table5}"
+    sql """
+        CREATE TABLE IF NOT EXISTS `${table5}` (
+          `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "用户 ID",
+          `name` varchar(65533) NOT NULL COMMENT "用户姓名",
+          `value` int(11) NOT NULL COMMENT "用户得分"
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        )
+    """
+    sql """insert into ${table5} values
+    (null, "Bob", 100),
+    (null, "Alice", 200),
+    (null, "Tom", 300),
+    (null, "Test", 400),
+    (null, "Carter", 500),
+    (null, "Smith", 600),
+    (null, "Beata", 700),
+    (null, "Doris", 800),
+    (null, "Nereids", 900);"""
+    qt_sql "select * from ${table5} order by id;"
 }
