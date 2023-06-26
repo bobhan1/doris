@@ -34,6 +34,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/common.h>
+#include <immintrin.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <sys/param.h>
 #include <sys/types.h>
@@ -1320,32 +1321,100 @@ Status VOlapTableSink::_fill_auto_inc_cols(vectorized::Block* block, size_t rows
     DCHECK(!slot->is_nullable());
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    auto src_nested_column_ptr =
-            assert_cast<const vectorized::ColumnNullable&>(*src_column_ptr).get_nested_column_ptr();
-
+    const auto& src_nullable_column =
+            assert_cast<const vectorized::ColumnNullable&>(*src_column_ptr);
+    auto src_nested_column_ptr = src_nullable_column.get_nested_column_ptr();
+    const auto& null_map_data = src_nullable_column.get_null_map_data();
     auto dst_column = vectorized::ColumnInt64::create();
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
     dst_values.reserve(rows);
 
-    size_t count = 0;
-    for (size_t i = 0; i < rows; i++) {
-        if (src_column_ptr->is_null_at(i)) {
-            ++count;
+    size_t null_value_count = 0;
+#ifdef __AVX2__
+    {
+        // 4064 = (2^7 - 1) * (256 / 8), the max number of rows that will not overflow int8
+        constexpr size_t int8_max_rows = ((1 << 7) - 1) * (256 / 8);
+
+        size_t idx = 0;
+        __m256i packed_zero = _mm256_setzero_si256();
+        __m256i sums_i32 = _mm256_setzero_si256();
+
+        if (rows <= int8_max_rows) {
+            constexpr size_t elements_per_chunk = 32;
+            size_t chunks = rows / elements_per_chunk * elements_per_chunk;
+            __m256i sums_i8 = _mm256_setzero_si256();
+            for (; idx < chunks; idx += elements_per_chunk) {
+                __m256i cur =
+                        _mm256_load_si256(reinterpret_cast<const __m256i*>(&null_map_data[idx]));
+                sums_i8 = _mm256_adds_epi8(cur, sums_i8);
+            }
+
+            __m256i sums_lo_i16 = _mm256_unpacklo_epi8(sums_i8, packed_zero);
+            __m256i sums_hi_i16 = _mm256_unpackhi_epi8(sums_i8, packed_zero);
+            __m256i sums_i16 = _mm256_adds_epi16(sums_lo_i16, sums_hi_i16);
+
+            __m256i sums_lo_i32 = _mm256_unpacklo_epi16(sums_i16, packed_zero);
+            __m256i sums_hi_i32 = _mm256_unpackhi_epi16(sums_i16, packed_zero);
+            sums_i32 = _mm256_add_epi32(sums_lo_i32, sums_i32);
+            sums_i32 = _mm256_add_epi32(sums_hi_i32, sums_i32);
+        } else {
+            constexpr size_t elements_per_chunk = 32 * 4;
+            size_t chunks = rows / elements_per_chunk * elements_per_chunk;
+            __m256i sums_i32 = _mm256_setzero_si256();
+            for (; idx < chunks; idx += elements_per_chunk) {
+                __m256i cur;
+                __m256i sums_lo_i16;
+                __m256i sums_hi_i16;
+                __m256i sums_i16 = _mm256_setzero_si256();
+
+#define SUMS(pos)                                                                   \
+    cur = _mm256_load_si256(reinterpret_cast<const __m256i*>(&null_map_data[pos])); \
+    sums_lo_i16 = _mm256_unpacklo_epi8(cur, packed_zero);                           \
+    sums_hi_i16 = _mm256_unpackhi_epi8(cur, packed_zero);                           \
+    sums_i16 = _mm256_adds_epi16(sums_lo_i16, sums_i16);                            \
+    sums_i16 = _mm256_adds_epi16(sums_hi_i16, sums_i16);
+
+                SUMS(idx);
+                SUMS(idx + 32);
+                SUMS(idx + 64);
+                SUMS(idx + 96);
+#undef SUMS
+                __m256i sums_lo_i32 = _mm256_unpacklo_epi16(sums_i16, packed_zero);
+                __m256i sums_hi_i32 = _mm256_unpackhi_epi16(sums_i16, packed_zero);
+                sums_i32 = _mm256_add_epi32(sums_lo_i32, sums_i32);
+                sums_i32 = _mm256_add_epi32(sums_hi_i32, sums_i32);
+            }
+        }
+
+        __m256i sums_lo_i64 = _mm256_unpacklo_epi32(sums_i32, packed_zero);
+        __m256i sums_hi_i64 = _mm256_unpackhi_epi32(sums_i32, packed_zero);
+        __m256i sums_i64 = _mm256_add_epi64(sums_lo_i64, sums_hi_i64);
+
+        null_value_count += _mm256_extract_epi64(sums_i64, 0);
+        null_value_count += _mm256_extract_epi64(sums_i64, 1);
+        null_value_count += _mm256_extract_epi64(sums_i64, 2);
+        null_value_count += _mm256_extract_epi64(sums_i64, 3);
+
+        // the remaining values
+        for (; idx < rows; idx++) {
+            null_value_count += null_map_data[idx];
         }
     }
+#else
+    for (size_t i = 0; i < rows; i++) {
+        null_value_count += null_map_data[idx];
+    }
+#endif
 
     DCHECK(_request_future.valid());
 
     // if the pipeline is enabled, this will not be blocked,
     // if the pipeline is not enabled, this will not be blocked in most occasions
     RETURN_IF_ERROR(_request_future.get());
-    DCHECK(_auto_inc_id_allocator.total_count >= count);
+    DCHECK(_auto_inc_id_allocator.total_count >= null_value_count);
     for (size_t i = 0; i < rows; i++) {
-        if (src_column_ptr->is_null_at(i)) {
-            dst_values.emplace_back(_auto_inc_id_allocator.next_id());
-        } else {
-            dst_values.emplace_back(src_nested_column_ptr->get_int(i));
-        }
+        dst_values.emplace_back((null_map_data[i] != 0) ? _auto_inc_id_allocator.next_id()
+                                                        : src_nested_column_ptr->get_int(i));
     }
     block->get_by_position(idx).column = std::move(dst_column);
     block->get_by_position(idx).type =
