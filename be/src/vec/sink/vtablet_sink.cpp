@@ -1063,10 +1063,10 @@ void AutoIncIDBuffer::_prefetch_ids(size_t length) {
     _rpc_token->submit_func([=, this]() {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
-        request.db_id = _db_id;
-        request.table_id = _table_id;
-        request.column_id = _column_id;
-        request.length = length;
+        request.__set_db_id(_db_id);
+        request.__set_table_id(_table_id);
+        request.__set_column_id(_column_id);
+        request.__set_length(length);
 
         int64_t get_auto_inc_range_rpc_ns;
         {
