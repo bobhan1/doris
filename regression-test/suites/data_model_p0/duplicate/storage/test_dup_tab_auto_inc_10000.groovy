@@ -78,4 +78,35 @@ suite("test_dup_table_auto_inc_10000") {
     }
     qt_count_max_min "select count(distinct id), max(id), min(id) from ${table2};"
     sql "drop table if exists ${table2};"
+
+    sql "set batch_size = 4096;"
+    def table3 = "test_dup_tab_auto_inc_10000_key_2"
+    sql "drop table if exists ${table3}"
+    sql """
+        CREATE TABLE IF NOT EXISTS `${table3}` (
+          `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "用户 ID",
+          `x` int(11) NOT NULL COMMENT "",
+          `y` int(11) NOT NULL COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        )
+    """
+    streamLoad {
+        table "${table3}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'x, y'
+
+        file 'auto_inc_10000.csv'
+        time 10000 // limit inflight 10s
+    }
+    qt_count_max_min "select count(distinct id), max(id), min(id) from ${table3};"
+    sql "drop table if exists ${table3};"
 }
