@@ -1345,7 +1345,7 @@ Status VOlapTableSink::_fill_auto_inc_cols(vectorized::Block* block, size_t rows
             __m256i sums_i8 = _mm256_setzero_si256();
             for (; idx < chunks; idx += elements_per_chunk) {
                 __m256i cur =
-                        _mm256_load_si256(reinterpret_cast<const __m256i*>(&null_map_data[idx]));
+                        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&null_map_data[idx]));
                 sums_i8 = _mm256_adds_epi8(cur, sums_i8);
             }
 
@@ -1367,11 +1367,11 @@ Status VOlapTableSink::_fill_auto_inc_cols(vectorized::Block* block, size_t rows
                 __m256i sums_hi_i16;
                 __m256i sums_i16 = _mm256_setzero_si256();
 
-#define SUMS(pos)                                                                   \
-    cur = _mm256_load_si256(reinterpret_cast<const __m256i*>(&null_map_data[pos])); \
-    sums_lo_i16 = _mm256_unpacklo_epi8(cur, packed_zero);                           \
-    sums_hi_i16 = _mm256_unpackhi_epi8(cur, packed_zero);                           \
-    sums_i16 = _mm256_adds_epi16(sums_lo_i16, sums_i16);                            \
+#define SUMS(pos)                                                                    \
+    cur = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&null_map_data[pos])); \
+    sums_lo_i16 = _mm256_unpacklo_epi8(cur, packed_zero);                            \
+    sums_hi_i16 = _mm256_unpackhi_epi8(cur, packed_zero);                            \
+    sums_i16 = _mm256_adds_epi16(sums_lo_i16, sums_i16);                             \
     sums_i16 = _mm256_adds_epi16(sums_hi_i16, sums_i16);
 
                 SUMS(idx);
