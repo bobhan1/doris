@@ -1825,10 +1825,6 @@ public class EditLog {
         return logEdit(OperationType.OP_BARRIER, new BarrierLog());
     }
 
-    public void logGcBinlog(BinlogGcInfo log) {
-        logEdit(OperationType.OP_GC_BINLOG, log);
-    }
-
     public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
         logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
     }
