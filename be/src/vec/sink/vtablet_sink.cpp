@@ -34,7 +34,6 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/common.h>
-#include <immintrin.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <sys/param.h>
 #include <sys/types.h>
@@ -48,6 +47,10 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+
+#ifdef __x86_64__
+#include <immintrin.h>
+#endif
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
