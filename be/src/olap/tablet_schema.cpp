@@ -615,9 +615,6 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
 }
 
 void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
-    if (column.is_key()) {
-        _num_key_columns++;
-    }
     if (column.is_nullable()) {
         _num_null_columns++;
     }
@@ -635,6 +632,11 @@ void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
     }
     _field_id_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::move(column));
+    if (column.is_key()) {
+        _key_columns_idx.emplace_back(_num_columns);
+    } else {
+        _non_key_columns_idx.emplace_back(_num_columns);
+    }
     _num_columns++;
 }
 
@@ -658,28 +660,33 @@ void TabletSchema::clear_columns() {
     _field_id_to_index.clear();
     _num_columns = 0;
     _num_null_columns = 0;
-    _num_key_columns = 0;
     _cols.clear();
+    _key_columns_idx.clear();
+    _non_key_columns_idx.clear();
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     SCOPED_MEM_COUNT(&_mem_size);
     _keys_type = schema.keys_type();
     _num_columns = 0;
-    _num_key_columns = 0;
     _num_null_columns = 0;
     _cols.clear();
+    _key_columns_idx.clear();
+    _non_key_columns_idx.clear();
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
     _partial_update_input_columns.clear();
     _missing_cids.clear();
     _update_cids.clear();
-    for (auto& column_pb : schema.column()) {
+    for (size_t i = 0; i < schema.column().size(); i++) {
+        auto& column_pb = schema.column()[i];
         TabletColumn column;
         column.init_from_pb(column_pb);
         if (column.is_key()) {
-            _num_key_columns++;
+            _key_columns_idx.emplace_back(i);
+        } else {
+            _non_key_columns_idx.emplace_back(i);
         }
         if (column.is_nullable()) {
             _num_null_columns++;
@@ -771,20 +778,21 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     // copy from table_schema_param
     _schema_version = version;
     _num_columns = 0;
-    _num_key_columns = 0;
     _num_null_columns = 0;
     bool has_bf_columns = false;
     _cols.clear();
+    _key_columns_idx.clear();
+    _non_key_columns_idx.clear();
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
 
-    for (auto& column : index->columns) {
+    for (size_t i = 0; i < index->columns.size(); i++) {
+        auto& column = index->columns[i];
         if (column->is_key()) {
-            _num_key_columns++;
-        }
-        if (column->is_nullable()) {
-            _num_null_columns++;
+            _key_columns_idx.emplace_back(i);
+        } else {
+            _non_key_columns_idx.emplace_back(i);
         }
         if (column->is_bf_column()) {
             has_bf_columns = true;
@@ -1135,7 +1143,8 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
         if (a._cols[i] != b._cols[i]) return false;
     }
     if (a._num_columns != b._num_columns) return false;
-    if (a._num_key_columns != b._num_key_columns) return false;
+    if (a._key_columns_idx.size() != b._key_columns_idx.size()) return false;
+    if (a._non_key_columns_idx.size() != b._non_key_columns_idx.size()) return false;
     if (a._num_null_columns != b._num_null_columns) return false;
     if (a._num_short_key_columns != b._num_short_key_columns) return false;
     if (a._num_rows_per_row_block != b._num_rows_per_row_block) return false;

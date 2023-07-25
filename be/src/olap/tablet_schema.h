@@ -223,7 +223,7 @@ public:
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     const std::vector<TabletColumn>& columns() const;
     size_t num_columns() const { return _num_columns; }
-    size_t num_key_columns() const { return _num_key_columns; }
+    size_t num_key_columns() const { return _key_columns_idx.size(); }
     size_t num_null_columns() const { return _num_null_columns; }
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
@@ -321,6 +321,9 @@ public:
     std::vector<uint32_t> get_missing_cids() { return _missing_cids; }
     std::vector<uint32_t> get_update_cids() { return _update_cids; }
 
+    const std::vector<uint32_t>& get_key_columns_idx() const { return _key_columns_idx; }
+    const std::vector<uint32_t>& get_non_key_columns_idx() const { return _non_key_columns_idx; }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -333,7 +336,6 @@ private:
     std::unordered_map<std::string, int32_t> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
     size_t _num_columns = 0;
-    size_t _num_key_columns = 0;
     size_t _num_null_columns = 0;
     size_t _num_short_key_columns = 0;
     size_t _num_rows_per_row_block = 0;
@@ -364,6 +366,9 @@ private:
     // to generate a new row, only available in non-strict mode
     bool _can_insert_new_rows_in_partial_update = true;
     bool _is_strict_mode = false;
+
+    std::vector<uint32_t> _key_columns_idx;
+    std::vector<uint32_t> _non_key_columns_idx;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

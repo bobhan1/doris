@@ -145,10 +145,7 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
                                     std::vector<std::vector<uint32_t>>* column_groups) {
     uint32_t num_key_cols = tablet_schema->num_key_columns();
     uint32_t total_cols = tablet_schema->num_columns();
-    std::vector<uint32_t> key_columns;
-    for (auto i = 0; i < num_key_cols; ++i) {
-        key_columns.emplace_back(i);
-    }
+    std::vector<uint32_t> key_columns {tablet_schema->get_key_columns_idx()};
     // in unique key, sequence & delete sign column should merge with key columns
     int32_t sequence_col_idx = -1;
     int32_t delete_sign_idx = -1;

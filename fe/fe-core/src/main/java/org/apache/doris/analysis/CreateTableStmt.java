@@ -421,8 +421,10 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             keysDesc.analyze(columnDefs);
-            for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
-                columnDefs.get(i).setIsKey(true);
+            List<Integer> keyColumnIndexes = keyDesc.getKeyColumnIndexes();
+            for (int i = 0; i < keyColumnIndexes.size(); ++i) {
+                int j = keyColumnIndexes[i];
+                columnDefs.get(j).setIsKey(true);
             }
             if (keysDesc.getKeysType() != KeysType.AGG_KEYS) {
                 AggregateType type = AggregateType.REPLACE;

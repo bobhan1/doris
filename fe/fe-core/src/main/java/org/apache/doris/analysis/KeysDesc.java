@@ -32,15 +32,21 @@ import java.util.List;
 public class KeysDesc implements Writable {
     private KeysType type;
     private List<String> keysColumnNames;
+    private List<Integer> keyColumnIndexes;
+    private List<Integer> nonKeyColumnIndexes;
 
     public KeysDesc() {
         this.type = KeysType.AGG_KEYS;
         this.keysColumnNames = Lists.newArrayList();
+        this.keyColumnIndexes = Lists.newArrayList();
+        this.nonKeyColumnIndexes = Lists.newArrayList();
     }
 
     public KeysDesc(KeysType type, List<String> keysColumnNames) {
         this.type = type;
         this.keysColumnNames = keysColumnNames;
+        this.keyColumnIndexes = Lists.newArrayList();
+        this.nonKeyColumnIndexes = Lists.newArrayList();
     }
 
     public KeysType getKeysType() {
@@ -53,6 +59,14 @@ public class KeysDesc implements Writable {
 
     public boolean containsCol(String colName) {
         return keysColumnNames.contains(colName);
+    }
+
+    public List<Integer> getKeyColumnIndexes() {
+        return keyColumnIndexes;
+    }
+
+    public List<Integer> getNonKeyColumnIndexes() {
+        return nonKeyColumnIndexes;
     }
 
     public void analyze(List<ColumnDef> cols) throws AnalysisException {
@@ -68,35 +82,60 @@ public class KeysDesc implements Writable {
             throw new AnalysisException("The number of key columns should be less than the number of columns.");
         }
 
+        // for (int i = 0; i < keysColumnNames.size(); ++i) {
+        //     String name = cols.get(i).getName();
+        //     if (!keysColumnNames.get(i).equalsIgnoreCase(name)) {
+        //         String keyName = keysColumnNames.get(i);
+        //         if (cols.stream().noneMatch(col -> col.getName().equalsIgnoreCase(keyName))) {
+        //             throw new AnalysisException("Key column[" + keyName + "] doesn't exist.");
+        //         }
+        //         throw new AnalysisException("Key columns should be a ordered prefix of the schema."
+        //                 + " KeyColumns[" + i + "] (starts from zero) is " + keyName + ", "
+        //                 + "but corresponding column is " + name  + " in the previous "
+        //                 + "columns declaration.");
+        //     }
+
+        //     if (cols.get(i).getAggregateType() != null) {
+        //         throw new AnalysisException("Key column[" + name + "] should not specify aggregate type.");
+        //     }
+        // }
+
         for (int i = 0; i < keysColumnNames.size(); ++i) {
-            String name = cols.get(i).getName();
-            if (!keysColumnNames.get(i).equalsIgnoreCase(name)) {
-                String keyName = keysColumnNames.get(i);
-                if (cols.stream().noneMatch(col -> col.getName().equalsIgnoreCase(keyName))) {
+            String keyName = keysColumnNames.get(i);
+            boolean found = false;
+            for (int j = 0; j < cols.size(); j++) {
+                if (cols.get(j).getName().equalsIgnoreCase(keyName)) {
+                    if (cols.get(j).getAggregateType() != null) {
+                        throw new AnalysisException("Key column[" + name + "] should not specify aggregate type.");
+                    }
+                    found = true;
+                    keyColumnIndexes.add(j);
+                    break;
+                }
+                if (!found) {
                     throw new AnalysisException("Key column[" + keyName + "] doesn't exist.");
                 }
-                throw new AnalysisException("Key columns should be a ordered prefix of the schema."
-                        + " KeyColumns[" + i + "] (starts from zero) is " + keyName + ", "
-                        + "but corresponding column is " + name  + " in the previous "
-                        + "columns declaration.");
             }
+        }
 
-            if (cols.get(i).getAggregateType() != null) {
-                throw new AnalysisException("Key column[" + name + "] should not specify aggregate type.");
+        for (int i = 0; i < cols.size(); i++) {
+            if (!keyColumnIndexes.contains(i)) {
+                nonKeyColumnIndexes.add(i);
             }
         }
 
         // for olap table
-        for (int i = keysColumnNames.size(); i < cols.size(); ++i) {
+        for (int i = 0; i < nonKeyColumnIndexes.size(); ++i) {
+            int j = nonKeyColumnIndexes[i];
             if (type == KeysType.AGG_KEYS) {
-                if (cols.get(i).getAggregateType() == null) {
+                if (cols.get(j).getAggregateType() == null) {
                     throw new AnalysisException(type.name() + " table should specify aggregate type for "
-                            + "non-key column[" + cols.get(i).getName() + "]");
+                            + "non-key column[" + cols.get(j).getName() + "]");
                 }
             } else {
-                if (cols.get(i).getAggregateType() != null) {
+                if (cols.get(j).getAggregateType() != null) {
                     throw new AnalysisException(type.name() + " table should not specify aggregate type for "
-                            + "non-key column[" + cols.get(i).getName() + "]");
+                            + "non-key column[" + cols.get(j).getName() + "]");
                 }
             }
         }
