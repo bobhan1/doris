@@ -3654,9 +3654,8 @@ Status Tablet::calc_delete_bitmap_between_segments(
 void Tablet::add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
                                                 const RowsetIdUnorderedSet& rowsetids) {
     for (const auto& rowsetid : rowsetids) {
-        delete_bitmap->add(
-                {rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::INVALID_VERSION},
-                DeleteBitmap::ROWSET_SENTINEL_MARK);
+        delete_bitmap->add({rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0},
+                           DeleteBitmap::ROWSET_SENTINEL_MARK);
     }
 }
 
