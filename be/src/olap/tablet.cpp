@@ -3229,6 +3229,11 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
               << ", rowset_ids: " << cur_rowset_ids.size() << ", cur max_version: " << cur_version
               << ", transaction_id: " << -1 << ", cost: " << watch.get_elapse_time_us()
               << "(us), total rows: " << total_rows;
+
+    // check if all the rowset has ROWSET_SENTINEL_MARK
+    RETURN_IF_ERROR(check_delete_bitmap_correctness(delete_bitmap, cur_version - 1));
+    remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
+
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         _tablet_meta->delete_bitmap().merge(
@@ -3686,9 +3691,8 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
         if (!value) {
             LOG(WARNING) << "check delete bitmap correctness failed, can't find sentinel mark in "
                             "rowset with RowsetId:"
-                         << rowsetid << "version:" << get_rowset(rowsetid)->version().to_string()
-                         << "max_version:" << max_version;
-            DCHECK(false);
+                         << rowsetid << "max_version:" << max_version;
+            DCHECK(false) << "check delete bitmap correctness failed!";
             return Status::OK();
         }
     }
