@@ -59,6 +59,7 @@ struct TabletTxnInfo {
     RowsetIdUnorderedSet rowset_ids;
     int64_t creation_time;
     bool ingest {false};
+    std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps = nullptr;
 
     TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset)
             : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()) {}
@@ -186,6 +187,11 @@ public:
                                        bool unique_key_merge_on_write,
                                        DeleteBitmapPtr delete_bitmap,
                                        const RowsetIdUnorderedSet& rowset_ids);
+    void set_txn_related_delete_bitmap_and_indicator_maps(
+            TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
+            SchemaHash schema_hash, TabletUid tablet_uid, bool unique_key_merge_on_write,
+            DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids,
+            std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps);
     void get_all_commit_tablet_txn_info_by_tablet(
             const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec);
 

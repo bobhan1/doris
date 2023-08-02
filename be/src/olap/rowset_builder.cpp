@@ -274,9 +274,17 @@ Status RowsetBuilder::commit_txn() {
         return res;
     }
     if (_tablet->enable_unique_key_merge_on_write()) {
-        _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
-                _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->tablet_uid(), true,
-                _delete_bitmap, _rowset_ids);
+        if (_tablet_schema->is_partial_update()) {
+            auto indicator_maps = _rowset_writer->get_indicator_maps();
+            _storage_engine->txn_manager()->set_txn_related_delete_bitmap_and_indicator_maps(
+                    _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->tablet_uid(),
+                    true, _delete_bitmap, _rowset_ids,
+                    (!indicator_maps || indicator_maps->empty()) ? nullptr : indicator_maps);
+        } else {
+            _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
+                    _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->tablet_uid(),
+                    true, _delete_bitmap, _rowset_ids);
+        }
     }
 
     _is_committed = true;
@@ -322,6 +330,8 @@ void RowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     _tablet_schema->set_partial_update_info(table_schema_param->is_partial_update(),
                                             table_schema_param->partial_update_input_columns());
     _tablet_schema->set_is_strict_mode(table_schema_param->is_strict_mode());
+    _tablet_schema->set_is_unique_key_replace_if_not_null(
+            table_schema_param->is_unique_key_replace_if_not_null());
 }
 
 } // namespace doris
