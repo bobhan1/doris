@@ -1104,18 +1104,16 @@ vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
 }
 
 vectorized::Block TabletSchema::create_missing_columns_block() {
-    vectorized::Block block;
-    for (const auto& cid : _missing_cids) {
-        auto col = _cols[cid];
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
-        block.insert({data_type->create_column(), data_type, col.name()});
-    }
-    return block;
+    return create_block_by_cids(_missing_cids);
 }
 
 vectorized::Block TabletSchema::create_update_columns_block() {
+    return create_block_by_cids(_update_cids);
+}
+
+vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>& cids) {
     vectorized::Block block;
-    for (const auto& cid : _update_cids) {
+    for (const auto& cid : cids) {
         auto col = _cols[cid];
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
         block.insert({data_type->create_column(), data_type, col.name()});

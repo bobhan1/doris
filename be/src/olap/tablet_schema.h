@@ -353,6 +353,7 @@ public:
 
     vectorized::Block create_missing_columns_block();
     vectorized::Block create_update_columns_block();
+    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
     void set_partial_update_info(bool is_partial_update,
                                  const std::set<string>& partial_update_input_columns);
     bool is_partial_update() const { return _is_partial_update; }
@@ -363,8 +364,12 @@ public:
     }
     void set_is_strict_mode(bool is_strict_mode) { _is_strict_mode = is_strict_mode; }
     bool is_strict_mode() const { return _is_strict_mode; }
-    std::vector<uint32_t> get_missing_cids() const { return _missing_cids; }
-    std::vector<uint32_t> get_update_cids() const { return _update_cids; }
+    void set_is_unique_key_replace_if_not_null(bool is_unique_key_replace_if_not_null) {
+        _is_unique_key_replace_if_not_null = is_unique_key_replace_if_not_null;
+    }
+    bool is_unique_key_replace_if_not_null() const { return _is_unique_key_replace_if_not_null; }
+    std::vector<uint32_t> get_missing_cids() { return _missing_cids; }
+    std::vector<uint32_t> get_update_cids() { return _update_cids; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -411,6 +416,7 @@ private:
     // to generate a new row, only available in non-strict mode
     bool _can_insert_new_rows_in_partial_update = true;
     bool _is_strict_mode = false;
+    bool _is_unique_key_replace_if_not_null = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
