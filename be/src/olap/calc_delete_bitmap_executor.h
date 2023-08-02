@@ -51,8 +51,9 @@ public:
 
     Status submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
-                  const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
-                  RowsetWriter* rowset_writer);
+                  const std::vector<RowsetSharedPtr>& target_rowsets,
+                  std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
+                  int64_t end_version, RowsetWriter* rowset_writer);
 
     // wait all tasks in token to be completed.
     Status wait();
