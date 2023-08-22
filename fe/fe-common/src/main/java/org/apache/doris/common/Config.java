@@ -1453,7 +1453,7 @@ public class Config extends ConfigBase {
      * DO NOT use it for production env.
      */
     @ConfField
-    public static boolean allow_replica_on_same_host = false;
+    public static boolean allow_replica_on_same_host = true;
 
     /**
      *  The version count threshold used to judge whether replica compaction is too slow
