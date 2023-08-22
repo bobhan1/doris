@@ -29,6 +29,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <roaring/roaring.hh>
 #include <string>
 #include <unordered_set>
@@ -216,6 +217,9 @@ protected:
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
+
+    std::mt19937 random_gen {std::random_device {}()};
+    std::uniform_real_distribution<double> distribution {1.0, 2.0};
 };
 
 } // namespace doris

@@ -159,6 +159,10 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
               << ", cur max_version: " << _context.mow_context->max_version
               << ", transaction_id: " << _context.mow_context->txn_id
               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+    if (distribution(random_gen) < 1.1) {
+        LOG(WARNING) << "[inject error] clear delete bitmap";
+        _context.mow_context->delete_bitmap->delete_bitmap.clear();
+    }
     return Status::OK();
 }
 
