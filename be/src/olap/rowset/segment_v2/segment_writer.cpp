@@ -704,11 +704,15 @@ Status SegmentWriter::fill_missing_columns(
         }
 
         //TODO(bobhan1): fix me later(the wrong row pos)
+        // TODO(bobhan1): handle row store column here!!!
         uint32_t pos_in_old_block = missing_cols_read_index[idx + segment_start_pos];
         for (auto i = 0; i < cids_full_read.size(); ++i) {
-            full_columns[cids_full_read[i]]->insert_from(
-                    *old_full_read_block.get_columns_with_type_and_name()[i].column.get(),
-                    pos_in_old_block);
+            uint32_t cid = cids_full_read[i];
+            if (full_block->get_by_position(cid).name != BeConsts::ROW_STORE_COL) {
+                full_columns[cid]->insert_from(
+                        *old_full_read_block.get_columns_with_type_and_name()[i].column.get(),
+                        pos_in_old_block);
+            }
         }
 
         if (is_unique_key_replace_if_not_null) {

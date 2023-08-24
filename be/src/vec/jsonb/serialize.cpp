@@ -140,7 +140,6 @@ void JsonbSerializeUtil::jsonb_to_block(
         Block& block_point_read) {
     JsonbDocument& doc = *JsonbDocument::createDocument(data, size);
     size_t full_read_filled_columns = 0;
-    size_t point_read_filled_columns = 0;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         auto col_it = col_uid_to_idx_full_read.find(it->getKeyId());
         if (col_it != col_uid_to_idx_full_read.end()) {
@@ -158,17 +157,14 @@ void JsonbSerializeUtil::jsonb_to_block(
                     MutableColumnPtr dst_column =
                             block_point_read.get_by_position(idx).column->assume_mutable();
                     serdes_point_read[idx]->read_one_cell_from_jsonb(*dst_column, it->value());
-                    ++point_read_filled_columns;
                 }
             }
         }
     }
-    CHECK(full_read_filled_columns == block_full_read.columns())
+    // __DORIS_ROW_STORE_COL__ column
+    CHECK(full_read_filled_columns + 1 == block_full_read.columns())
             << "full_read_filled_columns=" << full_read_filled_columns
             << ", block_full_read.columns():" << block_full_read.columns();
-    CHECK(point_read_filled_columns == block_point_read.columns())
-            << "point_read_filled_columns=" << point_read_filled_columns
-            << ", block_point_read.columns():" << block_point_read.columns();
 }
 
 } // namespace doris::vectorized
