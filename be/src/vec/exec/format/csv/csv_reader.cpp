@@ -471,7 +471,6 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
-
         for (auto& col : block->mutate_columns()) {
             col->resize(rows);
         }
@@ -921,7 +920,7 @@ void CsvReader::close() {
     }
 
     if (_file_reader) {
-        _file_reader->close();
+        static_cast<void>(_file_reader->close());
     }
 }
 

@@ -517,9 +517,9 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
                                    const FunctionBasePtr& function) const {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
+        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+            static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         }
     }
 }

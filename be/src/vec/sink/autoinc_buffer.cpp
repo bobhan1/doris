@@ -28,11 +28,11 @@
 namespace doris::vectorized {
 
 FetchAutoIncIDExecutor::FetchAutoIncIDExecutor() {
-    ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
-            .set_min_threads(config::auto_inc_fetch_thread_num)
-            .set_max_threads(config::auto_inc_fetch_thread_num)
-            .set_max_queue_size(std::numeric_limits<int>::max())
-            .build(&_pool);
+    static_cast<void>(ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
+                              .set_min_threads(config::auto_inc_fetch_thread_num)
+                              .set_max_threads(config::auto_inc_fetch_thread_num)
+                              .set_max_queue_size(std::numeric_limits<int>::max())
+                              .build(&_pool));
 }
 
 AutoIncIDBuffer::AutoIncIDBuffer(int64_t db_id, int64_t table_id, int64_t column_id)
@@ -90,7 +90,7 @@ void AutoIncIDBuffer::_prefetch_ids(size_t length) {
     }
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     _is_fetching = true;
-    _rpc_token->submit_func([=, this]() {
+    static_cast<void>(_rpc_token->submit_func([=, this]() {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
         request.__set_db_id(_db_id);
@@ -121,7 +121,7 @@ void AutoIncIDBuffer::_prefetch_ids(size_t length) {
             _backend_buffer = {result.start, result.length};
         }
         _is_fetching = false;
-    });
+    }));
 }
 
 } // namespace doris::vectorized

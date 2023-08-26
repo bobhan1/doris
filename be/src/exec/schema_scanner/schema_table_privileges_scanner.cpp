@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "common/status.h"
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
@@ -110,7 +111,7 @@ Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) 
             strs[i] = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 0, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
     // catalog
     // This value is always def.
@@ -120,7 +121,7 @@ Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) 
         for (int i = 0; i < privileges_num; ++i) {
             datas[i] = &str;
         }
-        fill_dest_column_for_range(block, 1, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // schema
     {
@@ -130,7 +131,7 @@ Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) 
             strs[i] = StringRef(priv_status.schema.c_str(), priv_status.schema.size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 2, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // table name
     {
@@ -140,7 +141,7 @@ Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) 
             strs[i] = StringRef(priv_status.table_name.c_str(), priv_status.table_name.size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 3, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // privilege type
     {
@@ -151,7 +152,7 @@ Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) 
                                 priv_status.privilege_type.size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 4, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // is grantable
     {
@@ -161,7 +162,7 @@ Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) 
             strs[i] = StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 5, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
     }
     return Status::OK();
 }

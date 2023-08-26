@@ -436,11 +436,11 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;
     } else {
-        _cancel(status);
+        static_cast<void>(_cancel(status));
     }
 
     _close_status = status;
-    DataSink::close(state, exec_status);
+    static_cast<void>(DataSink::close(state, exec_status));
     return status;
 }
 
