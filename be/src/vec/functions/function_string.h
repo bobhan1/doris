@@ -693,7 +693,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        NullOrEmptyImpl::execute(context, block, arguments, result, input_rows_count, false);
+        static_cast<void>(NullOrEmptyImpl::execute(context, block, arguments, result,
+                                                   input_rows_count, false));
         return Status::OK();
     }
 };
@@ -713,7 +714,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        NullOrEmptyImpl::execute(context, block, arguments, result, input_rows_count, true);
+        static_cast<void>(NullOrEmptyImpl::execute(context, block, arguments, result,
+                                                   input_rows_count, true));
         return Status::OK();
     }
 };

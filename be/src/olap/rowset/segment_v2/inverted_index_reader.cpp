@@ -50,6 +50,7 @@
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "io/fs/file_system.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
@@ -551,14 +552,15 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
 
     roaring::Roaring result;
     InvertedIndexCacheHandle inverted_index_cache_handle;
-    InvertedIndexSearcherCache::instance()->get_index_searcher(
-            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats);
+    static_cast<void>(InvertedIndexSearcherCache::instance()->get_index_searcher(
+            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats));
     auto index_searcher = inverted_index_cache_handle.get_index_searcher();
 
     // try to reuse index_searcher's directory to read null_bitmap to cache
     // to avoid open directory additionally for null_bitmap
     InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-    read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
+    RETURN_IF_ERROR(
+            read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory()));
 
     try {
         if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||

@@ -308,7 +308,7 @@ void Thread::set_idle_sched() {
 #endif
 
 void Thread::join() {
-    ThreadJoiner(this).join();
+    static_cast<void>(ThreadJoiner(this).join());
 }
 
 int64_t Thread::tid() const {

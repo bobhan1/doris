@@ -209,12 +209,12 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
                 request.fragment.output_exprs, request, root_pipeline->output_row_desc(),
                 _runtime_state.get(), *desc_tbl));
         RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
-        root_pipeline->set_sink(_sink);
+        static_cast<void>(root_pipeline->set_sink(_sink));
     }
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
-        pipeline->sink_x()->set_child(pipeline->operator_xs().back());
+        static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
         RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
 
@@ -275,7 +275,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_query_mem_tracker(_query_ctx->query_mem_tracker);
         _runtime_states[i]->set_tracer(_runtime_state->get_tracer());
 
-        _runtime_states[i]->runtime_filter_mgr()->init();
+        static_cast<void>(_runtime_states[i]->runtime_filter_mgr()->init());
         _runtime_states[i]->set_be_number(local_params.backend_num);
 
         if (request.__isset.backend_id) {
@@ -727,15 +727,16 @@ Status PipelineXFragmentContext::submit() {
 }
 
 void PipelineXFragmentContext::close_sink() {
-    FOR_EACH_RUNTIME_STATE(
-            _sink->close(runtime_state.get(),
-                         _prepared ? Status::RuntimeError("prepare failed") : Status::OK()););
+    FOR_EACH_RUNTIME_STATE(static_cast<void>(_sink->close(
+            runtime_state.get(),
+            _prepared ? Status::RuntimeError("prepare failed") : Status::OK())););
 }
 
 void PipelineXFragmentContext::close_if_prepare_failed() {
     if (_tasks.empty()) {
-        FOR_EACH_RUNTIME_STATE(_root_op->close(runtime_state.get()); _sink->close(
-                runtime_state.get(), Status::RuntimeError("prepare failed"));)
+        FOR_EACH_RUNTIME_STATE(
+                static_cast<void>(_root_op->close(runtime_state.get())); static_cast<void>(
+                        _sink->close(runtime_state.get(), Status::RuntimeError("prepare failed")));)
     }
     for (auto& task : _tasks) {
         for (auto& t : task) {
