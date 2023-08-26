@@ -95,7 +95,7 @@ S3FileWriter::~S3FileWriter() {
     if (!_closed || _failed) {
         // if we don't abort multi part upload, the uploaded part in object
         // store will not automatically reclaim itself, it would cost more money
-        abort();
+        static_cast<void>(abort());
         _bytes_written = 0;
     }
     s3_bytes_written_total << _bytes_written;
@@ -182,7 +182,7 @@ Status S3FileWriter::close() {
     }
     Defer defer {[&]() { _closed = true; }};
     if (_failed) {
-        abort();
+        static_cast<void>(abort());
         return _st;
     }
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();
@@ -377,7 +377,6 @@ void S3FileWriter::_put_object(S3FileBuffer& buf) {
                                     static_cast<int>(response.GetError().GetResponseCode()));
         buf._on_failed(_st);
         LOG(WARNING) << _st;
-        return;
     }
     _bytes_written += buf.get_size();
     s3_file_created_total << 1;

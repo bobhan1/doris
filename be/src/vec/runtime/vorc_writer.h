@@ -84,7 +84,7 @@ public:
 
     Status write(const Block& block) override;
 
-    Status close() override;
+    void close() override;
 
     int64_t written_len() override;
 

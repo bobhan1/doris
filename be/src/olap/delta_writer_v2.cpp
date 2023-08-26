@@ -89,7 +89,7 @@ DeltaWriterV2::~DeltaWriterV2() {
     }
 
     // cancel and wait all memtables in flush queue to be finished
-    _memtable_writer->cancel();
+    static_cast<void>(_memtable_writer->cancel());
 }
 
 Status DeltaWriterV2::init() {
@@ -119,8 +119,9 @@ Status DeltaWriterV2::init() {
     context.sender_id = _req.sender_id;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
-    _rowset_writer->init(context);
-    _memtable_writer->init(_rowset_writer, _tablet_schema, _req.enable_unique_key_merge_on_write);
+    RETURN_IF_ERROR(_rowset_writer->init(context));
+    RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema,
+                                           _req.enable_unique_key_merge_on_write));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     return Status::OK();

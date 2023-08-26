@@ -111,7 +111,8 @@ public:
                 // open index searcher into cache
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                         _segment_file_name, _index_meta->index_id());
-                InvertedIndexSearcherCache::instance()->insert(_fs, _directory, index_file_name);
+                static_cast<void>(InvertedIndexSearcherCache::instance()->insert(_fs, _directory,
+                                                                                 index_file_name));
             }
         }
     }
@@ -203,17 +204,6 @@ public:
         return Status::OK();
     }
 
-    Status add_document() {
-        try {
-            _index_writer->addDocument(_doc.get());
-        } catch (const CLuceneError& e) {
-            _dir->deleteDirectory();
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError add_document: {}", e.what());
-        }
-        return Status::OK();
-    }
-
     Status add_nulls(uint32_t count) override {
         _null_bitmap.addRange(_rid, _rid + count);
         _rid += count;
@@ -226,7 +216,7 @@ public:
 
             for (int i = 0; i < count; ++i) {
                 new_fulltext_field(empty_value.c_str(), 0);
-                RETURN_IF_ERROR(add_document());
+                _index_writer->addDocument(_doc.get());
             }
         }
         return Status::OK();
@@ -272,7 +262,7 @@ public:
             auto* v = (Slice*)values;
             for (int i = 0; i < count; ++i) {
                 new_fulltext_field(v->get_data(), v->get_size());
-                RETURN_IF_ERROR(add_document());
+                _index_writer->addDocument(_doc.get());
                 ++v;
                 _rid++;
             }
@@ -305,7 +295,7 @@ public:
                 auto value = join(strings, " ");
                 new_fulltext_field(value.c_str(), value.length());
                 _rid++;
-                RETURN_IF_ERROR(add_document());
+                _index_writer->addDocument(_doc.get());
                 values++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {

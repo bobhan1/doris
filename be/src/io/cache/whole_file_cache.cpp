@@ -147,7 +147,7 @@ Status WholeFileCache::clean_timeout_cache() {
     std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
     _gc_match_time = _last_match_time;
     if (time(nullptr) - _last_match_time > _alive_time_sec) {
-        _clean_cache_internal(nullptr);
+        RETURN_IF_ERROR(_clean_cache_internal(nullptr));
     }
     return Status::OK();
 }

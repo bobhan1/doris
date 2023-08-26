@@ -72,7 +72,7 @@ Status BetaRowsetWriterV2::init(const RowsetWriterContext& rowset_writer_context
     _context = rowset_writer_context;
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriterV2>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BetaRowsetWriterV2>>(this);
-    _segment_creator.init(_context);
+    RETURN_IF_ERROR(_segment_creator.init(_context));
     return Status::OK();
 }
 
@@ -104,7 +104,7 @@ Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, SegmentStatistics& s
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
     buf.append(header.SerializeAsString());
     for (const auto& stream : _streams) {
-        io::StreamSinkFileWriter::send_with_retry(stream, buf);
+        RETURN_IF_ERROR(io::StreamSinkFileWriter::send_with_retry(stream, buf));
     }
     return Status::OK();
 }

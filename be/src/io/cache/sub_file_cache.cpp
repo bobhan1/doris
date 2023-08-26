@@ -316,7 +316,7 @@ Status SubFileCache::_init() {
             expect_file_size_map[offset] != file_size) {
             LOG(INFO) << "Delete invalid cache file: " << path.native() << ", offset: " << offset
                       << ", size: " << file_size;
-            _clean_cache_internal(offset, nullptr);
+            RETURN_IF_ERROR(_clean_cache_internal(offset, nullptr));
             continue;
         }
         _last_match_times[offset] = time(nullptr);

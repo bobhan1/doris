@@ -215,7 +215,7 @@ private:
         ~ORCFilterImpl() override = default;
         void filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                     void* arg) const override {
-            orcReader->filter(data, sel, size, arg);
+            static_cast<void>(orcReader->filter(data, sel, size, arg));
         }
 
     private:
@@ -230,13 +230,14 @@ private:
         virtual void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
-            _orc_reader->fill_dict_filter_column_names(std::move(current_strip_information),
-                                                       column_names);
+            static_cast<void>(_orc_reader->fill_dict_filter_column_names(
+                    std::move(current_strip_information), column_names));
         }
         virtual void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
-            _orc_reader->on_string_dicts_loaded(column_name_to_dict_map, is_stripe_filtered);
+            static_cast<void>(_orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
+                                                                  is_stripe_filtered));
         }
 
     private:
@@ -510,10 +511,10 @@ private:
     std::list<std::string> _read_cols_lower_case;
     std::list<std::string> _missing_cols;
     std::unordered_map<std::string, int> _colname_to_idx;
-    // Column name in Orc file after removed acid(remove row.) to column name to schema.
+    // Column name in Orc file to column name to schema.
     // This is used for Hive 1.x which use internal column name in Orc file.
     // _col0, _col1...
-    std::unordered_map<std::string, std::string> _removed_acid_file_col_name_to_schema_col;
+    std::unordered_map<std::string, std::string> _file_col_to_schema_col;
     // Flag for hive engine. True if the external table engine is Hive.
     bool _is_hive = false;
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;

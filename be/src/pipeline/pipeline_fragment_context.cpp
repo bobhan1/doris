@@ -62,7 +62,6 @@
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
-#include "pipeline/exec/olap_table_sink_v2_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
@@ -230,7 +229,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(get_runtime_state());
-    _runtime_state->runtime_filter_mgr()->init();
+    static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
     _runtime_state->set_be_number(local_params.backend_num);
 
     if (request.__isset.backend_id) {
@@ -299,7 +298,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             ScanNode* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
+            static_cast<void>(scan_node->set_scan_ranges(scan_ranges));
             VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }
@@ -339,14 +338,14 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         // if sink
         auto sink = pipeline->sink()->build_operator();
         // TODO pipeline 1 need to add new interface for exec node and operator
-        sink->init(request.fragment.output_sink);
+        RETURN_IF_ERROR(sink->init(request.fragment.output_sink));
 
         Operators operators;
         RETURN_IF_ERROR(pipeline->build_operators(operators));
         auto task =
                 std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
                                                operators, sink, this, pipeline->pipeline_profile());
-        sink->set_child(task->get_root());
+        static_cast<void>(sink->set_child(task->get_root()));
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
     }
@@ -605,7 +604,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         } else {
             OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
                     node->child(1)->id(), node->child(1)->row_desc(), node->child(1));
-            new_pipe->add_operator(builder);
+            RETURN_IF_ERROR(new_pipe->add_operator(builder));
         }
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(node->id(), join_node);
@@ -715,9 +714,10 @@ Status PipelineFragmentContext::submit() {
 void PipelineFragmentContext::close_sink() {
     if (_sink) {
         if (_prepared) {
-            _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed"));
+            static_cast<void>(
+                    _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed")));
         } else {
-            _sink->close(_runtime_state.get(), Status::OK());
+            static_cast<void>(_sink->close(_runtime_state.get(), Status::OK()));
         }
     }
 }
@@ -725,10 +725,11 @@ void PipelineFragmentContext::close_sink() {
 void PipelineFragmentContext::close_if_prepare_failed() {
     if (_tasks.empty()) {
         if (_root_plan) {
-            _root_plan->close(_runtime_state.get());
+            static_cast<void>(_root_plan->close(_runtime_state.get()));
         }
         if (_sink) {
-            _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed"));
+            static_cast<void>(
+                    _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed")));
         }
     }
     for (auto& task : _tasks) {
@@ -754,13 +755,8 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
         break;
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
-        if (state->query_options().enable_memtable_on_sink_node) {
-            sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
-                                                                     _sink.get());
-        } else {
-            sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
-                                                                   _sink.get());
-        }
+        sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                               _sink.get());
         break;
     }
     case TDataSinkType::MYSQL_TABLE_SINK:
@@ -807,12 +803,12 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                     std::make_shared<MultiCastDataStreamerSourceOperatorBuilder>(
                             next_operator_builder_id(), i, multi_cast_data_streamer,
                             thrift_sink.multi_cast_stream_sink.sinks[i]);
-            new_pipeline->add_operator(source_op);
+            RETURN_IF_ERROR(new_pipeline->add_operator(source_op));
 
             // 3. create and set sink operator of data stream sender for new pipeline
             OperatorBuilderPtr sink_op_builder = std::make_shared<ExchangeSinkOperatorBuilder>(
                     next_operator_builder_id(), _multi_cast_stream_sink_senders[i].get(), this, i);
-            new_pipeline->set_sink(sink_op_builder);
+            RETURN_IF_ERROR(new_pipeline->set_sink(sink_op_builder));
 
             // 4. init and prepare the data_stream_sender of diff exchange
             TDataSink t;

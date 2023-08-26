@@ -125,7 +125,7 @@ Status IcebergTableReader::init_reader(
     _file_col_names = file_col_names;
     _colname_to_value_range = colname_to_value_range;
     auto parquet_meta_kv = parquet_reader->get_metadata_key_values();
-    _gen_col_name_maps(parquet_meta_kv);
+    static_cast<void>(_gen_col_name_maps(parquet_meta_kv));
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
@@ -261,8 +261,6 @@ Status IcebergTableReader::_position_delete(
         DeleteFile* delete_file_cache = _kv_cache->get<
                 DeleteFile>(_delet_file_cache_key(delete_file.path), [&]() -> DeleteFile* {
             TFileRangeDesc delete_range;
-            // must use __set() method to make sure __isset is true
-            delete_range.__set_fs_name(_range.fs_name);
             delete_range.path = delete_file.path;
             delete_range.start_offset = 0;
             delete_range.size = -1;
@@ -271,7 +269,8 @@ Status IcebergTableReader::_position_delete(
                                         const_cast<cctz::time_zone*>(&_state->timezone_obj()),
                                         _io_ctx, _state);
             if (!init_schema) {
-                delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
+                static_cast<void>(delete_reader.get_parsed_schema(&delete_file_col_names,
+                                                                  &delete_file_col_types));
                 init_schema = true;
             }
             create_status = delete_reader.open();
@@ -288,7 +287,7 @@ Status IcebergTableReader::_position_delete(
             std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                     partition_columns;
             std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-            delete_reader.set_fill_columns(partition_columns, missing_columns);
+            static_cast<void>(delete_reader.set_fill_columns(partition_columns, missing_columns));
 
             bool dictionary_coded = true;
             const tparquet::FileMetaData* meta_data = delete_reader.get_meta_data();

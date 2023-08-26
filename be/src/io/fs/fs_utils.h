@@ -46,10 +46,6 @@ struct FileDescription {
     // modification time of this file.
     // 0 means unset.
     int64_t mtime = 0;
-    // for hdfs, eg: hdfs://nameservices1/
-    // because for a hive table, differenet partitions may have different
-    // locations(or fs), so different files may have different fs.
-    std::string fs_name;
 };
 
 } // namespace io

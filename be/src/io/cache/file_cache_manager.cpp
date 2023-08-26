@@ -104,7 +104,7 @@ void FileCacheManager::remove_file_cache(const std::string& cache_path) {
             }
         } else {
             cache_path_exist = true;
-            _file_cache_map.find(cache_path)->second->clean_all_cache();
+            static_cast<void>(_file_cache_map.find(cache_path)->second->clean_all_cache());
         }
     }
     if (cache_path_exist) {
@@ -156,9 +156,9 @@ void FileCacheManager::_gc_unused_file_caches(std::list<FileCachePtr>& result) {
                 auto file_cache = std::make_shared<DummyFileCache>(
                         cache_path, config::file_cache_alive_time_sec);
                 // load cache meta from disk and clean unfinished cache files
-                file_cache->load_and_clean();
+                static_cast<void>(file_cache->load_and_clean());
                 // policy1: GC file cache by timeout
-                file_cache->clean_timeout_cache();
+                static_cast<void>(file_cache->clean_timeout_cache());
 
                 result.push_back(file_cache);
             }
@@ -200,7 +200,7 @@ void FileCacheManager::gc_file_caches() {
                 continue;
             }
             // policy1: GC file cache by timeout
-            iter->second->clean_timeout_cache();
+            static_cast<void>(iter->second->clean_timeout_cache());
             // sort file cache by last match time
             _add_file_cache_for_gc_by_disk(contexts, iter->second);
         }

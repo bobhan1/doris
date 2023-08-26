@@ -229,7 +229,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                _send_rpc(id);
+                static_cast<void>(_send_rpc(id));
             }
         });
         {
@@ -282,7 +282,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                _send_rpc(id);
+                static_cast<void>(_send_rpc(id));
             }
         });
         {

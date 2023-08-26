@@ -26,7 +26,6 @@
 #include <opentelemetry/trace/span_context.h>
 #include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
-#include <runtime/result_buffer_mgr.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -209,12 +208,12 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
                 request.fragment.output_exprs, request, root_pipeline->output_row_desc(),
                 _runtime_state.get(), *desc_tbl));
         RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
-        root_pipeline->set_sink(_sink);
+        static_cast<void>(root_pipeline->set_sink(_sink));
     }
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
-        pipeline->sink_x()->set_child(pipeline->operator_xs().back());
+        static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
         RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
 
@@ -253,7 +252,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         }
 
         // TODO: figure out good buffer size based on size of output row
-        _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink));
+        _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink,
+                                            vectorized::RESULT_SINK_BUFFER_SIZE));
         break;
     }
     default:
@@ -279,7 +279,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_query_mem_tracker(_query_ctx->query_mem_tracker);
         _runtime_states[i]->set_tracer(_runtime_state->get_tracer());
 
-        _runtime_states[i]->runtime_filter_mgr()->init();
+        static_cast<void>(_runtime_states[i]->runtime_filter_mgr()->init());
         _runtime_states[i]->set_be_number(local_params.backend_num);
 
         if (request.__isset.backend_id) {
@@ -302,30 +302,10 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                                  _pipelines[pip_idx]->operator_xs().front()->id(),
                                                  no_scan_ranges);
-            std::shared_ptr<BufferControlBlock> sender = nullptr;
-            if (_pipelines[pip_idx]->sink_x()->need_to_create_result_sender()) {
-                // create sender
-                RETURN_IF_ERROR(_runtime_states[i]->exec_env()->result_mgr()->create_sender(
-                        _runtime_states[i]->fragment_instance_id(),
-                        vectorized::RESULT_SINK_BUFFER_SIZE, &sender, true,
-                        _runtime_states[i]->execution_timeout()));
-            }
-
-            std::shared_ptr<vectorized::VDataStreamRecvr> recvr = nullptr;
-            if (_pipelines[pip_idx]->operator_xs().front()->need_to_create_exch_recv()) {
-                auto* src =
-                        (ExchangeSourceOperatorX*)_pipelines[pip_idx]->operator_xs().front().get();
-                recvr = _runtime_states[i]->exec_env()->vstream_mgr()->create_recvr(
-                        _runtime_states[i].get(), src->input_row_desc(),
-                        _runtime_states[i]->fragment_instance_id(), src->id(), src->num_senders(),
-                        _runtime_profile.get(), src->is_merging(),
-                        src->sub_plan_query_statistics_recvr());
-            }
 
             auto task = std::make_unique<PipelineXTask>(
                     _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
-                    _pipelines[pip_idx]->pipeline_profile(), scan_ranges, local_params.sender_id,
-                    sender, recvr);
+                    _pipelines[pip_idx]->pipeline_profile(), scan_ranges, local_params.sender_id);
             pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
             RETURN_IF_ERROR(task->prepare(_runtime_states[i].get()));
             _runtime_profile->add_child(_pipelines[pip_idx]->pipeline_profile(), true, nullptr);
@@ -634,15 +614,16 @@ Status PipelineXFragmentContext::submit() {
 }
 
 void PipelineXFragmentContext::close_sink() {
-    FOR_EACH_RUNTIME_STATE(
-            _sink->close(runtime_state.get(),
-                         _prepared ? Status::RuntimeError("prepare failed") : Status::OK()););
+    FOR_EACH_RUNTIME_STATE(static_cast<void>(_sink->close(
+            runtime_state.get(),
+            _prepared ? Status::RuntimeError("prepare failed") : Status::OK())););
 }
 
 void PipelineXFragmentContext::close_if_prepare_failed() {
     if (_tasks.empty()) {
-        FOR_EACH_RUNTIME_STATE(_root_op->close(runtime_state.get()); _sink->close(
-                runtime_state.get(), Status::RuntimeError("prepare failed"));)
+        FOR_EACH_RUNTIME_STATE(
+                static_cast<void>(_root_op->close(runtime_state.get())); static_cast<void>(
+                        _sink->close(runtime_state.get(), Status::RuntimeError("prepare failed")));)
     }
     for (auto& task : _tasks) {
         for (auto& t : task) {
