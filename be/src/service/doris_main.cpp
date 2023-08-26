@@ -404,10 +404,10 @@ int main(int argc, char** argv) {
         }
 
         std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
-        doris::ThreadPoolBuilder("FileCacheInitThreadPool")
-                .set_min_threads(cache_paths.size())
-                .set_max_threads(cache_paths.size())
-                .build(&file_cache_init_pool);
+        static_cast<void>(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
+                                  .set_min_threads(cache_paths.size())
+                                  .set_max_threads(cache_paths.size())
+                                  .build(&file_cache_init_pool));
 
         std::list<doris::Status> cache_status;
         for (auto& cache_path : cache_paths) {
@@ -450,11 +450,9 @@ int main(int argc, char** argv) {
 
     // init exec env
     auto exec_env = doris::ExecEnv::GetInstance();
-    doris::ExecEnv::init(exec_env, paths);
+    static_cast<void>(doris::ExecEnv::init(exec_env, paths));
     doris::TabletSchemaCache::create_global_schema_cache();
     doris::vectorized::init_date_day_offset_dict();
-
-    doris::k_doris_run = true;
 
     // init s3 write buffer pool
     doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();

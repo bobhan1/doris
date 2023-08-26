@@ -1376,9 +1376,7 @@ struct ConvertThroughParsing {
             size_t string_size = std::is_same_v<FromDataType, DataTypeString>
                                          ? next_offset - current_offset
                                          : fixed_string_size;
-
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-
             bool parsed;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 parsed = try_parse_impl<ToDataType>(

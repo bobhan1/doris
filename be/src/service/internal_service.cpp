@@ -661,7 +661,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
+            static_cast<void>(
+                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
             break;
         }
         default:
@@ -1027,7 +1028,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
             response->mutable_status()->set_status_code(1);
             response->mutable_status()->add_error_msgs("could not find stream load context");
         } else {
-            stream_load_ctx->pipe->finish();
+            static_cast<void>(stream_load_ctx->pipe->finish());
             response->mutable_status()->set_status_code(0);
         }
     });
@@ -1670,7 +1671,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             opt.file_reader = segment->file_reader().get();
             opt.stats = &stats;
             opt.use_page_cache = !config::disable_storage_page_cache;
-            column_iterator->init(opt);
+            RETURN_IF_ERROR(column_iterator->init(opt));
             std::vector<segment_v2::rowid_t> single_row_loc {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
             RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));

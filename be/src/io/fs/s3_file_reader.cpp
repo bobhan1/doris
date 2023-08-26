@@ -59,7 +59,7 @@ S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::st
 }
 
 S3FileReader::~S3FileReader() {
-    close();
+    static_cast<void>(close());
     s3_file_being_read << -1;
 }
 

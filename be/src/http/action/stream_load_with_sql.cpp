@@ -125,11 +125,11 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
     TStreamLoadWithLoadStatusResult result;
     request.__set_loadId(ctx->id.to_thrift());
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    ThriftRpcHelper::rpc<FrontendServiceClient>(
+    static_cast<void>(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
                 client->streamLoadWithLoadStatus(result, request);
-            });
+            }));
     Status stream_load_status(Status::create(result.status));
     if (stream_load_status.ok()) {
         ctx->txn_id = result.txn_id;
@@ -165,7 +165,7 @@ Status StreamLoadWithSqlAction::_handle(HttpRequest* req, std::shared_ptr<Stream
         // this will close file
         ctx->body_sink.reset();
         // TODO This function may not be placed here
-        _process_put(req, ctx);
+        RETURN_IF_ERROR(_process_put(req, ctx));
     } else {
         RETURN_IF_ERROR(ctx->body_sink->finish());
     }

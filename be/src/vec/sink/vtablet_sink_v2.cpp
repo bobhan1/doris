@@ -105,8 +105,8 @@ int StreamSinkHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* con
                 }
                 _sink->_tablet_failure_map[tablet_id].push_back(backend_id);
                 if (_sink->_tablet_failure_map[tablet_id].size() * 2 >= replica) {
-                    _sink->_cancel(Status::Cancelled(
-                            "Failed to meet num replicas requirements for tablet {}", tablet_id));
+                    static_cast<void>(_sink->_cancel(Status::Cancelled(
+                            "Failed to meet num replicas requirements for tablet {}", tablet_id)));
                     break;
                 }
             }
@@ -444,7 +444,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
                     break;
                 }
             }
-            DeltaWriterV2::open(&req, &delta_writer, _profile);
+            static_cast<void>(DeltaWriterV2::open(&req, &delta_writer, _profile));
             _delta_writer_for_tablet->insert(
                     {tablet_id, std::unique_ptr<DeltaWriterV2>(delta_writer)});
         } else {
@@ -468,7 +468,9 @@ Status VOlapTableSinkV2::_cancel(Status status) {
 
     if (_delta_writer_for_tablet.use_count() == 1) {
         std::for_each(std::begin(*_delta_writer_for_tablet), std::end(*_delta_writer_for_tablet),
-                      [&status](auto&& entry) { entry.second->cancel_with_status(status); });
+                      [&status](auto&& entry) {
+                          static_cast<void>(entry.second->cancel_with_status(status));
+                      });
     }
     _delta_writer_for_tablet.reset();
     if (_stream_pool_for_node.use_count() == 1) {
@@ -504,10 +506,10 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             if (_delta_writer_for_tablet.use_count() == 1) {
                 std::for_each(std::begin(*_delta_writer_for_tablet),
                               std::end(*_delta_writer_for_tablet),
-                              [](auto&& entry) { entry.second->close(); });
+                              [](auto&& entry) { static_cast<void>(entry.second->close()); });
                 std::for_each(std::begin(*_delta_writer_for_tablet),
                               std::end(*_delta_writer_for_tablet),
-                              [](auto&& entry) { entry.second->close_wait(); });
+                              [](auto&& entry) { static_cast<void>(entry.second->close_wait()); });
             }
             _delta_writer_for_tablet.reset();
         }
@@ -564,11 +566,11 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;
     } else {
-        _cancel(status);
+        static_cast<void>(_cancel(status));
     }
 
     _close_status = status;
-    DataSink::close(state, exec_status);
+    static_cast<void>(DataSink::close(state, exec_status));
     return status;
 }
 
@@ -593,7 +595,7 @@ Status VOlapTableSinkV2::_close_load(brpc::StreamId stream) {
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
     buf.append(header.SerializeAsString());
     _pending_reports.fetch_add(1);
-    io::StreamSinkFileWriter::send_with_retry(stream, buf);
+    static_cast<void>(io::StreamSinkFileWriter::send_with_retry(stream, buf));
     return Status::OK();
 }
 

@@ -1028,9 +1028,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     orig_columns = right_col_idx;
                 }
                 if (is_mark_join) {
-                    Block::filter_block(output_block, result_column_id, output_block->columns());
+                    static_cast<void>(Block::filter_block(output_block, result_column_id,
+                                                          output_block->columns()));
                 } else {
-                    Block::filter_block(output_block, result_column_id, orig_columns);
+                    static_cast<void>(
+                            Block::filter_block(output_block, result_column_id, orig_columns));
                 }
             }
         }

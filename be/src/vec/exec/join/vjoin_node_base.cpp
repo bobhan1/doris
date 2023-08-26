@@ -244,10 +244,10 @@ Status VJoinNodeBase::open(RuntimeState* state) {
 
     std::promise<Status> thread_status;
     try {
-        state->exec_env()->join_node_thread_pool()->submit_func(
+        static_cast<void>(state->exec_env()->join_node_thread_pool()->submit_func(
                 [this, state, thread_status_p = &thread_status] {
                     this->_probe_side_open_thread(state, thread_status_p);
-                });
+                }));
     } catch (const std::system_error& e) {
         LOG(WARNING) << "In VJoinNodeBase::open create thread fail, " << e.what();
         return Status::InternalError(e.what());
