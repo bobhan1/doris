@@ -434,7 +434,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     CpuInfo::init();
     DiskInfo::init();
     MemInfo::init();
-    UserFunctionCache::instance()->init(config::user_function_dir);
+    static_cast<void>(UserFunctionCache::instance()->init(config::user_function_dir));
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();

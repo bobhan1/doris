@@ -937,7 +937,7 @@ int64_t VParquetWriterWrapper::written_len() {
     return _outstream->get_written_len();
 }
 
-Status VParquetWriterWrapper::close() {
+void VParquetWriterWrapper::close() {
     try {
         if (_rg_writer != nullptr) {
             _rg_writer->Close();
@@ -949,14 +949,11 @@ Status VParquetWriterWrapper::close() {
         arrow::Status st = _outstream->Close();
         if (!st.ok()) {
             LOG(WARNING) << "close parquet file error: " << st.ToString();
-            return Status::IOError(st.ToString());
         }
     } catch (const std::exception& e) {
         _rg_writer = nullptr;
         LOG(WARNING) << "Parquet writer close error: " << e.what();
-        return Status::IOError(e.what());
     }
-    return Status::OK();
 }
 
 } // namespace doris::vectorized

@@ -309,7 +309,7 @@ consteval bool capture_stacktrace(int code) {
 }
 // clang-format on
 
-class Status {
+class [[nodiscard]] Status {
 public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 

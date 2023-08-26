@@ -261,26 +261,22 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
-            // If the push_down_agg_type is COUNT, no need to do the rest,
-            // because we only save a number in block.
-            if (_parent->get_push_down_agg_type() != TPushAggOp::type::COUNT) {
-                // Convert the src block columns type to string in-place.
-                RETURN_IF_ERROR(_cast_to_input_block(block));
-                // FileReader can fill partition and missing columns itself
-                if (!_cur_reader->fill_all_columns()) {
-                    // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
-                    RETURN_IF_ERROR(_fill_columns_from_path(read_rows));
-                    // Fill columns not exist in file with null or default value
-                    RETURN_IF_ERROR(_fill_missing_columns(read_rows));
-                }
-                // Apply _pre_conjunct_ctxs to filter src block.
-                RETURN_IF_ERROR(_pre_filter_src_block());
-                // Convert src block to output block (dest block), string to dest data type and apply filters.
-                RETURN_IF_ERROR(_convert_to_output_block(block));
-                // Truncate char columns or varchar columns if size is smaller than file columns
-                // or not found in the file column schema.
-                RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+            // Convert the src block columns type to string in-place.
+            RETURN_IF_ERROR(_cast_to_input_block(block));
+            // FileReader can fill partition and missing columns itself
+            if (!_cur_reader->fill_all_columns()) {
+                // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
+                RETURN_IF_ERROR(_fill_columns_from_path(read_rows));
+                // Fill columns not exist in file with null or default value
+                RETURN_IF_ERROR(_fill_missing_columns(read_rows));
             }
+            // Apply _pre_conjunct_ctxs to filter src block.
+            RETURN_IF_ERROR(_pre_filter_src_block());
+            // Convert src block to output block (dest block), string to dest data type and apply filters.
+            RETURN_IF_ERROR(_convert_to_output_block(block));
+            // Truncate char columns or varchar columns if size is smaller than file columns
+            // or not found in the file column schema.
+            RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
             break;
         }
     } while (true);
@@ -759,10 +755,8 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_GZ:
         case TFileFormatType::FORMAT_CSV_BZ2:
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE:
-        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_PROTO: {
             _cur_reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                    _file_slot_descs, _io_ctx.get());
@@ -804,7 +798,7 @@ Status VFileScanner::_get_next_reader() {
 
         _name_to_col_type.clear();
         _missing_cols.clear();
-        _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
+        static_cast<void>(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
         _cur_reader->set_push_down_agg_type(_parent->get_push_down_agg_type());
         RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
@@ -1002,7 +996,7 @@ Status VFileScanner::_init_expr_ctxes() {
     }
     // TODO: It should can move to scan node to process.
     if (!_conjuncts.empty()) {
-        _process_conjuncts_for_dict_filter();
+        static_cast<void>(_process_conjuncts_for_dict_filter());
     }
     return Status::OK();
 }

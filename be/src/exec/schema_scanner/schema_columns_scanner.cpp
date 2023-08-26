@@ -339,14 +339,14 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     // TABLE_CATALOG
     {
         if (!_db_result.__isset.catalogs) {
-            fill_dest_column_for_range(block, 0, null_datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, null_datas));
         } else {
             std::string catalog_name = _db_result.catalogs[_db_index - 1];
             StringRef str = StringRef(catalog_name.c_str(), catalog_name.size());
             for (int i = 0; i < columns_num; ++i) {
                 datas[i] = &str;
             }
-            fill_dest_column_for_range(block, 0, datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
         }
     }
     // TABLE_SCHEMA
@@ -356,7 +356,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < columns_num; ++i) {
             datas[i] = &str;
         }
-        fill_dest_column_for_range(block, 1, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // TABLE_NAME
     {
@@ -373,7 +373,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                                 _table_result.tables[cur_table_index].length());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 2, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // COLUMN_NAME
     {
@@ -383,7 +383,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                                 _desc_result.columns[i].columnDesc.columnName.length());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 3, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // ORDINAL_POSITION
     {
@@ -398,10 +398,10 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i] = columns_index++;
             datas[i] = srcs + i;
         }
-        fill_dest_column_for_range(block, 4, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // COLUMN_DEFAULT
-    { fill_dest_column_for_range(block, 5, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, null_datas)); }
     // IS_NULLABLE
     {
         StringRef str_yes = StringRef("YES", 3);
@@ -417,7 +417,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = &str_no;
             }
         }
-        fill_dest_column_for_range(block, 6, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
     }
     // DATA_TYPE
     {
@@ -428,7 +428,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(buffers[i].c_str(), buffers[i].length());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 7, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
     }
     // CHARACTER_MAXIMUM_LENGTH
     // For string columns, the maximum length in characters.
@@ -448,7 +448,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 8, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
     }
     // CHARACTER_OCTET_LENGTH
     // For string columns, the maximum length in bytes.
@@ -468,7 +468,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 9, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
     }
     // NUMERIC_PRECISION
     {
@@ -481,7 +481,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 10, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
     }
     // NUMERIC_SCALE
     {
@@ -494,14 +494,14 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 11, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
     // DATETIME_PRECISION
-    { fill_dest_column_for_range(block, 12, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, null_datas)); }
     // CHARACTER_SET_NAME
-    { fill_dest_column_for_range(block, 13, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, null_datas)); }
     // COLLATION_NAME
-    { fill_dest_column_for_range(block, 14, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, null_datas)); }
     // COLUMN_TYPE
     {
         std::string buffers[columns_num];
@@ -511,7 +511,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(buffers[i].c_str(), buffers[i].length());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 15, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 15, datas));
     }
     // COLUMN_KEY
     {
@@ -526,19 +526,19 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = &str;
             }
         }
-        fill_dest_column_for_range(block, 16, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 16, datas));
     }
     // EXTRA
     {
         StringRef str = StringRef("", 0);
         std::vector<void*> datas(columns_num, &str);
-        fill_dest_column_for_range(block, 17, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
     }
     // PRIVILEGES
     {
         StringRef str = StringRef("", 0);
         std::vector<void*> datas(columns_num, &str);
-        fill_dest_column_for_range(block, 18, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, datas));
     }
     // COLUMN_COMMENT
     {
@@ -548,7 +548,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                                 _desc_result.columns[i].comment.length());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 19, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 19, datas));
     }
     // COLUMN_SIZE
     {
@@ -561,7 +561,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 20, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 20, datas));
     }
     // DECIMAL_DIGITS
     {
@@ -574,12 +574,12 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 21, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 21, datas));
     }
     // GENERATION_EXPRESSION
-    { fill_dest_column_for_range(block, 22, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 22, null_datas)); }
     // SRS_ID
-    { fill_dest_column_for_range(block, 23, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 23, null_datas)); }
     return Status::OK();
 }
 

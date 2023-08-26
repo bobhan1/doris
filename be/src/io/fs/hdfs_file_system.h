@@ -153,7 +153,7 @@ private:
     HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path,
                    RuntimeProfile* profile);
     const THdfsParams& _hdfs_params;
-    std::string _fs_name;
+    std::string _namenode;
     // do not use std::shared_ptr or std::unique_ptr
     // _fs_handle is managed by HdfsFileSystemCache
     HdfsFileSystemHandle* _fs_handle;

@@ -154,7 +154,8 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     // this could cause unable to get JVM
     if (_shared_state->probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_CATCH_EXCEPTION(_dependency->create_agg_status(_agg_data->without_key));
+        RETURN_IF_CATCH_EXCEPTION(
+                static_cast<void>(_dependency->create_agg_status(_agg_data->without_key)));
     }
     return Status::OK();
 }
@@ -463,11 +464,11 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                         key_holder_persist_key(key_holder);
                         auto mapped = _shared_state->aggregate_data_container->append_data(
                                 key_holder.key);
-                        _dependency->create_agg_status(mapped);
+                        static_cast<void>(_dependency->create_agg_status(mapped));
                         ctor(key, mapped);
                     } else {
                         auto mapped = _shared_state->aggregate_data_container->append_data(key);
-                        _dependency->create_agg_status(mapped);
+                        static_cast<void>(_dependency->create_agg_status(mapped));
                         ctor(key, mapped);
                     }
                 };
@@ -476,7 +477,7 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                     mapped = _agg_arena_pool->aligned_alloc(
                             _parent->cast<AggSinkOperatorX>()._total_size_of_aggregate_states,
                             _parent->cast<AggSinkOperatorX>()._align_aggregate_states);
-                    _dependency->create_agg_status(mapped);
+                    static_cast<void>(_dependency->create_agg_status(mapped));
                 };
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
@@ -844,7 +845,7 @@ Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_
     }
     if (source_state == SourceState::FINISHED) {
         if (local_state._shared_state->spill_context.has_data) {
-            local_state.try_spill_disk(true);
+            RETURN_IF_ERROR(local_state.try_spill_disk(true));
             RETURN_IF_ERROR(local_state._shared_state->spill_context.prepare_for_reading());
         }
         local_state._dependency->set_done();

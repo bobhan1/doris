@@ -31,7 +31,6 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class QueryContext;
@@ -51,9 +50,7 @@ class PipelineXTask : public PipelineTask {
 public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                  const std::vector<TScanRangeParams>& scan_ranges, const int sender_id,
-                  std::shared_ptr<BufferControlBlock>& sender,
-                  std::shared_ptr<vectorized::VDataStreamRecvr>& recvr);
+                  const std::vector<TScanRangeParams>& scan_ranges, const int sender_id);
 
     Status prepare(RuntimeState* state) override;
 
@@ -130,8 +127,5 @@ private:
 
     DependencyMap _upstream_dependency;
     DependencySPtr _downstream_dependency;
-
-    std::shared_ptr<BufferControlBlock> _sender;
-    std::shared_ptr<vectorized::VDataStreamRecvr> _recvr;
 };
 } // namespace doris::pipeline

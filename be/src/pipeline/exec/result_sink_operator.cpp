@@ -58,7 +58,9 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     // create profile
     _profile = state->obj_pool()->add(new RuntimeProfile(title));
     // create sender
-    _sender = info.sender;
+    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->fragment_instance_id(),
+                                                                   p._buf_size, &_sender, true,
+                                                                   state->execution_timeout()));
     _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
     for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
@@ -79,8 +81,11 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
 
 ResultSinkOperatorX::ResultSinkOperatorX(const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
-                                         const TResultSink& sink)
-        : DataSinkOperatorX(0), _row_desc(row_desc), _t_output_expr(t_output_expr) {
+                                         const TResultSink& sink, int buffer_size)
+        : DataSinkOperatorX(0),
+          _row_desc(row_desc),
+          _t_output_expr(t_output_expr),
+          _buf_size(buffer_size) {
     if (!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCAL) {
         _sink_type = TResultSinkType::MYSQL_PROTOCAL;
     } else {
@@ -170,16 +175,17 @@ Status ResultSinkLocalState::close(RuntimeState* state) {
             _sender->update_num_written_rows(_writer->get_written_rows());
         }
         _sender->update_max_peak_memory_bytes();
-        _sender->close(final_status);
+        static_cast<void>(_sender->close(final_status));
     }
-    state->exec_env()->result_mgr()->cancel_at_time(
+    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id());
+            state->fragment_instance_id()));
     RETURN_IF_ERROR(PipelineXSinkLocalState::close(state));
     return final_status;
 }
 
 bool ResultSinkOperatorX::can_write(RuntimeState* state) {
-    return state->get_sink_local_state(id())->cast<ResultSinkLocalState>()._sender->can_sink();
+    auto& local_state = state->get_sink_local_state(id())->cast<ResultSinkLocalState>();
+    return local_state._sender->can_sink();
 }
 } // namespace doris::pipeline

@@ -129,7 +129,6 @@ Status hostname_to_ipv6(const std::string& host, std::string& ip) {
         return Status::InternalError("failed to get ip from host: {}, err: {}", host,
                                      gai_strerror(err));
     }
-
     sockaddr_ipv6 = reinterpret_cast<struct sockaddr_in6*>(answer->ai_addr);
     inet_ntop(AF_INET6, &sockaddr_ipv6->sin6_addr, ipstr2, sizeof(ipstr2));
     ip = ipstr2;

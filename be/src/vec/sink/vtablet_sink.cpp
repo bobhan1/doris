@@ -1477,7 +1477,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (!_prepare) {
         DCHECK(!exec_status.ok());
         _cancel_all_channel(exec_status);
-        DataSink::close(state, exec_status);
+        static_cast<void>(DataSink::close(state, exec_status));
         _close_status = exec_status;
         return _close_status;
     }
@@ -1485,7 +1485,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
 
-    try_close(state, exec_status);
+    static_cast<void>(try_close(state, exec_status));
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
         auto status = Status::OK();
@@ -1600,7 +1600,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         _send_batch_thread_pool_token->wait();
     }
 
-    DataSink::close(state, exec_status);
+    static_cast<void>(DataSink::close(state, exec_status));
     return _close_status;
 }
 

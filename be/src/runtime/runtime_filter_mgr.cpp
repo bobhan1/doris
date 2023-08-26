@@ -31,6 +31,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/exec_env.h"
@@ -222,7 +223,8 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
-    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false);
+    RETURN_IF_ERROR(
+            cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false));
     _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
 }
@@ -244,7 +246,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
-    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options);
+    RETURN_IF_ERROR(cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options));
     _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
 }
@@ -273,16 +275,16 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
             if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
                 return Status::InternalError("runtime filter params meet error");
             }
-            _init_with_desc(&filterid_to_desc.second, &query_options, &targetv2_iter->second,
-                            build_iter->second);
+            RETURN_IF_ERROR(_init_with_desc(&filterid_to_desc.second, &query_options,
+                                            &targetv2_iter->second, build_iter->second));
         } else {
             const auto& build_iter =
                     runtime_filter_params.runtime_filter_builder_num.find(filter_id);
             if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
                 return Status::InternalError("runtime filter params meet error");
             }
-            _init_with_desc(&filterid_to_desc.second, &query_options, &target_iter->second,
-                            build_iter->second);
+            RETURN_IF_ERROR(_init_with_desc(&filterid_to_desc.second, &query_options,
+                                            &target_iter->second, build_iter->second));
         }
     }
     if (runtime_filter_params.__isset.rid_to_runtime_filter) {
@@ -297,8 +299,8 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
             if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
                 return Status::InternalError("runtime filter params meet error");
             }
-            _init_with_desc(&filterid_to_desc.second, &query_options, &target_iter->second,
-                            build_iter->second);
+            RETURN_IF_ERROR(_init_with_desc(&filterid_to_desc.second, &query_options,
+                                            &target_iter->second, build_iter->second));
         }
     }
     return Status::OK();
@@ -574,7 +576,7 @@ Status RuntimeFilterMergeController::remove_entity(UniqueId query_id) {
 // auto called while call ~std::shared_ptr<RuntimeFilterMergeControllerEntity>
 void runtime_filter_merge_entity_close(RuntimeFilterMergeController* controller,
                                        RuntimeFilterMergeControllerEntity* entity) {
-    controller->remove_entity(entity->query_id());
+    static_cast<void>(controller->remove_entity(entity->query_id()));
     delete entity;
 }
 

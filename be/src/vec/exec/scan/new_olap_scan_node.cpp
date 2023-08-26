@@ -582,7 +582,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
 
             // dispose some segment tail
             if (!rs_splits.empty()) {
-                build_new_scanner(*scan_range, scanner_ranges, rs_splits);
+                RETURN_IF_ERROR(build_new_scanner(*scan_range, scanner_ranges, rs_splits));
             }
         }
     } else {

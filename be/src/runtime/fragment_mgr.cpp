@@ -181,7 +181,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         UniqueId uid(req.query_id.hi, req.query_id.lo);
         ss << "couldn't get a client for " << req.coord_addr << ", reason: " << coord_status;
         LOG(WARNING) << "query_id: " << uid << ", " << ss.str();
-        req.update_fn(Status::InternalError(ss.str()));
+        static_cast<void>(req.update_fn(Status::InternalError(ss.str())));
         return;
     }
 
@@ -294,7 +294,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
             if (!rpc_status.ok()) {
                 // we need to cancel the execution of this fragment
-                req.update_fn(rpc_status);
+                static_cast<void>(req.update_fn(rpc_status));
                 req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "report rpc fail");
                 return;
             }
@@ -311,7 +311,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
     if (!rpc_status.ok()) {
         // we need to cancel the execution of this fragment
-        req.update_fn(rpc_status);
+        static_cast<void>(req.update_fn(rpc_status));
         req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "rpc fail 2");
     }
 }
@@ -633,7 +633,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     // TODO need check the status, but when I add return_if_error the P0 will not pass
-    _runtimefilter_controller.add_entity(params, &handler, fragment_executor->runtime_state());
+    static_cast<void>(_runtimefilter_controller.add_entity(params, &handler,
+                                                           fragment_executor->runtime_state()));
     fragment_executor->set_merge_controller_handler(handler);
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -774,15 +775,15 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 auto prepare_st = context->prepare(params, i);
                 if (!prepare_st.ok()) {
                     context->close_if_prepare_failed();
-                    context->update_status(prepare_st);
+                    static_cast<void>(context->update_status(prepare_st));
                     return prepare_st;
                 }
             }
             g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-            _runtimefilter_controller.add_entity(params, local_params, &handler,
-                                                 context->get_runtime_state());
+            static_cast<void>(_runtimefilter_controller.add_entity(params, local_params, &handler,
+                                                                   context->get_runtime_state()));
             context->set_merge_controller_handler(handler);
 
             {
@@ -802,14 +803,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             std::condition_variable cv;
 
             for (size_t i = 0; i < target_size; i++) {
-                _thread_pool->submit_func([&, i]() {
+                static_cast<void>(_thread_pool->submit_func([&, i]() {
                     prepare_status[i] = pre_and_submit(i);
                     std::unique_lock<std::mutex> lock(m);
                     prepare_done++;
                     if (prepare_done == target_size) {
                         cv.notify_one();
                     }
-                });
+                }));
             }
 
             std::unique_lock<std::mutex> lock(m);

@@ -133,7 +133,8 @@ public:
                                         {std::move(arg_second), arg_type, "second_arg"},
                                         block.get_by_position(result)}};
 
-        func_subtract->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
+        static_cast<void>(
+                func_subtract->execute(context, temporary_block, {0, 1}, 2, input_rows_count));
         block.get_by_position(result).column = temporary_block.get_by_position(2).column;
         return Status::OK();
     }
