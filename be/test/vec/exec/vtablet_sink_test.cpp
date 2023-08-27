@@ -359,11 +359,11 @@ public:
         _env->_master_info = new TMasterInfo();
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-        ThreadPoolBuilder("SendBatchThreadPool")
-                .set_min_threads(1)
-                .set_max_threads(5)
-                .set_max_queue_size(100)
-                .build(&_env->_send_batch_thread_pool);
+        static_cast<void>(ThreadPoolBuilder("SendBatchThreadPool")
+                                  .set_min_threads(1)
+                                  .set_max_threads(5)
+                                  .set_max_queue_size(100)
+                                  .build(&_env->_send_batch_thread_pool));
         config::tablet_writer_open_rpc_timeout_sec = 60;
         config::max_send_batch_parallelism_per_job = 1;
     }
@@ -732,8 +732,8 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
 
     // Send batch multiple times, can make _cur_batch or _pending_batches(in channels) not empty.
     // To ensure the order of releasing resource is OK.
-    sink.send(&state, &block);
-    sink.send(&state, &block);
+    static_cast<void>(sink.send(&state, &block));
+    static_cast<void>(sink.send(&state, &block));
 
     // close
     st = sink.close(&state, Status::OK());

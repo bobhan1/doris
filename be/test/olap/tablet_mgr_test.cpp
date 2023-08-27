@@ -67,7 +67,7 @@ public:
         options.backend_uid = UniqueId::gen_uid();
         k_engine = new StorageEngine(options);
         _data_dir = new DataDir(_engine_data_path, 1000000000);
-        _data_dir->init();
+        static_cast<void>(_data_dir->init());
         _tablet_mgr = k_engine->tablet_manager();
     }
 

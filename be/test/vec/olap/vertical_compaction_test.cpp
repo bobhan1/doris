@@ -89,7 +89,7 @@ protected:
                             .ok());
 
         _data_dir = new DataDir(absolute_dir, 100000000);
-        _data_dir->init();
+        static_cast<void>(_data_dir->init());
 
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
@@ -304,7 +304,7 @@ protected:
         rsm->set_delete_predicate(del_pred);
         rsm->set_tablet_schema(tablet->tablet_schema());
         RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), "", rsm);
-        tablet->add_rowset(rowset);
+        static_cast<void>(tablet->add_rowset(rowset));
     }
 
     TabletSharedPtr create_tablet(const TabletSchema& tablet_schema,
@@ -340,7 +340,7 @@ protected:
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
         TabletSharedPtr tablet(new Tablet(tablet_meta, _data_dir));
-        tablet->init();
+        static_cast<void>(tablet->init());
         bool exists = false;
         auto res = io::global_local_filesystem()->exists(tablet->tablet_path(), &exists);
         EXPECT_TRUE(res.ok() && !exists);
@@ -425,8 +425,8 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
     EXPECT_TRUE(buffer.append(tmp_row_source).ok());
     EXPECT_EQ(buffer.total_size(), 6);
     size_t limit = 10;
-    buffer.flush();
-    buffer.seek_to_begin();
+    static_cast<void>(buffer.flush());
+    static_cast<void>(buffer.seek_to_begin());
 
     int idx = -1;
     while (buffer.has_remaining().ok()) {
@@ -444,8 +444,8 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
     EXPECT_TRUE(buffer1.append(tmp_row_source).ok());
     buffer1.set_agg_flag(2, false);
     buffer1.set_agg_flag(4, true);
-    buffer1.flush();
-    buffer1.seek_to_begin();
+    static_cast<void>(buffer1.flush());
+    static_cast<void>(buffer1.seek_to_begin());
     EXPECT_EQ(buffer1.total_size(), 12);
     idx = -1;
     while (buffer1.has_remaining().ok()) {
