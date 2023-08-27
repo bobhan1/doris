@@ -38,10 +38,10 @@ class BufferedReaderTest : public testing::Test {
 public:
     BufferedReaderTest() {
         std::unique_ptr<ThreadPool> _pool;
-        ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                .set_min_threads(5)
-                .set_max_threads(10)
-                .build(&_pool);
+        static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+                                  .set_min_threads(5)
+                                  .set_max_threads(10)
+                                  .build(&_pool));
         ExecEnv::GetInstance()->_buffered_reader_prefetch_thread_pool = std::move(_pool);
     }
 
@@ -121,8 +121,8 @@ private:
 TEST_F(BufferedReaderTest, normal_use) {
     // buffered_reader_test_file 950 bytes
     io::FileReaderSPtr local_reader;
-    io::global_local_filesystem()->open_file(
-            "./be/test/io/fs/test_data/buffered_reader/buffered_reader_test_file", &local_reader);
+    static_cast<void>(io::global_local_filesystem()->open_file(
+            "./be/test/io/fs/test_data/buffered_reader/buffered_reader_test_file", &local_reader));
     auto sync_local_reader = std::make_shared<SyncLocalFileReader>(std::move(local_reader));
     io::PrefetchBufferedReader reader(nullptr, std::move(sync_local_reader),
                                       io::PrefetchRange(0, 1024));
@@ -140,9 +140,9 @@ TEST_F(BufferedReaderTest, normal_use) {
 TEST_F(BufferedReaderTest, test_validity) {
     // buffered_reader_test_file.txt 45 bytes
     io::FileReaderSPtr local_reader;
-    io::global_local_filesystem()->open_file(
+    static_cast<void>(io::global_local_filesystem()->open_file(
             "./be/test/io/fs/test_data/buffered_reader/buffered_reader_test_file.txt",
-            &local_reader);
+            &local_reader));
     auto sync_local_reader = std::make_shared<SyncLocalFileReader>(std::move(local_reader));
     io::PrefetchBufferedReader reader(nullptr, std::move(sync_local_reader),
                                       io::PrefetchRange(0, 1024));
@@ -190,9 +190,9 @@ TEST_F(BufferedReaderTest, test_validity) {
 TEST_F(BufferedReaderTest, test_seek) {
     // buffered_reader_test_file.txt 45 bytes
     io::FileReaderSPtr local_reader;
-    io::global_local_filesystem()->open_file(
+    static_cast<void>(io::global_local_filesystem()->open_file(
             "./be/test/io/fs/test_data/buffered_reader/buffered_reader_test_file.txt",
-            &local_reader);
+            &local_reader));
     auto sync_local_reader = std::make_shared<SyncLocalFileReader>(std::move(local_reader));
     io::PrefetchBufferedReader reader(nullptr, std::move(sync_local_reader),
                                       io::PrefetchRange(0, 1024));
@@ -237,9 +237,9 @@ TEST_F(BufferedReaderTest, test_seek) {
 TEST_F(BufferedReaderTest, test_miss) {
     // buffered_reader_test_file.txt 45 bytes
     io::FileReaderSPtr local_reader;
-    io::global_local_filesystem()->open_file(
+    static_cast<void>(io::global_local_filesystem()->open_file(
             "./be/test/io/fs/test_data/buffered_reader/buffered_reader_test_file.txt",
-            &local_reader);
+            &local_reader));
     auto sync_local_reader = std::make_shared<SyncLocalFileReader>(std::move(local_reader));
     io::PrefetchBufferedReader reader(nullptr, std::move(sync_local_reader),
                                       io::PrefetchRange(0, 1024));
@@ -286,7 +286,7 @@ TEST_F(BufferedReaderTest, test_merged_io) {
     size_t bytes_read = 0;
 
     // read column 0
-    merge_reader.read_at(0, result, &bytes_read, nullptr);
+    static_cast<void>(merge_reader.read_at(0, result, &bytes_read, nullptr));
     // will merge 3MB + 1MB + 3MB, and read out 1MB
     // so _remaining in MergeRangeFileReader is: ${NUM_BOX}MB - (3MB + 3MB - 1MB)
     EXPECT_EQ((io::MergeRangeFileReader::NUM_BOX - 5) * 1024 * 1024,
@@ -300,7 +300,7 @@ TEST_F(BufferedReaderTest, test_merged_io) {
     EXPECT_EQ(7 * 1024 * 1024, range_cached_data[1].end_offset);
 
     // read column 1
-    merge_reader.read_at(4 * 1024 * 1024, result, &bytes_read, nullptr);
+    static_cast<void>(merge_reader.read_at(4 * 1024 * 1024, result, &bytes_read, nullptr));
     // the column 1 is already cached
     EXPECT_EQ(5 * 1024 * 1024, range_cached_data[1].start_offset);
     EXPECT_EQ(7 * 1024 * 1024, range_cached_data[1].end_offset);
@@ -308,10 +308,10 @@ TEST_F(BufferedReaderTest, test_merged_io) {
               merge_reader.buffer_remaining());
 
     // read all cached data
-    merge_reader.read_at(1 * 1024 * 1024, result, &bytes_read, nullptr);
-    merge_reader.read_at(2 * 1024 * 1024, result, &bytes_read, nullptr);
-    merge_reader.read_at(5 * 1024 * 1024, result, &bytes_read, nullptr);
-    merge_reader.read_at(6 * 1024 * 1024, result, &bytes_read, nullptr);
+    static_cast<void>(merge_reader.read_at(1 * 1024 * 1024, result, &bytes_read, nullptr));
+    static_cast<void>(merge_reader.read_at(2 * 1024 * 1024, result, &bytes_read, nullptr));
+    static_cast<void>(merge_reader.read_at(5 * 1024 * 1024, result, &bytes_read, nullptr));
+    static_cast<void>(merge_reader.read_at(6 * 1024 * 1024, result, &bytes_read, nullptr));
     EXPECT_EQ(io::MergeRangeFileReader::TOTAL_BUFFER_SIZE, merge_reader.buffer_remaining());
 
     // read all remaining columns
@@ -320,19 +320,22 @@ TEST_F(BufferedReaderTest, test_merged_io) {
             if (i == 0) {
                 size_t start_offset = 4 * 1024 * 1024 * col;
                 size_t to_read = 729 * 1024; // read 729KB
-                merge_reader.read_at(start_offset, Slice(data, to_read), &bytes_read, nullptr);
+                static_cast<void>(merge_reader.read_at(start_offset, Slice(data, to_read),
+                                                       &bytes_read, nullptr));
                 EXPECT_EQ(to_read, bytes_read);
                 EXPECT_EQ(start_offset % UCHAR_MAX, (uint8)data[0]);
             } else if (i == 1) {
                 size_t start_offset = 4 * 1024 * 1024 * col + 729 * 1024;
                 size_t to_read = 1872 * 1024; // read 1872KB
-                merge_reader.read_at(start_offset, Slice(data, to_read), &bytes_read, nullptr);
+                static_cast<void>(merge_reader.read_at(start_offset, Slice(data, to_read),
+                                                       &bytes_read, nullptr));
                 EXPECT_EQ(to_read, bytes_read);
                 EXPECT_EQ(start_offset % UCHAR_MAX, (uint8)data[0]);
             } else if (i == 2) {
                 size_t start_offset = 4 * 1024 * 1024 * col + 729 * 1024 + 1872 * 1024;
                 size_t to_read = 471 * 1024; // read 471KB
-                merge_reader.read_at(start_offset, Slice(data, to_read), &bytes_read, nullptr);
+                static_cast<void>(merge_reader.read_at(start_offset, Slice(data, to_read),
+                                                       &bytes_read, nullptr));
                 EXPECT_EQ(to_read, bytes_read);
                 EXPECT_EQ(start_offset % UCHAR_MAX, (uint8)data[0]);
             }

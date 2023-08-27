@@ -79,7 +79,8 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
-        io::global_local_filesystem()->delete_and_create_directory(config::storage_root_path);
+        static_cast<void>(io::global_local_filesystem()->delete_and_create_directory(
+                config::storage_root_path));
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
 
@@ -88,7 +89,7 @@ protected:
         Status s = doris::StorageEngine::open(options, &_engine);
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(_engine);
-        _engine->start_bg_threads();
+        static_cast<void>(_engine->start_bg_threads());
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }
 
@@ -101,8 +102,8 @@ protected:
             _engine = nullptr;
         }
         EXPECT_EQ(system("rm -rf ./data_test"), 0);
-        io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
-                                                        UNUSED_PREFIX);
+        static_cast<void>(io::global_local_filesystem()->delete_directory(
+                std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX));
     }
 
     StorageEngine* _engine = nullptr;
@@ -119,7 +120,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -138,7 +139,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     write_req.table_schema_param = &param;
     DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
+    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId()));
     ASSERT_NE(delta_writer, nullptr);
     auto mem_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
 
@@ -162,7 +163,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());
     }
-    mem_limiter->init(100);
+    static_cast<void>(mem_limiter->init(100));
     mem_limiter->handle_memtable_flush();
     CHECK_EQ(0, mem_limiter->mem_usage());
 
