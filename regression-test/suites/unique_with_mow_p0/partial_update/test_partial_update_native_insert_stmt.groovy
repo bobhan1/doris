@@ -19,7 +19,6 @@
 suite("test_partial_update_native_insert_stmt", "p0") {
 
     def tableName = "test_partial_update_native_insert_stmt"
-    sql "set enable_insert_strict = false;"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -32,49 +31,55 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
     """
     sql """insert into ${tableName} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1)"""
+    qt_1 """ select * from ${tableName} order by id; """
     sql "set enable_unique_key_partial_update=true;"
+    sql "set enable_insert_strict = false;"
     sql "sync;"
+    // partial update using insert stmt in non-strict mode,
+    // existing rows should be updated and new rows should be inserted with unmentioned columns filled with default or null value
     sql """insert into ${tableName}(id,score) values(2,400),(1,200),(4,400)"""
+    qt_1 """ select * from ${tableName} order by id; """
     sql "set enable_unique_key_partial_update=false;"
     sql "sync;"
-    qt_select_default """ select * from ${tableName} order by id; """
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
 
-    def tableName2 = "test_partial_update_native_insert_stmt2"
-    sql "set enable_insert_strict = false;"
+    def tableName2 = "test_partial_update_native_insert_stmt2" 
     sql """ DROP TABLE IF EXISTS ${tableName2} """
     sql """
-            CREATE TABLE ${tableName2} ( 
-                `id` int(11) NULL, 
-                `name` varchar(10) NULL,
-                `age` int(11) NULL DEFAULT "20", 
-                `city` varchar(10) NOT NULL DEFAULT "beijing", 
-                `balance` decimalv3(9, 0) NULL, 
-                `last_access_time` datetime NULL 
-            ) ENGINE = OLAP UNIQUE KEY(`id`) 
-            COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
-                "replication_allocation" = "tag.location.default: 1", 
-                "storage_format" = "V2", 
-                "enable_unique_key_merge_on_write" = "true", 
-                "light_schema_change" = "true", 
-                "disable_auto_compaction" = "false", 
-                "enable_single_replica_compaction" = "false" 
-            );
-    """
-    sql """insert into ${tableName2} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
-    qt_sql """select * from ${tableName2} order by id;"""
+            CREATE TABLE ${tableName2} (
+                `id` int(11) NOT NULL COMMENT "用户 ID",
+                `name` varchar(65533) DEFAULT "unknown" COMMENT "用户姓名",
+                `score` int(11) NOT NULL COMMENT "用户得分",
+                `test` int(11) NULL COMMENT "null test",
+                `dft` int(11) DEFAULT "4321",
+                `update_time` date NULL)
+            UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "function_column.sequence_col" = "update_time"
+            )"""
+    sql """ insert into ${tableName2} values
+            (2, "doris2", 2000, 223, 1, '2023-01-01'),
+            (1, "doris", 1000, 123, 1, '2023-01-01');"""
+    qt_2 "select * from ${tableName2} order by id;"
     sql "set enable_unique_key_partial_update=true;"
+    sql "set enable_insert_strict = false;"
     sql "sync;"
-    sql """ insert into ${tableName2}(id,balance,last_access_time) values(1,500,"2023-07-03 12:00:01"),(3,23,"2023-07-03 12:00:02"),(18,9999999,"2023-07-03 12:00:03"); """
-    sql "set enable_unique_key_partial_update=false;"
-    sql "sync;"
-    qt_sql """select * from ${tableName2} order by id;"""
-    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    // partial update with seq col
+    sql """ insert into ${tableName2}(id,score,update_time) values
+            (2,2500,"2023-07-19"),
+            (2,2600,"2023-07-20"),
+            (1,1300,"2022-07-19"),
+            (3,1500,"2022-07-20"),
+            (3,2500,"2022-07-18"); """
+    qt_2 "select * from ${tableName2} order by id;"
+    sql """ DROP TABLE IF EXISTS ${tableName2}; """
+
 
     def tableName3 = "test_partial_update_native_insert_stmt3"
-    sql """ DROP TABLE IF EXISTS ${tableName3} """
+    sql """ DROP TABLE IF EXISTS ${tableName3}; """
     sql """
             CREATE TABLE ${tableName3} (
                 `id` int(11) NOT NULL COMMENT "用户 ID",
@@ -86,45 +91,43 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
     """
     sql """insert into ${tableName3} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1)"""
-    qt_sql """ select * from ${tableName3} order by id; """
+    qt_3 """ select * from ${tableName3} order by id; """
+    sql "set enable_unique_key_partial_update=true;"
+    sql "sync;"
+    // in partial update, the unmentioned columns should have default values or be nullable
+    // but field `name` is not nullable and doesn't have default value
     test {
         sql """insert into ${tableName3}(id,score) values(2,400),(1,200),(4,400)"""
-        exception "must be explicitly mentioned in column permutation"
+        exception "INTERNAL_ERROR"
     }
-    qt_sql """ select * from ${tableName3} order by id; """
+    sql "set enable_unique_key_partial_update=false;"
+    sql "sync;"
+    qt_3 """ select * from ${tableName3} order by id; """
     sql """ DROP TABLE IF EXISTS ${tableName3} """
 
 
     def tableName4 = "test_partial_update_native_insert_stmt4"
-    sql "set enable_insert_strict = false;"
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """
-            CREATE TABLE ${tableName4} ( 
-                `id` int(11) NULL, 
-                `name` varchar(10) NULL,
-                `age` int(11) NULL DEFAULT "20", 
-                `city` varchar(10) NOT NULL DEFAULT "beijing", 
-                `balance` decimalv3(9, 0) NULL, 
-                `last_access_time` datetime NULL 
-            ) ENGINE = OLAP UNIQUE KEY(`id`) 
-            COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
-                "replication_allocation" = "tag.location.default: 1", 
-                "storage_format" = "V2", 
-                "enable_unique_key_merge_on_write" = "true", 
-                "light_schema_change" = "true", 
-                "disable_auto_compaction" = "false", 
-                "enable_single_replica_compaction" = "false" 
-            );
+            CREATE TABLE ${tableName4} (
+                `id` int(11) NOT NULL COMMENT "用户 ID",
+                `name` varchar(65533) NOT NULL DEFAULT "yixiu" COMMENT "用户姓名",
+                `score` int(11) NULL COMMENT "用户得分",
+                `test` int(11) NULL COMMENT "null test",
+                `dft` int(11) DEFAULT "4321")
+                UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
     """
-    sql """insert into ${tableName4} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
-    qt_sql """select * from ${tableName4} order by id;"""
+    sql """insert into ${tableName4} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1),(3,"doris3",5000,34,345);"""
+    qt_4 """ select * from ${tableName4} order by id; """
     sql "set enable_unique_key_partial_update=true;"
+    sql "set enable_insert_strict = false;"
     sql "sync;"
-    sql """ insert into ${tableName4}(id,balance,last_access_time) values(1,500,"2023-07-03 12:00:01"),(3,23,"2023-07-03 12:00:02"),(18,9999999,"2023-07-03 12:00:03"); """
+    // partial update with delete sign
+    sql "insert into ${tableName4}(id,__DORIS_DELETE_SIGN__) values(2,1);"
+    qt_4 """ select * from ${tableName4} order by id; """
     sql "set enable_unique_key_partial_update=false;"
     sql "sync;"
-    qt_sql """select * from ${tableName4} order by id;"""
     sql """ DROP TABLE IF EXISTS ${tableName4} """
 
 
@@ -150,16 +153,15 @@ suite("test_partial_update_native_insert_stmt", "p0") {
             );
     """
     sql """insert into ${tableName5} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
-    qt_sql """select * from ${tableName5} order by id;"""
+    qt_5 """select * from ${tableName5} order by id;"""
     sql "set enable_insert_strict = true;"
     sql "set enable_unique_key_partial_update=true;"
     sql "sync;"
+    // partial update using insert stmt in strict mode, the max_filter_ratio is always 0
     test {
         sql """ insert into ${tableName5}(id,balance,last_access_time) values(1,500,"2023-07-03 12:00:01"),(3,23,"2023-07-03 12:00:02"),(18,9999999,"2023-07-03 12:00:03"); """
         exception "Insert has filtered data in strict mode"
     }
-    sql "set enable_unique_key_partial_update=false;"
-    sql "sync;"
-    qt_sql """select * from ${tableName5} order by id;"""
-    sql """ DROP TABLE IF EXISTS ${tableName5} """
+    qt_5 """select * from ${tableName5} order by id;"""
+    sql """ DROP TABLE IF EXISTS ${tableName5}; """
 }
