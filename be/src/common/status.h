@@ -394,7 +394,7 @@ public:
 #define ERROR_CTOR(name, code)                                                 \
     template <typename... Args>                                                \
     static Status name(std::string_view msg, Args&&... args) {                 \
-        return Error<ErrorCode::code, true>(msg, std::forward<Args>(args)...); \
+        return Error<ErrorCode::code, false>(msg, std::forward<Args>(args)...); \
     }
 
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
