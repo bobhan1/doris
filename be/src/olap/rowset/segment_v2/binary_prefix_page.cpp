@@ -103,21 +103,21 @@ const uint8_t* BinaryPrefixPageDecoder::_decode_value_lengths(const uint8_t* ptr
     if ((ptr = decode_varint32_ptr(ptr, _footer_start, shared)) == nullptr) {
         LOG(WARNING) << fmt::format(
                 "[BinaryPrefixPageDecoder::_decode_value_lengths]failed to decode shared length at "
-                "pos:{}, ptr:{p}, limit:{p}",
+                "pos:{}, ptr:{}, limit:{}",
                 _cur_pos, (void*)ptr, (void*)_footer_start);
         return nullptr;
     }
     if ((ptr = decode_varint32_ptr(ptr, _footer_start, non_shared)) == nullptr) {
         LOG(WARNING) << fmt::format(
                 "[BinaryPrefixPageDecoder::_decode_value_lengths]failed to decode non-shared "
-                "length at pos:{}, ptr:{p}, limit:{p}",
+                "length at pos:{}, ptr:{}, limit:{}",
                 _cur_pos, (void*)ptr, (void*)_footer_start);
         return nullptr;
     }
     if (_footer_start - ptr < *non_shared) {
         LOG(WARNING) << fmt::format(
                 "[BinaryPrefixPageDecoder::_decode_value_lengths]_footer_start - ptr >= "
-                "*non_shared at pos:{}, ptr:{p}, limit:{p},  _footer_start - ptr:{}, "
+                "*non_shared at pos:{}, ptr:{}, limit:{},  _footer_start - ptr:{}, "
                 "*non_shared:{}",
                 _cur_pos, (void*)ptr, (void*)_footer_start,
                 static_cast<size_t>(_footer_start - ptr), *non_shared);
