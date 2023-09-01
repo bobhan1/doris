@@ -146,11 +146,11 @@ private:
 
     void print_debug_info() {
         LOG(WARNING) << fmt::format(
-                "[BinaryPrefixPageDecoder@{}]_data:(data:{}, "
+                "[BinaryPrefixPageDecoder@{p}]_data:(data:{p}, "
                 "size:{}), _num_values:{}, _restart_point_internal:{}, _num_restarts:{}, "
-                "_footer_start:{}, _restarts_ptr:{}, _cur_pos:{}",
-                (void*)this, _data.data, _data.size, _num_values, _restart_point_internal,
-                _num_restarts, _footer_start, _restarts_ptr, _cur_pos);
+                "_footer_start:{p}, _restarts_ptr:{p}, _cur_pos:{}",
+                (void*)this, (void*)_data.data, _data.size, _num_values, _restart_point_internal,
+                _num_restarts, (void*)_footer_start, (void*)_restarts_ptr, _cur_pos);
     }
 
     Slice _data;

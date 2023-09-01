@@ -103,22 +103,24 @@ const uint8_t* BinaryPrefixPageDecoder::_decode_value_lengths(const uint8_t* ptr
     if ((ptr = decode_varint32_ptr(ptr, _footer_start, shared)) == nullptr) {
         LOG(WARNING) << fmt::format(
                 "[BinaryPrefixPageDecoder::_decode_value_lengths]failed to decode shared length at "
-                "pos:{}",
-                _cur_pos);
+                "pos:{}, ptr:{p}, limit:{p}",
+                _cur_pos, (void*)ptr, (void*)_footer_start);
         return nullptr;
     }
     if ((ptr = decode_varint32_ptr(ptr, _footer_start, non_shared)) == nullptr) {
         LOG(WARNING) << fmt::format(
                 "[BinaryPrefixPageDecoder::_decode_value_lengths]failed to decode non-shared "
-                "length at pos:{}",
-                _cur_pos);
+                "length at pos:{}, ptr:{p}, limit:{p}",
+                _cur_pos, (void*)ptr, (void*)_footer_start);
         return nullptr;
     }
     if (_footer_start - ptr < *non_shared) {
         LOG(WARNING) << fmt::format(
                 "[BinaryPrefixPageDecoder::_decode_value_lengths]_footer_start - ptr >= "
-                "*non_shared at pos:{}, _footer_start - ptr:{}, *non_shared:{}",
-                _cur_pos, static_cast<size_t>(_footer_start - ptr), *non_shared);
+                "*non_shared at pos:{}, ptr:{p}, limit:{p},  _footer_start - ptr:{}, "
+                "*non_shared:{}",
+                _cur_pos, (void*)ptr, (void*)_footer_start,
+                static_cast<size_t>(_footer_start - ptr), *non_shared);
         return nullptr;
     }
     return ptr;
@@ -127,6 +129,7 @@ const uint8_t* BinaryPrefixPageDecoder::_decode_value_lengths(const uint8_t* ptr
 Status BinaryPrefixPageDecoder::_read_next_value() {
     if (_cur_pos >= _num_values) {
         print_debug_info();
+        CHECK(false);
         return Status::NotFound("no more value to read");
     }
     uint32_t shared_len;
@@ -134,6 +137,7 @@ Status BinaryPrefixPageDecoder::_read_next_value() {
     auto data_ptr = _decode_value_lengths(_next_ptr, &shared_len, &non_shared_len);
     if (data_ptr == nullptr) {
         print_debug_info();
+        CHECK(false);
         return Status::Corruption("Failed to decode value at position {}", _cur_pos);
     }
     _current_value.resize(shared_len);
