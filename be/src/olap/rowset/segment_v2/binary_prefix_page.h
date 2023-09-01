@@ -144,6 +144,15 @@ private:
     // seek to the first value at the given restart point
     Status _seek_to_restart_point(size_t restart_point_index);
 
+    void print_debug_info() {
+        LOG(WARNING) << fmt::format(
+                "[BinaryPrefixPageDecoder@{}]_data:(data:{}, "
+                "size:{}), _num_values:{}, _restart_point_internal:{}, _num_restarts:{}, "
+                "_footer_start:{}, _restarts_ptr:{}, _cur_pos:{}",
+                (void*)this, _data.data, _data.size, _num_values, _restart_point_internal,
+                _num_restarts, _footer_start, _restarts_ptr, _cur_pos);
+    }
+
     Slice _data;
     bool _parsed = false;
     size_t _num_values = 0;
