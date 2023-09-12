@@ -2886,6 +2886,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     auto rowset_schema = rowset->tablet_schema();
     bool is_partial_update = rowset_schema->is_partial_update();
     bool is_unique_key_ignore_mode = rowset_schema->is_unique_key_ignore_mode();
+    LOG(INFO) << "[Tablet::calc_segment_delete_bitmap][is_unique_key_ignore_mode:"
+              << is_unique_key_ignore_mode << "]";
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
     PartialUpdateReadPlan read_plan_update;
