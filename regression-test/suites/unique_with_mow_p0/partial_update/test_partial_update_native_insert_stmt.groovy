@@ -75,6 +75,8 @@ suite("test_partial_update_native_insert_stmt", "p0") {
             (3,1500,"2022-07-20"),
             (3,2500,"2022-07-18"); """
     qt_2 "select * from ${tableName2} order by id;"
+    sql "set enable_unique_key_partial_update=false;"
+    sql "sync;"
     sql """ DROP TABLE IF EXISTS ${tableName2}; """
 
 
@@ -90,7 +92,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                 UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
     """
-    sql """insert into ${tableName3} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1)"""
+    sql """insert into ${tableName3} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1);"""
     qt_3 """ select * from ${tableName3} order by id; """
     sql "set enable_unique_key_partial_update=true;"
     sql "sync;"
@@ -163,5 +165,27 @@ suite("test_partial_update_native_insert_stmt", "p0") {
         exception "Insert has filtered data in strict mode"
     }
     qt_5 """select * from ${tableName5} order by id;"""
+    sql "set enable_unique_key_partial_update=false;"
+    sql "set enable_insert_strict = false;"
+    sql "sync;"
     sql """ DROP TABLE IF EXISTS ${tableName5}; """
+
+    def tableName6 = "test_partial_update_native_insert_stmt6"
+    sql """ DROP TABLE IF EXISTS ${tableName6} """
+    sql """create table ${tableName6} (
+        k int null,
+        v int null,
+        v2 int null,
+        v3 int null
+    ) unique key (k) distributed by hash(k) buckets 1
+    properties("replication_num" = "1",
+    "enable_unique_key_merge_on_write"="true",
+    "disable_auto_compaction"="true"); """
+    sql "insert into ${tableName6} values(1,1,3,4),(2,2,4,5),(3,3,2,3),(4,4,1,2);"
+    qt_5 "select * from ${tableName6} order by k;"
+    sql "set enable_unique_key_partial_update=true;"
+    sql "sync;"
+    sql "insert into ${tableName6}(k,v) select v2,v3 from ${tableName6};"
+    qt_5 "select * from ${tableName6};"
+    sql """ DROP TABLE IF EXISTS ${tableName6}; """
 }

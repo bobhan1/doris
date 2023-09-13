@@ -1092,15 +1092,15 @@ public class NativeInsertStmt extends InsertStmt {
         }
         OlapTable olapTable = (OlapTable) targetTable;
         if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            return;
+            throw new UserException("Partial update is only allowed in unique table with merge-on-write enabled.");
         }
-        int count = 0;
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
             for (Column insertCol : targetColumns) {
                 if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
-                    if (!col.isVisible()) {
-                        return;
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                        throw new UserException("Partial update should not include invisible column except"
+                                    + " delete sign column: " + col.getName());
                     }
                     exists = true;
                     break;
@@ -1109,30 +1109,26 @@ public class NativeInsertStmt extends InsertStmt {
             if (col.isKey() && !exists) {
                 throw new UserException("Partial update should include all key columns, missing: " + col.getName());
             }
-            if (exists || (col.isVisible() && !col.hasDefaultValue())) {
-                ++count;
-            }
         }
-        if (count > targetColumns.size()) {
-            isPartialUpdate = true;
-            partialUpdateCols.addAll(targetColumnNames);
-            if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
-                    && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
-                partialUpdateCols.add(Column.SEQUENCE_COL);
+
+        isPartialUpdate = true;
+        partialUpdateCols.addAll(targetColumnNames);
+        if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+            partialUpdateCols.add(Column.SEQUENCE_COL);
+        }
+        // we should re-generate olapTuple
+        DescriptorTable descTable = analyzer.getDescTbl();
+        olapTuple = descTable.createTupleDescriptor();
+        for (Column col : olapTable.getFullSchema()) {
+            if (!partialUpdateCols.contains(col.getName())) {
+                continue;
             }
-            // we should re-generate olapTuple
-            DescriptorTable descTable = analyzer.getDescTbl();
-            olapTuple = descTable.createTupleDescriptor();
-            for (Column col : olapTable.getFullSchema()) {
-                if (!partialUpdateCols.contains(col.getName())) {
-                    continue;
-                }
-                SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);
-                slotDesc.setIsMaterialized(true);
-                slotDesc.setType(col.getType());
-                slotDesc.setColumn(col);
-                slotDesc.setIsNullable(col.isAllowNull());
-            }
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(col.getType());
+            slotDesc.setColumn(col);
+            slotDesc.setIsNullable(col.isAllowNull());
         }
     }
 }
