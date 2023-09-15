@@ -392,17 +392,7 @@ public:
         return Error<ErrorCode::code, true>(msg, std::forward<Args>(args)...); \
     }
 
-    ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
-    ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
-    ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
-    ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
-    ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
-    ERROR_CTOR(Corruption, CORRUPTION)
-    ERROR_CTOR(IOError, IO_ERROR)
-    ERROR_CTOR(NotFound, NOT_FOUND)
-    ERROR_CTOR(AlreadyExist, ALREADY_EXIST)
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
-    ERROR_CTOR(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
     ERROR_CTOR(WaitForRf, PIP_WAIT_FOR_RF)
     ERROR_CTOR(WaitForScannerContext, PIP_WAIT_FOR_SC)
@@ -418,6 +408,23 @@ public:
     ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
     ERROR_CTOR(HttpError, HTTP_ERROR)
 #undef ERROR_CTOR
+
+#define ERROR_CTOR_NOT_PRINT_STACK(name, code)                                  \
+    template <typename... Args>                                                 \
+    static Status name(std::string_view msg, Args&&... args) {                  \
+        return Error<ErrorCode::code, false>(msg, std::forward<Args>(args)...); \
+    }
+    ERROR_CTOR_NOT_PRINT_STACK(PublishTimeout, PUBLISH_TIMEOUT)
+    ERROR_CTOR_NOT_PRINT_STACK(MemoryAllocFailed, MEM_ALLOC_FAILED)
+    ERROR_CTOR_NOT_PRINT_STACK(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
+    ERROR_CTOR_NOT_PRINT_STACK(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR_NOT_PRINT_STACK(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
+    ERROR_CTOR_NOT_PRINT_STACK(Corruption, CORRUPTION)
+    ERROR_CTOR_NOT_PRINT_STACK(IOError, IO_ERROR)
+    ERROR_CTOR_NOT_PRINT_STACK(NotFound, NOT_FOUND)
+    ERROR_CTOR_NOT_PRINT_STACK(AlreadyExist, ALREADY_EXIST)
+    ERROR_CTOR_NOT_PRINT_STACK(EndOfFile, END_OF_FILE)
+#undef ERROR_CTOR_NOT_PRINT_STACK
 
     template <int code>
     bool is() const {
