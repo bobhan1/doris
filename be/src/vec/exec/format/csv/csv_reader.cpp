@@ -631,10 +631,12 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
+                RETURN_IF_ERROR(
+                        _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
+                RETURN_IF_ERROR(
+                        _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options));
                 break;
             default:
                 break;
@@ -643,10 +645,12 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // For load task, we always read "string" from file.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options);
+                RETURN_IF_ERROR(
+                        _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
+                RETURN_IF_ERROR(_serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice,
+                                                                                _options));
                 break;
             default:
                 break;

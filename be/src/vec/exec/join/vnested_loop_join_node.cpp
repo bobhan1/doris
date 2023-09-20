@@ -79,7 +79,7 @@ Status RuntimeFilterBuild<Parent>::operator()(RuntimeState* state) {
     if (!runtime_filter_slots.empty() && !_parent->build_blocks().empty()) {
         SCOPED_TIMER(_parent->push_compute_timer());
         for (auto& build_block : _parent->build_blocks()) {
-            runtime_filter_slots.insert(&build_block);
+            RETURN_IF_ERROR(runtime_filter_slots.insert(&build_block));
         }
     }
     {

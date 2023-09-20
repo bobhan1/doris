@@ -683,11 +683,11 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             }
         }
 
-        local_tablet->commit_phase_update_delete_bitmap(rowset, pre_rowset_ids, delete_bitmap,
-                                                        segments, txn_id,
-                                                        calc_delete_bitmap_token.get(), nullptr);
-        calc_delete_bitmap_token->wait();
-        calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap);
+        static_cast<void>(local_tablet->commit_phase_update_delete_bitmap(
+                rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
+                calc_delete_bitmap_token.get(), nullptr));
+        static_cast<void>(calc_delete_bitmap_token->wait());
+        static_cast<void>(calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap));
     }
 
     // Step 6.3: commit txn

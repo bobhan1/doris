@@ -1511,7 +1511,7 @@ std::set<int64_t> TabletManager::check_all_tablet_segment(bool repair) {
                 LOG(WARNING) << "Bad tablet has be removed. tablet_id=" << tablet_id;
             } else {
                 const auto& tablet = it->second;
-                tablet->set_tablet_state(TABLET_SHUTDOWN);
+                static_cast<void>(tablet->set_tablet_state(TABLET_SHUTDOWN));
                 tablet->save_meta();
                 {
                     std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(

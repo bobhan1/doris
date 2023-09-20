@@ -271,8 +271,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         }
 
         InvertedIndexCacheHandle inverted_index_cache_handle;
-        InvertedIndexSearcherCache::instance()->get_index_searcher(
-                _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats);
+        RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->get_index_searcher(
+                _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats));
         auto index_searcher = inverted_index_cache_handle.get_index_searcher();
 
         std::unique_ptr<lucene::search::Query> query;
@@ -458,7 +458,8 @@ void FullTextIndexReader::check_null_bitmap(const IndexSearcherPtr& index_search
     // to avoid open directory additionally for null_bitmap
     if (!null_bitmap_already_read) {
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
+        static_cast<void>(read_null_bitmap(&null_bitmap_cache_handle,
+                                           index_searcher->getReader()->directory()));
         null_bitmap_already_read = true;
     }
 }
