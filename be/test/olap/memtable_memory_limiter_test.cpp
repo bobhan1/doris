@@ -95,7 +95,7 @@ protected:
         // So we must do this before storage engine's other operation.
         exec_env->set_storage_engine(_engine.get());
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-        _engine->start_bg_threads();
+        static_cast<void>(_engine->start_bg_threads());
     }
 
     void TearDown() override {

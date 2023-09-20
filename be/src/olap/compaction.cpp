@@ -134,7 +134,7 @@ Status Compaction::do_compaction(int64_t permits) {
                          << ", before=" << checksum_before << ", checksum_after=" << checksum_after;
         }
     }
-    _load_segment_to_cache();
+    static_cast<void>(_load_segment_to_cache());
     return st;
 }
 
