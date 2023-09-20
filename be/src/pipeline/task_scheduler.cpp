@@ -185,7 +185,7 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     auto task = *task_itr;
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
-    _task_queue->push_back(task);
+    static_cast<void>(_task_queue->push_back(task));
 }
 
 TaskScheduler::~TaskScheduler() {

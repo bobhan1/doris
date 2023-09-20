@@ -1482,7 +1482,7 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
 
-    try_close(_state, exec_status);
+    static_cast<void>(try_close(_state, exec_status));
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
@@ -1670,7 +1670,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         int result_idx;
         if (_vpartition->is_projection_partition()) {
             // calc the start value of missing partition ranges.
-            part_func->execute(part_ctx.get(), block.get(), &result_idx);
+            RETURN_IF_ERROR(part_func->execute(part_ctx.get(), block.get(), &result_idx));
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
             // change the column to compare to transformed.
             _vpartition->set_transformed_slots({(uint16_t)result_idx});

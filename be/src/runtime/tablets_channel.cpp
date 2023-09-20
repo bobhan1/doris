@@ -134,7 +134,7 @@ Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) 
         }
     }
     if (index_slots == nullptr) {
-        Status::InternalError("unknown index id, key={}", _key.to_string());
+        return Status::InternalError("unknown index id, key={}", _key.to_string());
     }
     // update tablets
     std::vector<int64_t> tablet_ids;

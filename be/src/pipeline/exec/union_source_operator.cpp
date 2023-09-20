@@ -114,7 +114,8 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
     int child_idx = 0;
-    local_state._shared_state->data_queue->get_block_from_queue(&output_block, &child_idx);
+    static_cast<void>(
+            local_state._shared_state->data_queue->get_block_from_queue(&output_block, &child_idx));
     if (!output_block) {
         return Status::OK();
     }

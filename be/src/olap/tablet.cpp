@@ -2663,7 +2663,7 @@ Status Tablet::_get_segment_column_iterator(
             .stats = stats,
             .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
     };
-    (*column_iterator)->init(opt);
+    static_cast<void>((*column_iterator)->init(opt));
     return Status::OK();
 }
 

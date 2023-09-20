@@ -245,7 +245,8 @@ Status GroupCommitTable::_create_group_commit_load(
     }
     st = _exec_plan_fragment(_db_id, table_id, label, txn_id, is_pipeline, params, pipeline_params);
     if (!st.ok()) {
-        _finish_group_commit_load(_db_id, table_id, label, txn_id, instance_id, st, true, nullptr);
+        static_cast<void>(_finish_group_commit_load(_db_id, table_id, label, txn_id, instance_id,
+                                                    st, true, nullptr));
     }
     return st;
 }
@@ -333,8 +334,9 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                                              const TExecPlanFragmentParams& params,
                                              const TPipelineFragmentParams& pipeline_params) {
     auto finish_cb = [db_id, table_id, label, txn_id, this](RuntimeState* state, Status* status) {
-        _finish_group_commit_load(db_id, table_id, label, txn_id, state->fragment_instance_id(),
-                                  *status, false, state);
+        static_cast<void>(_finish_group_commit_load(db_id, table_id, label, txn_id,
+                                                    state->fragment_instance_id(), *status, false,
+                                                    state));
     };
     if (is_pipeline) {
         return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
@@ -356,10 +358,10 @@ Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
 }
 
 GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
-    ThreadPoolBuilder("InsertIntoGroupCommitThreadPool")
-            .set_min_threads(config::group_commit_insert_threads)
-            .set_max_threads(config::group_commit_insert_threads)
-            .build(&_insert_into_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("InsertIntoGroupCommitThreadPool")
+                              .set_min_threads(config::group_commit_insert_threads)
+                              .set_max_threads(config::group_commit_insert_threads)
+                              .build(&_insert_into_thread_pool));
 }
 
 GroupCommitMgr::~GroupCommitMgr() {
@@ -401,15 +403,15 @@ Status GroupCommitMgr::group_commit_insert(int64_t table_id, const TPlan& plan,
             }
             _exec_env->new_load_stream_mgr()->remove(load_id);
         });
-        _insert_into_thread_pool->submit_func(
-                std::bind<void>(&GroupCommitMgr::_append_row, this, pipe, request));
+        static_cast<void>(_insert_into_thread_pool->submit_func(
+                std::bind<void>(&GroupCommitMgr::_append_row, this, pipe, request)));
 
         // 2. FileScanNode consumes data from the pipe.
         std::unique_ptr<RuntimeState> runtime_state = RuntimeState::create_unique();
         TQueryOptions query_options;
         query_options.query_type = TQueryType::LOAD;
         TQueryGlobals query_globals;
-        runtime_state->init(load_id, query_options, query_globals, _exec_env);
+        static_cast<void>(runtime_state->init(load_id, query_options, query_globals, _exec_env));
         runtime_state->set_query_mem_tracker(std::make_shared<MemTrackerLimiter>(
                 MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(load_id)), -1));
         DescriptorTbl* desc_tbl = nullptr;
@@ -417,8 +419,9 @@ Status GroupCommitMgr::group_commit_insert(int64_t table_id, const TPlan& plan,
         runtime_state->set_desc_tbl(desc_tbl);
         auto file_scan_node =
                 vectorized::NewFileScanNode(runtime_state->obj_pool(), plan_node, *desc_tbl);
-        std::unique_ptr<int, std::function<void(int*)>> close_scan_node_func(
-                (int*)0x01, [&](int*) { file_scan_node.close(runtime_state.get()); });
+        std::unique_ptr<int, std::function<void(int*)>> close_scan_node_func((int*)0x01, [&](int*) {
+            static_cast<void>(file_scan_node.close(runtime_state.get()));
+        });
         // TFileFormatType::FORMAT_PROTO, TFileType::FILE_STREAM, set _range.load_id
         RETURN_IF_ERROR(file_scan_node.init(plan_node, runtime_state.get()));
         RETURN_IF_ERROR(file_scan_node.prepare(runtime_state.get()));
@@ -486,7 +489,7 @@ Status GroupCommitMgr::_append_row(std::shared_ptr<io::StreamLoadPipe> pipe,
         // TODO append may error when pipe is cancelled
         RETURN_IF_ERROR(pipe->append(std::move(row)));
     }
-    pipe->finish();
+    RETURN_IF_ERROR(pipe->finish());
     return Status::OK();
 }
 

@@ -156,7 +156,7 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
         BufferMap::iterator iter = _buffer_map.find(query_id);
 
         if (_buffer_map.end() != iter) {
-            iter->second->cancel();
+            static_cast<void>(iter->second->cancel());
             _buffer_map.erase(iter);
         }
     }

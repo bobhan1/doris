@@ -145,7 +145,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
     _user_function_cache = new UserFunctionCache();
-    _user_function_cache->init(doris::config::user_function_dir);
+    static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();
     _result_mgr = new ResultBufferMgr();
@@ -303,10 +303,10 @@ void ExecEnv::init_file_cache_factory() {
         }
 
         std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
-        doris::ThreadPoolBuilder("FileCacheInitThreadPool")
-                .set_min_threads(cache_paths.size())
-                .set_max_threads(cache_paths.size())
-                .build(&file_cache_init_pool);
+        static_cast<void>(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
+                                  .set_min_threads(cache_paths.size())
+                                  .set_max_threads(cache_paths.size())
+                                  .build(&file_cache_init_pool));
 
         std::list<doris::Status> cache_status;
         for (auto& cache_path : cache_paths) {

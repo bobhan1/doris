@@ -902,7 +902,7 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows);
+    RETURN_IF_ERROR(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     if (_target_data_type->is_nullable()) {
