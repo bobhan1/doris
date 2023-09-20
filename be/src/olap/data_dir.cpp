@@ -410,7 +410,7 @@ Status DataDir::load() {
                 rowset_meta->serialize(&result);
                 std::string key =
                         ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
-                _meta->put(META_COLUMN_FAMILY_INDEX, key, result);
+                static_cast<void>(_meta->put(META_COLUMN_FAMILY_INDEX, key, result));
             }
         }
         dir_rowset_metas.push_back(rowset_meta);
