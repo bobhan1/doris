@@ -526,44 +526,44 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
 
         case TYPE_TINYINT: {
-            RETURN_IF_ERROR(insert_int_value<int8_t>(col, type, col_ptr, pure_doc_value,
-                                                     slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<int8_t>(col, type, col_ptr, pure_doc_value,
+                                                       slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_SMALLINT: {
-            RETURN_IF_ERROR(insert_int_value<int16_t>(col, type, col_ptr, pure_doc_value,
-                                                      slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<int16_t>(col, type, col_ptr, pure_doc_value,
+                                                        slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_INT: {
-            RETURN_IF_ERROR(insert_int_value<int32>(col, type, col_ptr, pure_doc_value,
-                                                    slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<int32>(col, type, col_ptr, pure_doc_value,
+                                                      slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_BIGINT: {
-            RETURN_IF_ERROR(insert_int_value<int64_t>(col, type, col_ptr, pure_doc_value,
-                                                      slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<int64_t>(col, type, col_ptr, pure_doc_value,
+                                                        slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_LARGEINT: {
-            RETURN_IF_ERROR(insert_int_value<__int128>(col, type, col_ptr, pure_doc_value,
-                                                       slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<__int128>(col, type, col_ptr, pure_doc_value,
+                                                         slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_DOUBLE: {
-            RETURN_IF_ERROR(insert_float_value<double>(col, type, col_ptr, pure_doc_value,
-                                                       slot_desc->is_nullable()));
+            static_cast<void>(insert_float_value<double>(col, type, col_ptr, pure_doc_value,
+                                                         slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_FLOAT: {
-            RETURN_IF_ERROR(insert_float_value<float>(col, type, col_ptr, pure_doc_value,
-                                                      slot_desc->is_nullable()));
+            static_cast<void>(insert_float_value<float>(col, type, col_ptr, pure_doc_value,
+                                                        slot_desc->is_nullable()));
             break;
         }
 
@@ -667,47 +667,49 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 }
                 case TYPE_TINYINT: {
                     int8_t val;
-                    RETURN_IF_ERROR(get_int_value<int8_t>(sub_col, sub_type, &val, pure_doc_value));
+                    static_cast<void>(
+                            get_int_value<int8_t>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
                 case TYPE_SMALLINT: {
                     int16_t val;
-                    RETURN_IF_ERROR(
+                    static_cast<void>(
                             get_int_value<int16_t>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
                 case TYPE_INT: {
                     int32 val;
-                    RETURN_IF_ERROR(get_int_value<int32>(sub_col, sub_type, &val, pure_doc_value));
+                    static_cast<void>(
+                            get_int_value<int32>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
                 case TYPE_BIGINT: {
                     int64_t val;
-                    RETURN_IF_ERROR(
+                    static_cast<void>(
                             get_int_value<int64_t>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
                 case TYPE_LARGEINT: {
                     __int128 val;
-                    RETURN_IF_ERROR(
+                    static_cast<void>(
                             get_int_value<__int128>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
                 case TYPE_FLOAT: {
                     float val {};
-                    RETURN_IF_ERROR(
+                    static_cast<void>(
                             get_float_value<float>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
                 case TYPE_DOUBLE: {
                     double val {};
-                    RETURN_IF_ERROR(
+                    static_cast<void>(
                             get_float_value<double>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
@@ -750,7 +752,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 // No need to support date and datetime types.
                 case TYPE_DATEV2: {
                     uint32_t data;
-                    RETURN_IF_ERROR(
+                    static_cast<void>(
                             (get_date_int<vectorized::DateV2Value<vectorized::DateV2ValueType>,
                                           uint32_t>(sub_col, sub_type, pure_doc_value, &data)));
                     array.push_back(data);
@@ -758,7 +760,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 }
                 case TYPE_DATETIMEV2: {
                     uint64_t data;
-                    RETURN_IF_ERROR(
+                    static_cast<void>(
                             (get_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>,
                                           uint64_t>(sub_col, sub_type, pure_doc_value, &data)));
                     array.push_back(data);
