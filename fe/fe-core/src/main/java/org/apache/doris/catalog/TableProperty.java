@@ -454,6 +454,15 @@ public class TableProperty implements Writable {
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
+    public void setEnableUniqueKeyPartialUpdate(boolean enable) {
+        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, Boolean.toString(enable));
+    }
+
+    public boolean getEnableUniqueKeyPartialUpdate() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, "false"));
+    }
+
     public void setSequenceMapCol(String colName) {
         properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL, colName);

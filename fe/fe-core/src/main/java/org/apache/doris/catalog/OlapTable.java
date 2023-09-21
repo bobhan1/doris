@@ -2170,6 +2170,17 @@ public class OlapTable extends Table {
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
+    public void setEnableUniqueKeyPartialUpdate(boolean enable) {
+        getOrCreatTableProperty().setEnableUniqueKeyPartialUpdate(enable);
+    }
+
+    public boolean getEnableUniqueKeyPartialUpdate() {
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getEnableUniqueKeyPartialUpdate();
+    }
+
     public boolean isDuplicateWithoutKey() {
         return getKeysType() == KeysType.DUP_KEYS && getKeysNum() == 0;
     }
