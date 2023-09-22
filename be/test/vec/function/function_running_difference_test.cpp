@@ -43,7 +43,7 @@ TEST(FunctionRunningDifferenceTest, function_running_difference_test) {
                             {{(int32_t)3}, (int64_t)1},
                             {{(int32_t)5}, (int64_t)2}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
     {
         InputTypeSet input_types = {TypeIndex::Float64};
@@ -52,7 +52,7 @@ TEST(FunctionRunningDifferenceTest, function_running_difference_test) {
                             {{(double)2.33}, Null()},
                             {{(double)8.45}, (double)6.12},
                             {{(double)4.22}, (double)-4.23}};
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
     {
         InputTypeSet input_types = {TypeIndex::DateTime};
@@ -61,7 +61,7 @@ TEST(FunctionRunningDifferenceTest, function_running_difference_test) {
                             {{std::string("2019-07-18 12:00:06")}, (double)1000000.0},
                             {{std::string("2019-07-18 12:00:08")}, (double)2000000.0},
                             {{std::string("2019-07-18 12:00:10")}, (double)2000000.0}};
-        check_function<DataTypeTimeV2, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeTimeV2, true>(func_name, input_types, data_set));
     }
     {
         InputTypeSet input_types = {TypeIndex::Date};
@@ -70,7 +70,7 @@ TEST(FunctionRunningDifferenceTest, function_running_difference_test) {
                             {{std::string("2019-07-20")}, (int32_t)-30},
                             {{std::string("2019-07-22")}, (int32_t)2},
                             {{std::string("2019-08-01")}, (int32_t)10}};
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
     {
         InputTypeSet input_types = {TypeIndex::Date};
@@ -79,7 +79,7 @@ TEST(FunctionRunningDifferenceTest, function_running_difference_test) {
                             {{std::string("2019-07-20")}, (int32_t)-30},
                             {{std::string("2019-07-22")}, (int32_t)2},
                             {{std::string("2019-08-01")}, (int32_t)10}};
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
 }
 } // namespace doris::vectorized

@@ -278,7 +278,7 @@ template <typename ChannelPtrType>
 void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
                                                 Status st) {
     channel->set_receiver_eof(st);
-    channel->close(state);
+    static_cast<void>(channel->close(state));
 }
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
@@ -324,8 +324,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 if (serialized) {
                     auto cur_block = local_state._serializer.get_block()->to_block();
                     if (!cur_block.empty()) {
-                        local_state._serializer.serialize_block(
-                                &cur_block, block_holder->get_block(), local_state.channels.size());
+                        RETURN_IF_ERROR(local_state._serializer.serialize_block(
+                                &cur_block, block_holder->get_block(),
+                                local_state.channels.size()));
                     } else {
                         block_holder->get_block()->Clear();
                     }
