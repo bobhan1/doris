@@ -160,6 +160,9 @@ Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) 
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
+        LOG(INFO) << fmt::format(
+                "[TabletsChannel::incremental_open] _schema->is_partial_update(): {}",
+                _schema->is_partial_update());
         wrequest.table_schema_param = _schema;
 
         DeltaWriter* writer = nullptr;
@@ -420,6 +423,9 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
             continue;
         }
         tablet_cnt++;
+        LOG(INFO) << fmt::format(
+                "[TabletsChannel::_open_all_writers] _schema->is_partial_update(): {}",
+                _schema->is_partial_update());
         WriteRequest wrequest {
                 .tablet_id = tablet.tablet_id(),
                 .schema_hash = schema_hash,

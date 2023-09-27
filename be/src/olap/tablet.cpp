@@ -3281,6 +3281,18 @@ Status Tablet::commit_phase_update_delete_bitmap(
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
 
+    std::string msg = "===============\n";
+    for (const auto& rowset : specified_rowsets) {
+        msg += fmt::format("{},", rowset->version().to_string());
+    }
+    msg += fmt::format(
+            "[before "
+            "Tablet::calc_delete_bitmap][Tablet::commit_phase_update_delete_bitmap][txn_id:{}][cur_"
+            "version:{}]",
+            txn_id, cur_version);
+    msg += "\n===============\n";
+    LOG(INFO) << msg;
+
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
                                        cur_version, token, rowset_writer));
     size_t total_rows = std::accumulate(
@@ -3332,6 +3344,18 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
 
     OlapStopWatch watch;
     auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
+
+    std::string msg = "===============\n";
+    for (const auto& rowset : specified_rowsets) {
+        msg += fmt::format("{},", rowset->version().to_string());
+    }
+    msg += fmt::format(
+            "\n[before "
+            "Tablet::calc_delete_bitmap][Tablet::update_delete_bitmap][txn_id:{}][cur_version:{}]",
+            txn_id, cur_version);
+    msg += "\n===============\n";
+    LOG(INFO) << msg;
+
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
                                        cur_version - 1, token.get(), rowset_writer));
     RETURN_IF_ERROR(token->wait());

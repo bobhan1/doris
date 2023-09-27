@@ -34,6 +34,19 @@ Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset
         Version version = _rowset_meta->version();
         _is_cumulative = version.first != version.second;
     }
+
+    std::string msg;
+    if (_rowset_meta->tablet_schema()) {
+        msg += fmt::format("_rowset_meta->tablet_schema()->is_partial_update(): {}\n",
+                           _rowset_meta->tablet_schema()->is_partial_update());
+    }
+    if (schema) {
+        msg += fmt::format("schema->is_partial_update(): {}\n", schema->is_partial_update());
+    }
+    msg += fmt::format("_rowset_meta->tablet_schema() != nullptr: {}\n",
+                       _rowset_meta->tablet_schema() != nullptr);
+    LOG(INFO) << msg;
+
     // build schema from RowsetMeta.tablet_schema or Tablet.tablet_schema
     _schema = _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : schema;
 }
