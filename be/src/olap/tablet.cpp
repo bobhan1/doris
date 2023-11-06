@@ -3113,9 +3113,37 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         add_sentinel_mark_to_delete_bitmap(delete_bitmap.get(), rowsetids);
     }
 
+    {
+        std::string msg = fmt::format("[calc_segment_delete_bitmap]pos: {}\n", pos);
+        for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
+            msg += fmt::format("({}, {}),", std::get<0>(k).to_string(), std::get<1>(k));
+        }
+        LOG(INFO) << msg;
+    }
+
     if (pos > 0) {
         auto partial_update_info = rowset_writer->get_partial_update_info();
         DCHECK(partial_update_info);
+        {
+            std::string msg = fmt::format("[generate_new_block_for_partial_update]");
+            msg += "[read_plan_ori]: \n";
+            for (const auto& [rowsetid, segments_plan] : read_plan_ori) {
+                msg += fmt::format("[rowset_id={}, segments: ", rowsetid.to_string());
+                for (const auto& [segment_id, _] : segments_plan) {
+                    msg += fmt::format("{},", segment_id);
+                }
+                msg += "]\n";
+            }
+            msg += "[read_plan_update]: \n";
+            for (const auto& [rowsetid, segments_plan] : read_plan_update) {
+                msg += fmt::format("[rowset_id={}, segments: ", rowsetid.to_string());
+                for (const auto& [segment_id, _] : segments_plan) {
+                    msg += fmt::format("{},", segment_id);
+                }
+                msg += "]\n";
+            }
+            LOG(INFO) << msg;
+        }
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
                 rowset_schema, partial_update_info->missing_cids, partial_update_info->update_cids,
                 read_plan_ori, read_plan_update, rsid_to_rowset, &block));
@@ -3420,6 +3448,11 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     auto t2 = watch.get_elapse_time_us();
 
     _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
+    std::string msg = "[update_delete_bitmap][rowset_ids_to_del:";
+    for (const auto& id : rowset_ids_to_del) {
+        msg += fmt::format("{},", id.to_string());
+    }
+    msg += "]";
     for (const auto& to_del : rowset_ids_to_del) {
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
