@@ -3114,7 +3114,9 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     }
 
     {
-        std::string msg = fmt::format("[calc_segment_delete_bitmap]pos: {}\n", pos);
+        std::string msg = fmt::format(
+                "[calc_segment_delete_bitmap]pos: {}, is_partial_update: {}, rowset_writer: {}\n",
+                pos, is_partial_update, (void*)rowset_writer);
         for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
             msg += fmt::format("({}, {}),", std::get<0>(k).to_string(), std::get<1>(k));
         }
@@ -3251,6 +3253,16 @@ Status Tablet::generate_new_block_for_partial_update(
                     read_index_update[idx]);
         }
     }
+
+    {
+        std::string msg = "[generate_new_block_for_partial_update][old_block]:\n";
+        msg += old_block.dump_data();
+        msg += "\n[generate_new_block_for_partial_update][update_block]:\n";
+        msg += update_block.dump_data();
+        msg += "\n[generate_new_block_for_partial_update][full_block]:\n";
+        msg += output_block->dump_data();
+    }
+
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
