@@ -363,6 +363,15 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info.unique_key_merge_on_write) {
         std::unique_ptr<RowsetWriter> rowset_writer;
+        {
+            bool is_partial_update = tablet_txn_info.partial_update_info &&
+                                     tablet_txn_info.partial_update_info->is_partial_update;
+            LOG(INFO) << fmt::format(
+                    "[publish txn][mow] tablet_txn_info.partial_update_info: {}, "
+                    "is_partial_update: {}, version={}",
+                    (void*)tablet_txn_info.partial_update_info.get(), is_partial_update,
+                    version.to_string());
+        }
         tablet->create_transient_rowset_writer(rowset, &rowset_writer,
                                                tablet_txn_info.partial_update_info);
 

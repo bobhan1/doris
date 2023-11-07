@@ -106,6 +106,12 @@ BetaRowsetWriter::~BetaRowsetWriter() {
 
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
+    {
+        bool is_partial_update =
+                _context.partial_update_info && _context.partial_update_info->is_partial_update;
+        LOG(INFO) << fmt::format("[BetaRowsetWriter::init]@{}, is_partial_update: {}", (void*)this,
+                                 is_partial_update);
+    }
     _rowset_meta.reset(new RowsetMeta);
     _rowset_meta->set_fs(_context.fs);
     _rowset_meta->set_rowset_id(_context.rowset_id);
