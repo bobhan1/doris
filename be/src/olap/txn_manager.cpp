@@ -186,7 +186,12 @@ void TxnManager::set_txn_related_delete_bitmap(
         std::shared_ptr<PartialUpdateInfo> partial_update_info) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
-
+    {
+        bool is_partial_update = partial_update_info && partial_update_info->is_partial_update;
+        LOG(INFO) << fmt::format(
+                "[set_txn_related_delete_bitmap][tablet_info:{}][key:{}] is_partial_update: {}",
+                tablet_info.to_string(), key, is_partial_update);
+    }
     std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
     {
         // get tx
@@ -367,10 +372,11 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             bool is_partial_update = tablet_txn_info.partial_update_info &&
                                      tablet_txn_info.partial_update_info->is_partial_update;
             LOG(INFO) << fmt::format(
-                    "[publish txn][mow] tablet_txn_info.partial_update_info: {}, "
+                    "[publish txn][mow][tablet_info:{}][key:{}] "
+                    "tablet_txn_info.partial_update_info: {}, "
                     "is_partial_update: {}, version={}",
-                    (void*)tablet_txn_info.partial_update_info.get(), is_partial_update,
-                    version.to_string());
+                    tablet_info.to_string(), key, (void*)tablet_txn_info.partial_update_info.get(),
+                    is_partial_update, version.to_string());
         }
         tablet->create_transient_rowset_writer(rowset, &rowset_writer,
                                                tablet_txn_info.partial_update_info);
