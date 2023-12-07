@@ -54,6 +54,7 @@ suite("test_group_commit_interval_ms_property") {
                 DISTRIBUTED BY HASH (v) BUCKETS 8
                 PROPERTIES(  
                 "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "false",
                 "group_commit_interval_ms"="10000"
                 );
             """
