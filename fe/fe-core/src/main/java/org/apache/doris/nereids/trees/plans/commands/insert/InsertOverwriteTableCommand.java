@@ -113,7 +113,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             throw new AnalysisException("insert into overwrite only support OLAP and HMS table."
                     + " But current table type is " + targetTableIf.getType());
         }
-        this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+        this.logicalQuery = (LogicalPlan) InsertUtils.normalizeMaybeHintPlan(logicalQuery, targetTableIf);
         if (cte.isPresent()) {
             this.logicalQuery = (LogicalPlan) logicalQuery.withChildren(cte.get().withChildren(
                     this.logicalQuery.child(0)));

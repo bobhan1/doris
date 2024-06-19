@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalStatementHint;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -250,6 +251,17 @@ public class InsertUtils {
         }
     }
 
+    public static Plan normalizeMaybeHintPlan(Plan plan, TableIf table) {
+        if (plan instanceof LogicalStatementHint) {
+            LogicalStatementHint planWithHint = (LogicalStatementHint) plan;
+            Plan sinkPlan = (Plan) planWithHint.child();
+            Plan normalizedSinkPlan = InsertUtils.normalizePlan(sinkPlan, table);
+            return new LogicalStatementHint(planWithHint.getHints(), normalizedSinkPlan);
+        } else {
+            return normalizePlan(plan, table);
+        }
+    }
+
     /**
      * normalize plan to let it could be process correctly by nereids
      */
@@ -371,16 +383,21 @@ public class InsertUtils {
      */
     public static TableIf getTargetTable(Plan plan, ConnectContext ctx) {
         UnboundLogicalSink<? extends Plan> unboundTableSink;
-        if (plan instanceof UnboundTableSink) {
-            unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundHiveTableSink) {
-            unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundIcebergTableSink) {
-            unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
+        Plan sinkPlan = plan;
+        if (plan instanceof LogicalStatementHint) {
+            LogicalStatementHint planWithHint = (LogicalStatementHint) plan;
+            sinkPlan = (Plan) planWithHint.child();
+        }
+        if (sinkPlan instanceof UnboundTableSink) {
+            unboundTableSink = (UnboundTableSink<? extends Plan>) sinkPlan;
+        } else if (sinkPlan instanceof UnboundHiveTableSink) {
+            unboundTableSink = (UnboundHiveTableSink<? extends Plan>) sinkPlan;
+        } else if (sinkPlan instanceof UnboundIcebergTableSink) {
+            unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) sinkPlan;
         } else {
             throw new AnalysisException("the root of plan should be"
                     + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"
-                    + " but it is " + plan.getType());
+                    + " but it is " + sinkPlan.getType());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
         return RelationUtil.getDbAndTable(tableQualifier, ctx.getEnv()).second;
@@ -420,6 +437,6 @@ public class InsertUtils {
             }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
-        return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx));
+        return InsertUtils.normalizeMaybeHintPlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx));
     }
 }
