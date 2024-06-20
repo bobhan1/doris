@@ -222,9 +222,9 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.properties.StatementHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintOrdered;
+import org.apache.doris.nereids.properties.StatementHint;
 import org.apache.doris.nereids.properties.StatementHintSetVar;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -588,7 +588,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan sinkMaybeWithHint = sink;
         if (ctx.statementHint() != null) {
             sinkMaybeWithHint = withStatementHint(sink, ctx.statementHint());
-        }    
+        }
         Optional<LogicalPlan> cte = Optional.empty();
         if (ctx.cte() != null) {
             cte = Optional.ofNullable(withCte(plan, ctx.cte()));

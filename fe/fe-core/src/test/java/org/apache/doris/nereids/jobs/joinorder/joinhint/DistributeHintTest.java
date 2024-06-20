@@ -19,8 +19,8 @@ package org.apache.doris.nereids.jobs.joinorder.joinhint;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
-import org.apache.doris.nereids.properties.StatementHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.StatementHint;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalStatementHint;

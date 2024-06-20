@@ -251,6 +251,10 @@ public class InsertUtils {
         }
     }
 
+    /**
+     * normalize a plan which may be surrounded by LogicalStatementHint to
+     * let it could be process correctly by nereids
+     */
     public static Plan normalizeMaybeHintPlan(Plan plan, TableIf table) {
         if (plan instanceof LogicalStatementHint) {
             LogicalStatementHint planWithHint = (LogicalStatementHint) plan;
