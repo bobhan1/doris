@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('nereids_insert_with_hint') {
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_dml=true'
-    sql 'set enable_strict_consistency_dml=true'
+suite('test_partial_update_insert_with_hint') {
+    sql 'set enable_nereids_planner=false'
+    sql 'set experimental_enable_nereids_planner=false;'
+    sql 'set enable_fallback_to_original_planner=true'
+    sql 'set enable_nereids_dml=false'
 
-    def tableName = "nereids_insert_with_hint"
+    def tableName = "test_partial_update_insert_with_hint"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -35,13 +35,11 @@ suite('nereids_insert_with_hint') {
     """
     sql """insert into ${tableName} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1)"""
     qt_1 """ select * from ${tableName} order by id; """
-
     // partial update using insert stmt in non-strict mode,
     // existing rows should be updated and new rows should be inserted with unmentioned columns filled with default or null value
     sql """insert /*+ SET_VAR(enable_unique_key_partial_update=true, enable_insert_strict = false)*/
         into ${tableName}(id,score) values(2,400),(1,200),(4,400);"""
     qt_1 """ select * from ${tableName} order by id; """
-
     // enable_unique_key_partial_update=false in session variable
     // so it's a row update
     sql """ insert into ${tableName}(id,score) values(1,999);"""
@@ -49,7 +47,7 @@ suite('nereids_insert_with_hint') {
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
 
-    def tableName2 = "nereids_insert_with_hint2" 
+    def tableName2 = "test_partial_update_insert_with_hint2" 
     sql """ DROP TABLE IF EXISTS ${tableName2} """
     sql """
             CREATE TABLE ${tableName2} (
@@ -69,7 +67,6 @@ suite('nereids_insert_with_hint') {
             (2, "doris2", 2000, 223, 1, '2023-01-01'),
             (1, "doris", 1000, 123, 1, '2023-01-01');"""
     qt_2 "select * from ${tableName2} order by id;"
-
     // partial update with seq col
     sql """ insert /*+ SET_VAR(enable_unique_key_partial_update=true, enable_insert_strict = false)*/
             into ${tableName2}(id,score,update_time) values
@@ -86,7 +83,8 @@ suite('nereids_insert_with_hint') {
     sql """ DROP TABLE IF EXISTS ${tableName2}; """
 
 
-    def tableName3 = "nereids_insert_with_hint4"
+
+    def tableName3 = "test_partial_update_insert_with_hint4"
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """
             CREATE TABLE ${tableName3} (
@@ -100,7 +98,6 @@ suite('nereids_insert_with_hint') {
     """
     sql """insert into ${tableName3} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1),(3,"doris3",5000,34,345);"""
     qt_3 """ select * from ${tableName3} order by id; """
-
     // partial update with delete sign
     sql """ insert /*+ SET_VAR(enable_unique_key_partial_update=true, enable_insert_strict = false)*/ 
         into ${tableName3}(id,__DORIS_DELETE_SIGN__) values(2,1);"""
@@ -108,7 +105,7 @@ suite('nereids_insert_with_hint') {
     sql """ DROP TABLE IF EXISTS ${tableName3} """
 
 
-    def tableName4 = "nereids_insert_with_hint6"
+    def tableName4 = "test_partial_update_insert_with_hint6"
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """create table ${tableName4} (
         k int null,
@@ -121,7 +118,6 @@ suite('nereids_insert_with_hint') {
     "disable_auto_compaction"="true"); """
     sql "insert into ${tableName4} values(1,1,3,4),(2,2,4,5),(3,3,2,3),(4,4,1,2);"
     qt_4 "select * from ${tableName4} order by k;"
-
     sql "insert /*+ SET_VAR(enable_unique_key_partial_update=true) */into ${tableName4}(k,v) select v2,v3 from ${tableName4};"
     qt_4 "select * from ${tableName4} order by k;"
     sql """ DROP TABLE IF EXISTS ${tableName4}; """
