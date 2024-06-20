@@ -83,7 +83,7 @@ private:
     Status _rpc_status {Status::OK()};
 
     std::atomic<bool> _is_fetching {false};
-    std::atomic<bool> _is_backend_buffer_full {false};
+    // std::atomic<bool> _is_backend_buffer_full {false};
 
     std::pair<int64_t, size_t> _front_buffer {0, 0};
     std::pair<int64_t, size_t> _backend_buffer {0, 0};

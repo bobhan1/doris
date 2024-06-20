@@ -65,12 +65,12 @@ Status AutoIncIDBuffer::sync_request_ids(size_t length,
             return _rpc_status;
         }
 
-        DCHECK(_is_backend_buffer_full);
+        // DCHECK(_is_backend_buffer_full);
         {
             std::lock_guard<std::mutex> lock(_backend_buffer_latch);
             std::swap(_front_buffer, _backend_buffer);
         }
-        _is_backend_buffer_full = false;
+        // _is_backend_buffer_full = false;
 
         DCHECK_LE(length, _front_buffer.second);
         if (length > _front_buffer.second) {
@@ -86,9 +86,10 @@ Status AutoIncIDBuffer::sync_request_ids(size_t length,
 }
 
 Status AutoIncIDBuffer::_prefetch_ids(size_t length) {
-    if (_front_buffer.second > _low_water_level_mark() || _is_fetching || _is_backend_buffer_full) {
+    if (_front_buffer.second > _low_water_level_mark() || _is_fetching) {
         return Status::OK();
     }
+    _is_fetching = true;
     RETURN_IF_ERROR(_rpc_token->submit_func([=, this]() {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
@@ -127,10 +128,9 @@ Status AutoIncIDBuffer::_prefetch_ids(size_t length) {
             std::lock_guard<std::mutex> lock(_backend_buffer_latch);
             _backend_buffer = {result.start, result.length};
         }
-        _is_backend_buffer_full = true;
+        // _is_backend_buffer_full = true;
         _is_fetching = false;
     }));
-    _is_fetching = true;
     return Status::OK();
 }
 
