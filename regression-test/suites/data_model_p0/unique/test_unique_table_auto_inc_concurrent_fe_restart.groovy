@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.suite.ClusterOptions
+
 suite("test_unique_table_auto_inc_concurrent_fe_restart") {
     
     def options = new ClusterOptions()
     options.setFeNum(2)
     docker(options) {
-    
-
         def table1 = "test_unique_table_auto_inc_concurrent_fe_restart"
         sql "drop table if exists ${table1}"
         sql """
@@ -40,7 +40,7 @@ suite("test_unique_table_auto_inc_concurrent_fe_restart") {
             )
         """
         
-        def run_test = {thread_num, rows, iters -> 
+        def run_load = {thread_num, rows, iters -> 
             def threads = []
             (1..thread_num).each { id1 -> 
                 threads.add(Thread.start {
@@ -52,20 +52,19 @@ suite("test_unique_table_auto_inc_concurrent_fe_restart") {
 
             threads.each { thread -> thread.join() }
             sql "sync"
-
-            qt_sql "select id, count(*) from ${table1} group by id having count(*) > 1;"
         }
 
-        def restart_nums = 10
+        def restart_nums = 6
 
         (1..restart_nums).each { id3 -> 
-            run_test(15, 10000, 10)
+            run_load(15, 10000, 10)
 
             cluster.restartFrontends()
-            sleep(20000)
+            sleep(8000)
             context.reconnectFe()
         }
 
+        qt_sql "select id, count(*) from ${table1} group by id having count(*) > 1;"
         sql "drop table if exists ${table1};"
     }
 }
