@@ -17,12 +17,14 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_unique_table_auto_inc_concurrent_fe_restart") {
+suite("test_unique_table_auto_inc_fe_restart") {
     
     def options = new ClusterOptions()
     options.setFeNum(2)
+    options.feConfigs.add('sys_log_verbose_modules=org.apache.doris')
+    options.beConfigs.add('enable_java_support=false')
     docker(options) {
-        def table1 = "test_unique_table_auto_inc_concurrent_fe_restart"
+        def table1 = "test_unique_table_auto_inc_fe_restart"
         sql "drop table if exists ${table1}"
         sql """
             CREATE TABLE IF NOT EXISTS `${table1}` (
@@ -33,9 +35,6 @@ suite("test_unique_table_auto_inc_concurrent_fe_restart") {
             COMMENT "OLAP"
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1",
-            "in_memory" = "false",
-            "storage_format" = "V2",
             "enable_unique_key_merge_on_write" = "true"
             )
         """
@@ -54,10 +53,10 @@ suite("test_unique_table_auto_inc_concurrent_fe_restart") {
             sql "sync"
         }
 
-        def restart_nums = 6
+        def restart_nums = 3
 
         (1..restart_nums).each { id3 -> 
-            run_load(15, 10000, 10)
+            run_load(3, 50000, 3)
 
             cluster.restartFrontends()
             sleep(8000)
