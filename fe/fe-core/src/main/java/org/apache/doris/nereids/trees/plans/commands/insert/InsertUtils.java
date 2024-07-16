@@ -333,8 +333,12 @@ public class InsertUtils {
                             }
                         }
                         if (sameNameColumn == null) {
-                            throw new AnalysisException("Unknown column '"
-                                    + unboundLogicalSink.getColNames().get(i) + "' in target table.");
+                            if (unboundLogicalSink.getColNames().get(i).equals(Column.PSEUDO_PARTIAL_UPDATE_COL)) {
+                                sameNameColumn = Column.PSEUDO_PARTIAL_UPDATE_COLUMN;
+                            } else {
+                                throw new AnalysisException("Unknown column '"
+                                        + unboundLogicalSink.getColNames().get(i) + "' in target table.");
+                            }
                         }
                         if (sameNameColumn.getGeneratedColumnInfo() != null
                                 && !(values.get(i) instanceof DefaultValueSlot)) {

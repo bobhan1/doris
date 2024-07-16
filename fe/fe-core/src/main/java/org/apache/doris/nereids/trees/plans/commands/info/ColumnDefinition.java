@@ -694,6 +694,11 @@ public class ColumnDefinition {
                 Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris version hidden column", false);
     }
 
+    public static ColumnDefinition newPartialUpdateColumnDefinition() {
+        return new ColumnDefinition(Column.PSEUDO_PARTIAL_UPDATE_COL, VarcharType.MAX_VARCHAR_TYPE, false,
+                AggregateType.NONE, true, Optional.empty(), "doris partial update hidden column", false);
+    }
+
     public Optional<GeneratedColumnDesc> getGeneratedColumnDesc() {
         return generatedColumnDesc;
     }

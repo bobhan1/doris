@@ -89,6 +89,7 @@ public:
     }
 
     bool is_partial_update() const { return _is_partial_update; }
+    bool has_pseudo_update_col() const { return _has_pseudo_update_col; }
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
@@ -111,6 +112,7 @@ private:
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
     bool _is_partial_update = false;
+    bool _has_pseudo_update_col = false;
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
     std::string _auto_increment_column;

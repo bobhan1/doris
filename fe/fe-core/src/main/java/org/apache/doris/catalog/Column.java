@@ -67,6 +67,7 @@ public class Column implements GsonPostProcessable {
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
+    public static final String PSEUDO_PARTIAL_UPDATE_COL = "__DORIS_UPDATE_COLS__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     private static final String COLUMN_STRUCT_CHILDREN = "field";
     private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
@@ -76,6 +77,9 @@ public class Column implements GsonPostProcessable {
 
     public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, -1,
             null, "invalid", true, null, -1, null);
+
+    public static final Column PSEUDO_PARTIAL_UPDATE_COLUMN = new Column(PSEUDO_PARTIAL_UPDATE_COL, Type.VARCHAR, false,
+            AggregateType.NONE, true, -1, null, "doris pseudo update column", false, null, -1, null);
 
     @SerializedName(value = "name")
     private String name;

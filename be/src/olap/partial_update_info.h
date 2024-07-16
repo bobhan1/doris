@@ -22,11 +22,12 @@
 namespace doris {
 
 struct PartialUpdateInfo {
-    void init(const TabletSchema& tablet_schema, bool partial_update,
+    void init(const TabletSchema& tablet_schema, bool partial_update, bool has_pseudo_update_column,
               const std::set<string>& partial_update_cols, bool is_strict_mode,
               int64_t timestamp_ms, const std::string& timezone,
               const std::string& auto_increment_column) {
         is_partial_update = partial_update;
+        has_pseudo_update_col = has_pseudo_update_column;
         partial_update_input_columns = partial_update_cols;
 
         this->timestamp_ms = timestamp_ms;
@@ -42,7 +43,9 @@ struct PartialUpdateInfo {
                     can_insert_new_rows_in_partial_update = false;
                 }
             } else {
-                update_cids.emplace_back(i);
+                if (!tablet_column.is_pseudo_column()) {
+                    update_cids.emplace_back(i);
+                }
             }
             if (auto_increment_column == tablet_column.name()) {
                 is_schema_contains_auto_inc_column = true;
@@ -91,6 +94,7 @@ private:
 
 public:
     bool is_partial_update {false};
+    bool has_pseudo_update_col {false};
     std::set<std::string> partial_update_input_columns;
     std::vector<uint32_t> missing_cids;
     std::vector<uint32_t> update_cids;

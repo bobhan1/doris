@@ -410,13 +410,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         HashSet<String> partialUpdateCols = new HashSet<>();
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
+        boolean hasPseudoUpdateCol = olapTableSink.hasPseudoUpdateCol();
         if (isPartialUpdate) {
             for (Column col : olapTableSink.getCols()) {
                 partialUpdateCols.add(col.getName());
             }
+            if (hasPseudoUpdateCol) {
+                partialUpdateCols.add(Column.PSEUDO_PARTIAL_UPDATE_COL);
+            }
         }
         TupleDescriptor olapTuple = context.generateTupleDesc();
         List<Column> targetTableColumns = olapTableSink.getTargetTable().getFullSchema();
+        if (hasPseudoUpdateCol) {
+            targetTableColumns = Lists.newArrayList(targetTableColumns);
+            targetTableColumns.add(Column.PSEUDO_PARTIAL_UPDATE_COLUMN);
+        }
         for (Column column : targetTableColumns) {
             if (isPartialUpdate && !partialUpdateCols.contains(column.getName())) {
                 continue;
@@ -444,6 +452,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             );
         }
         sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
+        sink.setHasPseudoUpdateCol(hasPseudoUpdateCol);
         rootFragment.setSink(sink);
 
         return rootFragment;

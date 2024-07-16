@@ -108,6 +108,7 @@ public class OlapTableSink extends DataSink {
     // partial update input columns
     private boolean isPartialUpdate = false;
     private HashSet<String> partialUpdateInputColumns;
+    private boolean hasPseudoUpdateCol = false;
 
     // set after init called
     protected TDataSink tDataSink;
@@ -181,6 +182,10 @@ public class OlapTableSink extends DataSink {
     public void setPartialUpdateInputColumns(boolean isPartialUpdate, HashSet<String> columns) {
         this.isPartialUpdate = isPartialUpdate;
         this.partialUpdateInputColumns = columns;
+    }
+
+    public void setHasPseudoUpdateCol(boolean hasPseudoUpdateCol) {
+        this.hasPseudoUpdateCol = hasPseudoUpdateCol;
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -277,8 +282,13 @@ public class OlapTableSink extends DataSink {
             List<String> columns = Lists.newArrayList();
             List<TColumn> columnsDesc = Lists.newArrayList();
             List<TOlapTableIndex> indexDesc = Lists.newArrayList();
-            columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
-            for (Column column : indexMeta.getSchema()) {
+            List<Column> schema = indexMeta.getSchema();
+            if (hasPseudoUpdateCol) {
+                schema = Lists.newArrayList(schema);
+                schema.add(Column.PSEUDO_PARTIAL_UPDATE_COLUMN);
+            }
+            columns.addAll(schema.stream().map(Column::getNonShadowName).collect(Collectors.toList()));
+            for (Column column : schema) {
                 TColumn tColumn = column.toThrift();
                 // When schema change is doing, some modified column has prefix in name. Columns here
                 // is for the schema in rowset meta, which should be no column with shadow prefix.
@@ -316,6 +326,7 @@ public class OlapTableSink extends DataSink {
             schemaParam.addToIndexes(indexSchema);
         }
         schemaParam.setIsPartialUpdate(isPartialUpdate);
+        schemaParam.setHasPseudoUpdateCol(hasPseudoUpdateCol);
         if (isPartialUpdate) {
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);

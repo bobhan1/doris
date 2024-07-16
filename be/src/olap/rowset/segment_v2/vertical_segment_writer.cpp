@@ -808,8 +808,10 @@ Status VerticalSegmentWriter::write_batch() {
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
         for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
-            RETURN_IF_ERROR(
-                    _create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+            if (!_tablet_schema->column(cid).is_pseudo_column()) {
+                RETURN_IF_ERROR(
+                        _create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+            }
         }
         vectorized::Block full_block;
         for (auto& data : _batched_blocks) {

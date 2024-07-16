@@ -311,7 +311,9 @@ Status SegmentWriter::_create_writers(const TabletSchemaSPtr& tablet_schema,
                                       const std::vector<uint32_t>& col_ids) {
     _olap_data_convertor->reserve(col_ids.size());
     for (auto& cid : col_ids) {
-        RETURN_IF_ERROR(_create_column_writer(cid, tablet_schema->column(cid), tablet_schema));
+        if (!tablet_schema->column(cid).is_pseudo_column()) {
+            RETURN_IF_ERROR(_create_column_writer(cid, tablet_schema->column(cid), tablet_schema));
+        }
     }
     return Status::OK();
 }

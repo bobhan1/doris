@@ -117,7 +117,12 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
         Database database = pair.first;
         OlapTable table = pair.second;
-        boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType() == KeysType.UNIQUE_KEYS;
+        boolean hasPseudoUpdateCol = sink.getColNames().contains(Column.PSEUDO_PARTIAL_UPDATE_COL);
+        boolean isMowTable = table.getKeysType() == KeysType.UNIQUE_KEYS && table.getEnableUniqueKeyMergeOnWrite();
+        if (hasPseudoUpdateCol && !isMowTable) {
+            throw new AnalysisException("__DORIS_UPDATE_COLS__ can be only used in merge-on-write unique table.");
+        }
+        boolean isPartialUpdate = (isMowTable && (sink.isPartialUpdate() || hasPseudoUpdateCol));
 
         LogicalPlan child = ((LogicalPlan) sink.child());
         boolean childHasSeqCol = child.getOutput().stream()
@@ -139,6 +144,7 @@ public class BindSink implements AnalysisRuleFactory {
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
                 isPartialUpdate,
+                hasPseudoUpdateCol,
                 sink.getDMLCommandType(),
                 child);
 
@@ -204,8 +210,13 @@ public class BindSink implements AnalysisRuleFactory {
         }
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(
-                ctx, table, isPartialUpdate, boundSink, child);
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+                ctx, table, isPartialUpdate, hasPseudoUpdateCol, boundSink, child);
+        List<Column> schema = table.getFullSchema();
+        if (hasPseudoUpdateCol) {
+            schema = Lists.newArrayList(schema);
+            schema.add(Column.PSEUDO_PARTIAL_UPDATE_COLUMN);
+        }
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(schema, child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 
@@ -262,8 +273,8 @@ public class BindSink implements AnalysisRuleFactory {
     }
 
     private static Map<String, NamedExpression> getColumnToOutput(
-            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
-            TableIf table, boolean isPartialUpdate, LogicalTableSink<?> boundSink, LogicalPlan child) {
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx, TableIf table, boolean isPartialUpdate,
+                    boolean hasPseudoUpdateCol, LogicalTableSink<?> boundSink, LogicalPlan child) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
@@ -279,7 +290,12 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> generatedColumns = Lists.newArrayList();
         List<Column> materializedViewColumn = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
-        for (Column column : boundSink.getTargetTable().getFullSchema()) {
+        List<Column> schema = boundSink.getTargetTable().getFullSchema();
+        if (hasPseudoUpdateCol) {
+            schema = Lists.newArrayList(schema);
+            schema.add(Column.PSEUDO_PARTIAL_UPDATE_COLUMN);
+        }
+        for (Column column : schema) {
             if (column.getGeneratedColumnInfo() != null) {
                 generatedColumns.add(column);
                 continue;
@@ -450,7 +466,7 @@ public class BindSink implements AnalysisRuleFactory {
         if (boundSink.getCols().size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child);
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
@@ -491,7 +507,7 @@ public class BindSink implements AnalysisRuleFactory {
         if (boundSink.getCols().size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child);
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
@@ -579,6 +595,9 @@ public class BindSink implements AnalysisRuleFactory {
                 processedColsName.add(Column.SEQUENCE_COL);
             }
             return Pair.of(processedColsName.stream().map(cn -> {
+                if (cn.equals(Column.PSEUDO_PARTIAL_UPDATE_COL)) {
+                    return Column.PSEUDO_PARTIAL_UPDATE_COLUMN;
+                }
                 Column column = table.getColumn(cn);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",

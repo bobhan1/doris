@@ -1180,8 +1180,11 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     }
     tablet_schema_pb->set_keys_type(_keys_type);
     for (const auto& col : _cols) {
-        ColumnPB* column = tablet_schema_pb->add_column();
-        col->to_schema_pb(column);
+        // pseudo column should be discard and not be persistened in TabletSchemaPB
+        if (!col->is_pseudo_column()) {
+            ColumnPB* column = tablet_schema_pb->add_column();
+            col->to_schema_pb(column);
+        }
     }
     for (const auto& index : _indexes) {
         auto* index_pb = tablet_schema_pb->add_index();

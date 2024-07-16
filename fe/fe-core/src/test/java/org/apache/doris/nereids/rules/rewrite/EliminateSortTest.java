@@ -99,7 +99,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .limit(1, 1).build();
         plan = new LogicalOlapTableSink<>(new Database(), scan.getTable(), scan.getTable().getBaseSchema(),
                 new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
-                Collectors.toList()), false, DMLCommandType.NONE, plan);
+                Collectors.toList()), false, false, DMLCommandType.NONE, plan);
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .rewrite()
@@ -113,7 +113,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .build();
         plan = new LogicalOlapTableSink<>(new Database(), scan.getTable(), scan.getTable().getBaseSchema(),
                 new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
-                Collectors.toList()), false, DMLCommandType.NONE, plan);
+                Collectors.toList()), false, false, DMLCommandType.NONE, plan);
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .rewrite()
                 .nonMatch(logicalSort());
