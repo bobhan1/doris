@@ -18,21 +18,42 @@
 
 suite("test_pseduo_partial_col_update") {
 
-    def tbl1 = "test_pseduo_partial_col_update1"
-    sql """ DROP TABLE IF EXISTS ${tbl1} """
-    sql """CREATE TABLE `${tbl1}` (
-        c1 int, c2 int, c3 int
-        ) ENGINE=OLAP
-        UNIQUE KEY(c1)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(c1) BUCKETS 1
-        PROPERTIES ("replication_num" = "1"); """
-    sql "insert into ${tbl1} values(1,1,1),(2,2,2),(3,3,3);"
-    qt_sql "select * from ${tbl1} order by c1,c2,c3;"
+    def checkSchema = { tbl -> 
+        def res = sql_return_maparray "show tablets from ${tbl};"
+        for (def tablet : res) {
+            def (code, out, err) = curl("GET", tablet.MetaUrl)
+            assertEquals(code, 0)
+            assertTrue(!out.contains("__DORIS_UPDATE_COLS__"))
+        }
+    }
 
-    sql "set enable_insert_strict=false;"
-    sql """insert into ${tbl1}(c1,c2,c3,__DORIS_UPDATE_COLS__) values(4,4,4,"test");"""
-    qt_sql "select * from ${tbl1} order by c1,c2,c3;"
-    sql """insert into ${tbl1}(c1,c2,__DORIS_UPDATE_COLS__) values(1,10,"test");"""
-    qt_sql "select * from ${tbl1} order by c1,c2,c3;"
+    for (def memtable_on_sink : [false, true]) {
+        sql "set enable_memtable_on_sink_node=${memtable_on_sink};"
+        sql "sync;"
+        def tbl1 = "test_pseduo_partial_col_update1"
+        sql """ DROP TABLE IF EXISTS ${tbl1} """
+        sql """CREATE TABLE `${tbl1}` (
+            c1 int, c2 int, c3 int
+            ) ENGINE=OLAP
+            UNIQUE KEY(c1)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(c1) BUCKETS 1
+            PROPERTIES ("replication_num" = "1"); """
+        sql "insert into ${tbl1} values(1,1,1),(2,2,2),(3,3,3);"
+        qt_sql "select * from ${tbl1} order by c1,c2,c3;"
+
+        sql "set enable_insert_strict=false;"
+        sql """insert into ${tbl1}(c1,c2,c3,__DORIS_UPDATE_COLS__) values(4,4,4,"test"),(2,20,20,"test2");"""
+        checkSchema
+        qt_sql "select * from ${tbl1} order by c1,c2,c3;"
+        sql """insert into ${tbl1}(c1,c2,__DORIS_UPDATE_COLS__) values(1,10,"test"),(3,99,"test3");"""
+        checkSchema
+        qt_sql "select * from ${tbl1} order by c1,c2,c3;"
+
+        sql "set show_hidden_columns=true;"
+        qt_sql "select * from ${tbl1} order by c1,c2,c3;"
+
+        sql "set show_hidden_columns=false;"
+        sql "set enable_insert_strict=true;"
+    }
 }
