@@ -56,7 +56,6 @@ import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
-import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
@@ -583,24 +582,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         Map<Long, Map<Long, List<Long>>> backendToPartitionTablets = Maps.newHashMap();
         Map<Long, Partition> partitions = Maps.newHashMap();
         Map<Long, Set<Long>> tableToPartitions = Maps.newHashMap();
-        Map<Long, List<Long>> tableToTabletList = Maps.newHashMap();
-        Map<Long, TabletMeta> tabletToTabletMeta = Maps.newHashMap();
-        getPartitionInfo(tableList, tabletCommitInfos, tableToPartitions, partitions, backendToPartitionTablets,
-                tableToTabletList, tabletToTabletMeta);
+        getPartitionInfo(tableList, tabletCommitInfos, tableToPartitions, partitions, backendToPartitionTablets);
         if (backendToPartitionTablets.isEmpty()) {
             throw new UserException("The partition info is empty, table may be dropped, txnid=" + transactionId);
         }
 
-        Map<Long, Long> baseCompactionCnts = Maps.newHashMap();
-        Map<Long, Long> cumulativeCompactionCnts = Maps.newHashMap();
-        Map<Long, Long> cumulativePoints = Maps.newHashMap();
-        getDeleteBitmapUpdateLock(tableToPartitions, transactionId, tableToTabletList, tabletToTabletMeta,
-                baseCompactionCnts, cumulativeCompactionCnts, cumulativePoints);
+        getDeleteBitmapUpdateLock(tableToPartitions, transactionId);
         Map<Long, Long> partitionVersions = getPartitionVersions(partitions);
 
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = getCalcDeleteBitmapInfo(
-                backendToPartitionTablets, partitionVersions, baseCompactionCnts, cumulativeCompactionCnts,
-                        cumulativePoints);
+                backendToPartitionTablets, partitionVersions);
         sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos);
     }
 
@@ -608,9 +599,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<TabletCommitInfo> tabletCommitInfos,
             Map<Long, Set<Long>> tableToParttions,
             Map<Long, Partition> partitions,
-            Map<Long, Map<Long, List<Long>>> backendToPartitionTablets,
-            Map<Long, List<Long>> tableToTabletList,
-            Map<Long, TabletMeta> tabletToTabletMeta) {
+            Map<Long, Map<Long, List<Long>>> backendToPartitionTablets) {
         Map<Long, OlapTable> tableMap = Maps.newHashMap();
         for (OlapTable olapTable : tableList) {
             tableMap.put(olapTable.getId(), olapTable);
@@ -626,13 +615,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (!tableMap.containsKey(tableId)) {
                 continue;
             }
-
-            tabletToTabletMeta.put(tabletIds.get(i), tabletMeta);
-
-            if (!tableToTabletList.containsKey(tableId)) {
-                tableToTabletList.put(tableId, Lists.newArrayList());
-            }
-            tableToTabletList.get(tableId).add(tabletIds.get(i));
 
             long partitionId = tabletMeta.getPartitionId();
             long backendId = tabletCommitInfos.get(i).getBackendId();
@@ -665,32 +647,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private Map<Long, List<TCalcDeleteBitmapPartitionInfo>> getCalcDeleteBitmapInfo(
-            Map<Long, Map<Long, List<Long>>> backendToPartitionTablets, Map<Long, Long> partitionVersions,
-                    Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
-                            Map<Long, Long> cumulativePoints) {
+            Map<Long, Map<Long, List<Long>>> backendToPartitionTablets, Map<Long, Long> partitionVersions) {
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = Maps.newHashMap();
         for (Map.Entry<Long, Map<Long, List<Long>>> entry : backendToPartitionTablets.entrySet()) {
             List<TCalcDeleteBitmapPartitionInfo> partitionInfos = Lists.newArrayList();
-            for (Map.Entry<Long, List<Long>> partitionToTablets : entry.getValue().entrySet()) {
-                Long partitionId = partitionToTablets.getKey();
-                List<Long> tabletList = partitionToTablets.getValue();
+            for (Map.Entry<Long, List<Long>> partitionToTables : entry.getValue().entrySet()) {
+                Long partitionId = partitionToTables.getKey();
                 TCalcDeleteBitmapPartitionInfo partitionInfo = new TCalcDeleteBitmapPartitionInfo(partitionId,
                         partitionVersions.get(partitionId),
-                        tabletList);
-                if (!baseCompactionCnts.isEmpty() && !cumulativeCompactionCnts.isEmpty()
-                        && !cumulativePoints.isEmpty()) {
-                    List<Long> reqBaseCompactionCnts = Lists.newArrayList();
-                    List<Long> reqCumulativeCompactionCnts = Lists.newArrayList();
-                    List<Long> reqCumulativePoints = Lists.newArrayList();
-                    for (long tabletId : tabletList) {
-                        reqBaseCompactionCnts.add(baseCompactionCnts.get(tabletId));
-                        reqCumulativeCompactionCnts.add(cumulativeCompactionCnts.get(tabletId));
-                        reqCumulativePoints.add(cumulativePoints.get(tabletId));
-                    }
-                    partitionInfo.setBaseCompactionCnts(reqBaseCompactionCnts);
-                    partitionInfo.setCumulativeCompactionCnts(reqCumulativeCompactionCnts);
-                    partitionInfo.setCumulativePoints(reqCumulativePoints);
-                }
+                        partitionToTables.getValue());
                 partitionInfos.add(partitionInfo);
             }
             backendToPartitionInfos.put(entry.getKey(), partitionInfos);
@@ -698,20 +663,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return backendToPartitionInfos;
     }
 
-    private void getDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId,
-            Map<Long, List<Long>> tableToTabletList, Map<Long, TabletMeta> tabletToTabletMeta,
-                    Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
-                            Map<Long, Long> cumulativePoints) throws UserException {
-        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep")) {
-            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                    "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep");
-            int t = debugPoint.param("sleep_time", 8);
-            try {
-                Thread.sleep(t * 1000);
-            } catch (InterruptedException e) {
-                LOG.info("error ", e);
-            }
-        }
+    private void getDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId)
+            throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         int totalRetryTime = 0;
@@ -720,19 +673,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             builder.setTableId(entry.getKey())
                     .setLockId(transactionId)
                     .setInitiator(-1)
-                    .setExpiration(DELETE_BITMAP_LOCK_EXPIRATION_SECONDS)
-                    .setRequireCompactionStats(true);
-            List<Long> tabletList = tableToTabletList.get(entry.getKey());
-            for (Long tabletId : tabletList) {
-                TabletMeta tabletMeta = tabletToTabletMeta.get(tabletId);
-                TabletIndexPB.Builder tabletIndexBuilder = TabletIndexPB.newBuilder();
-                tabletIndexBuilder.setDbId(tabletMeta.getDbId());
-                tabletIndexBuilder.setTableId(tabletMeta.getTableId());
-                tabletIndexBuilder.setIndexId(tabletMeta.getIndexId());
-                tabletIndexBuilder.setPartitionId(tabletMeta.getPartitionId());
-                tabletIndexBuilder.setTabletId(tabletId);
-                builder.addTabletIndexes(tabletIndexBuilder);
-            }
+                    .setExpiration(DELETE_BITMAP_LOCK_EXPIRATION_SECONDS);
             final GetDeleteBitmapUpdateLockRequest request = builder.build();
             GetDeleteBitmapUpdateLockResponse response = null;
 
@@ -776,22 +717,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 }
                 throw new UserException("Failed to get delete bitmap lock, code: " + response.getStatus().getCode());
             }
-
-            // record tablet's latest compaction stats from meta service and send them to BEs
-            // to let BEs eliminate unnecessary sync_rowsets() calls if possible
-            List<Long> respBaseCompactionCnts = response.getBaseCompactionCntsList();
-            List<Long> respCumulativeCompactionCnts = response.getCumulativeCompactionCntsList();
-            List<Long> respCumulativePoints = response.getCumulativePointsList();
-            if (!respBaseCompactionCnts.isEmpty() && !respCumulativeCompactionCnts.isEmpty()
-                    && !respCumulativePoints.isEmpty()) {
-                for (int i = 0; i < tabletList.size(); i++) {
-                    long tabletId = tabletList.get(i);
-                    baseCompactionCnts.put(tabletId, respBaseCompactionCnts.get(i));
-                    cumulativeCompactionCnts.put(tabletId, respCumulativeCompactionCnts.get(i));
-                    cumulativePoints.put(tabletId, respCumulativePoints.get(i));
-                }
-            }
-            totalRetryTime += retryTime;
         }
         stopWatch.stop();
         if (totalRetryTime > 0 || stopWatch.getTime() > 20) {
