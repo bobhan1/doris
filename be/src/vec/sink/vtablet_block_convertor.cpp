@@ -61,11 +61,30 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         size_t rows, bool& has_filtered_rows) {
     DCHECK(input_block->rows() > 0);
 
+    std::set<size_t> skip_idxes;
+    if (_auto_inc_col_idx.has_value()) {
+        // fill the valus for auto-increment column
+        DCHECK_EQ(_is_partial_update_and_auto_inc, false);
+        if (!output_vexpr_ctxs.empty()) {
+            vectorized::Block tmp_block(input_block->get_columns_with_type_and_name());
+            size_t idx = _auto_inc_col_idx.value();
+            skip_idxes.insert(idx);
+            vectorized::ColumnsWithTypeAndName result_columns;
+            const auto& vexpr_ctx = output_vexpr_ctxs[idx];
+            int result_column_id = -1;
+            RETURN_IF_ERROR(vexpr_ctx->execute(&tmp_block, &result_column_id));
+            DCHECK(result_column_id != -1);
+            const auto& col = tmp_block.get_by_position(result_column_id);
+            input_block->get_by_position(idx) = {col.column, col.type, col.name};
+        }
+        RETURN_IF_ERROR(_fill_auto_inc_cols(input_block, rows));
+    }
+
     block = vectorized::Block::create_shared(input_block->get_columns_with_type_and_name());
     if (!output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-                output_vexpr_ctxs, *input_block, block.get()));
+                output_vexpr_ctxs, *input_block, block.get(), false, &skip_idxes));
     }
 
     if (_is_partial_update_and_auto_inc) {
@@ -80,10 +99,6 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         if (!_auto_inc_col_idx.has_value()) {
             RETURN_IF_ERROR(_partial_update_fill_auto_inc_cols(block.get(), rows));
         }
-    } else if (_auto_inc_col_idx.has_value()) {
-        // fill the valus for auto-increment columns
-        DCHECK_EQ(_is_partial_update_and_auto_inc, false);
-        RETURN_IF_ERROR(_fill_auto_inc_cols(block.get(), rows));
     }
 
     int filtered_rows = 0;

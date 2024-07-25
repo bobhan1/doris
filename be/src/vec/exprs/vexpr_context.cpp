@@ -339,11 +339,16 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
 // avoid this problem.
 Status VExprContext::get_output_block_after_execute_exprs(
         const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block,
-        bool do_projection) {
+        bool do_projection, std::set<size_t>* skip_idxes) {
     auto rows = input_block.rows();
     vectorized::Block tmp_block(input_block.get_columns_with_type_and_name());
     vectorized::ColumnsWithTypeAndName result_columns;
-    for (const auto& vexpr_ctx : output_vexpr_ctxs) {
+    for (size_t i = 0; i < output_vexpr_ctxs.size(); i++) {
+        if (skip_idxes != nullptr && skip_idxes->contains(i)) {
+            result_columns.emplace_back(tmp_block.get_by_position(i));
+            continue;
+        }
+        const auto& vexpr_ctx = output_vexpr_ctxs[i];
         int result_column_id = -1;
         RETURN_IF_ERROR(vexpr_ctx->execute(&tmp_block, &result_column_id));
         DCHECK(result_column_id != -1);
