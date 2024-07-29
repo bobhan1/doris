@@ -89,6 +89,8 @@ Status UnionSinkOperatorX::open(RuntimeState* state) {
 }
 
 Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
+    LOG_INFO("UnionSinkOperatorX::sink, in_block:\n{}\n,{}", in_block->dump_structure(),
+             in_block->dump_data());
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

@@ -96,6 +96,8 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
 }
 
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    LOG_INFO("UnionSourceOperatorX::get_block, block:\n{}\n,{}", block->dump_structure(),
+             block->dump_data());
     auto& local_state = get_local_state(state);
     Defer set_eos {[&]() {
         // the eos check of union operator is complex, need check all logical if you want modify
@@ -154,13 +156,16 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
                     "[UnionNode]const expr at {}'s count({}) not matched({} expected)",
                     _const_expr_list_idx, const_expr_lists_size, _const_expr_lists[0].size());
         }
-
+        LOG_INFO("UnionSourceOperatorX::get_next_const, tmp_block:\n{}\n,{}",
+                 tmp_block.dump_structure(), tmp_block.dump_data());
         std::vector<int> result_list(const_expr_lists_size);
         for (size_t i = 0; i < const_expr_lists_size; ++i) {
             RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute(&tmp_block,
                                                                                 &result_list[i]));
         }
         tmp_block.erase_not_in(result_list);
+        LOG_INFO("UnionSourceOperatorX::get_next_const after exec, tmp_block:\n{}\n,{}",
+                 tmp_block.dump_structure(), tmp_block.dump_data());
         if (tmp_block.columns() != mblock.columns()) {
             return Status::InternalError(
                     "[UnionNode]columns count of const expr block not matched ({} vs {})",

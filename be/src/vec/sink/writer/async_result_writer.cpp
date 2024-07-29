@@ -62,6 +62,8 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
         _dependency->set_ready();
     }
     if (rows) {
+        LOG_INFO("AsyncResultWriter::sink, add_block:\n{}\n,{}", add_block->dump_structure(),
+                 add_block->dump_data());
         _data_queue.emplace_back(std::move(add_block));
         if (_dependency && !_data_queue_is_available() && !_is_finished()) {
             _dependency->block();
@@ -129,6 +131,8 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             }
 
             auto block = _get_block_from_queue();
+            LOG_INFO("AsyncResultWriter::process_block, block:\n{}\n,{}", block->dump_structure(),
+                     block->dump_data());
             auto status = write(state, *block);
             if (!status.ok()) [[unlikely]] {
                 std::unique_lock l(_m);

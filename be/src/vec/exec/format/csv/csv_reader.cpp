@@ -541,7 +541,8 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
     *eof = (rows == 0);
     *read_rows = rows;
-
+    LOG_INFO("CsvReader::get_next_block, block:\n{}\n,{}", block->dump_structure(),
+             block->dump_data());
     return Status::OK();
 }
 

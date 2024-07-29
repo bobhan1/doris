@@ -379,6 +379,9 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
+    LOG_INFO("VTabletWriterV2::write, input_block:\n{}\n,{}", input_block.dump_structure(),
+             input_block.dump_data());
+
     if (_state->query_options().dry_run_query) {
         return status;
     }

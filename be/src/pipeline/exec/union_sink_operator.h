@@ -130,6 +130,8 @@ private:
 
     Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
                              vectorized::Block* res_block) {
+        LOG_INFO("UnionSinkOperatorX::materialize_block, src_block:\n{}\n,{}",
+                 src_block->dump_structure(), src_block->dump_data());
         auto& local_state = get_local_state(state);
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
@@ -140,6 +142,8 @@ private:
         }
         local_state._child_row_idx += src_block->rows();
         *res_block = {colunms};
+        LOG_INFO("UnionSinkOperatorX::materialize_block, res_block:\n{}\n,{}",
+                 res_block->dump_structure(), res_block->dump_data());
         return Status::OK();
     }
 };

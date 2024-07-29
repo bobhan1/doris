@@ -461,7 +461,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             bool has_filtered_rows = false;
             int64_t filtered_rows = 0;
             local_state._number_input_rows += input_rows;
-
+            LOG_INFO("ExchangeSinkOperatorX::sink, input_block:\n{}\n,{}", block->dump_structure(),
+                     block->dump_data());
             RETURN_IF_ERROR(local_state._row_distribution.generate_rows_distribution(
                     *block, convert_block, filtered_rows, has_filtered_rows,
                     local_state._row_part_tablet_ids, local_state._number_input_rows));

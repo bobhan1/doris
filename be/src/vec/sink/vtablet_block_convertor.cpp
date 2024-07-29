@@ -61,6 +61,9 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         size_t rows, bool& has_filtered_rows) {
     DCHECK(input_block->rows() > 0);
 
+    LOG_INFO("before exec output_exprs, input_block, output_vexpr_ctxs.size()={}:\n{}\n,{}",
+             output_vexpr_ctxs.size(), input_block->dump_structure(), input_block->dump_data());
+
     std::set<size_t> skip_idxes;
     if (_auto_inc_col_idx.has_value()) {
         // fill the valus for auto-increment column
@@ -86,6 +89,9 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 output_vexpr_ctxs, *input_block, block.get(), false, &skip_idxes));
     }
+
+    LOG_INFO("after exec output_exprs, block:\n{}\n,{}", block->dump_structure(),
+             block->dump_data());
 
     if (_is_partial_update_and_auto_inc) {
         // If this load is partial update and this table has a auto inc column,
@@ -117,6 +123,9 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         }
         _convert_to_dest_desc_block(block.get());
     }
+
+    LOG_INFO("after _convert_to_dest_desc_block, block:\n{}\n,{}", block->dump_structure(),
+             block->dump_data());
 
     return Status::OK();
 }

@@ -547,7 +547,8 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     MutableBlock mutable_output_block =
             VectorizedUtils::build_mutable_mem_reuse_block(block, *_dest_row_desc);
     auto& mutable_output_columns = mutable_output_block.mutable_columns();
-
+    LOG_INFO("VFileScanner::_convert_to_output_block, _src_block_ptr:\n{}\n,{}",
+             _src_block_ptr->dump_structure(), _src_block_ptr->dump_data());
     // for (auto slot_desc : _output_tuple_desc->slots()) {
     for (int i = 0; i < mutable_output_columns.size(); ++i) {
         auto slot_desc = _output_tuple_desc->slots()[i];
@@ -623,7 +624,8 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         mutable_output_columns[i]->insert_range_from(*column_ptr, 0, rows);
         ctx_idx++;
     }
-
+    LOG_INFO("VFileScanner::_convert_to_output_block, block:\n{}\n,{}", block->dump_structure(),
+             block->dump_data());
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     _src_block_ptr->clear();
 

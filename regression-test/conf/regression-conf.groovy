@@ -24,18 +24,18 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9939/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9939/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feSourceThriftAddress = "127.0.0.1:9020"
-feTargetThriftAddress = "127.0.0.1:9020"
+feSourceThriftAddress = "127.0.0.1:9929"
+feTargetThriftAddress = "127.0.0.1:9929"
 syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:8939"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -66,12 +66,12 @@ suites = {
 }
 
 // docker image
-image = ""
+image = "bh-cluster"
 dockerCoverageOutputDir = "" // if not empty, will save docker coverage output files
 dockerEndDeleteFiles = false
 dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
 // do run docker test because pipeline not support build image now
-excludeDockerTest = true
+excludeDockerTest = false
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -89,9 +89,8 @@ excludeSuites = "test_broker_load"
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "segcompaction_p2," +
     "workload_manager_p1," +
-    "cloud_p0/cache," +
-    "zzz_the_end_sentinel_do_not_touch," +
-    "dialect_compatible"// keep this line as the last line
+    "cloud_p0/cache" +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -204,7 +203,7 @@ hwYunSk="***********"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"
-extArrowFlightSqlPort = 8080
+extArrowFlightSqlPort = 9090
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
