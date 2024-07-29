@@ -925,6 +925,22 @@ public class Column implements GsonPostProcessable {
         }
     }
 
+    public boolean isReferToAutoIncCol(OlapTable tbl) {
+        if (defineExpr == null) {
+            return null;
+        } else {
+            List<SlotRef> slots = new ArrayList<>();
+            for (SlotRef slot : slots) {
+                Column col = tbl.getColumn(slots.ggetColumnName());
+                if (col != null && col.isAutoInc()) {
+                    return true;
+                }
+                
+            }
+            return false;
+        }
+    }
+
     public boolean isClusterKey() {
         return clusterKeyId != -1;
     }
