@@ -927,15 +927,15 @@ public class Column implements GsonPostProcessable {
 
     public boolean isReferToAutoIncCol(OlapTable tbl) {
         if (defineExpr == null) {
-            return null;
+            return false;
         } else {
             List<SlotRef> slots = new ArrayList<>();
+            defineExpr.collect(SlotRef.class, slots);
             for (SlotRef slot : slots) {
-                Column col = tbl.getColumn(slots.ggetColumnName());
+                Column col = tbl.getColumn(slot.getColumnName());
                 if (col != null && col.isAutoInc()) {
                     return true;
                 }
-                
             }
             return false;
         }

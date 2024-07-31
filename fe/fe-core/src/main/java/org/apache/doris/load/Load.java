@@ -28,6 +28,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -473,10 +474,14 @@ public class Load {
         Map<String, Expr> mvDefineExpr = Maps.newHashMap();
         for (Column column : tbl.getFullSchema()) {
             if (column.getDefineExpr() != null) {
-                if (column.getDefineExpr().getType().isInvalid()) {
-                    column.getDefineExpr().setType(column.getType());
+                if (tbl instanceof OlapTable && column.isReferToAutoIncCol((OlapTable) tbl)) {
+                    mvDefineExpr.put(column.getName(), new IntLiteral(0));
+                } else {
+                    if (column.getDefineExpr().getType().isInvalid()) {
+                        column.getDefineExpr().setType(column.getType());
+                    }
+                    mvDefineExpr.put(column.getName(), column.getDefineExpr());
                 }
-                mvDefineExpr.put(column.getName(), column.getDefineExpr());
             }
         }
 

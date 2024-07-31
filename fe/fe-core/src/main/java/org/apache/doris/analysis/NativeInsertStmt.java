@@ -1001,7 +1001,11 @@ public class NativeInsertStmt extends InsertStmt {
                     }
                     continue;
                 } else if (col.getDefineExpr() != null) {
-                    targetExpr = col.getDefineExpr().clone();
+                    if (targetTable instanceof OlapTable && col.isReferToAutoIncCol((OlapTable) targetTable)) {
+                        targetExpr = new IntLiteral(0);
+                    } else {
+                        targetExpr = col.getDefineExpr().clone();
+                    }
                 } else if (col.getDefaultValue() == null) {
                     targetExpr = NullLiteral.create(col.getType());
                 } else {
