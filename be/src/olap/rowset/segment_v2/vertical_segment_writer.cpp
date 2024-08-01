@@ -574,12 +574,14 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         for (auto seg_it : rs_it.second) {
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
+            bool use_row_store_column = (has_row_column && rowset->tablet_schema()->have_column(
+                                                                   BeConsts::ROW_STORE_COL));
             std::vector<uint32_t> rids;
             for (auto id_and_pos : seg_it.second) {
                 rids.emplace_back(id_and_pos.rid);
                 read_index[id_and_pos.pos] = read_idx++;
             }
-            if (has_row_column) {
+            if (use_row_store_column) {
                 auto st = _tablet->fetch_value_through_row_column(
                         rowset, *_tablet_schema, seg_it.first, rids, missing_cids, old_value_block);
                 if (!st.ok()) {

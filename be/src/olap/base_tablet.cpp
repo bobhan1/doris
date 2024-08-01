@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/delete_bitmap_calculator.h"
@@ -69,12 +70,15 @@ Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
         for (auto seg_it : rs_it.second) {
             auto rowset_iter = rsid_to_rowset.find(rs_it.first);
             CHECK(rowset_iter != rsid_to_rowset.end());
+            bool use_row_store_column =
+                    (has_row_column &&
+                     rowset_iter->second->tablet_schema()->have_column(BeConsts::ROW_STORE_COL));
             std::vector<uint32_t> rids;
             for (auto id_and_pos : seg_it.second) {
                 rids.emplace_back(id_and_pos.rid);
                 (*read_index)[id_and_pos.pos] = read_idx++;
             }
-            if (has_row_column) {
+            if (use_row_store_column) {
                 auto st = BaseTablet::fetch_value_through_row_column(rowset_iter->second,
                                                                      *tablet_schema, seg_it.first,
                                                                      rids, cids_to_read, block);
