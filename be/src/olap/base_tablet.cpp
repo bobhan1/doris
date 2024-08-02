@@ -70,9 +70,10 @@ Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
         for (auto seg_it : rs_it.second) {
             auto rowset_iter = rsid_to_rowset.find(rs_it.first);
             CHECK(rowset_iter != rsid_to_rowset.end());
+            auto rowset_schema = rowset_iter->second->tablet_schema();
             bool use_row_store_column =
-                    (has_row_column &&
-                     rowset_iter->second->tablet_schema()->have_column(BeConsts::ROW_STORE_COL));
+                    (has_row_column && rowset_schema->has_row_store_for_all_columns() &&
+                     rowset_schema->have_column(BeConsts::ROW_STORE_COL));
             std::vector<uint32_t> rids;
             for (auto id_and_pos : seg_it.second) {
                 rids.emplace_back(id_and_pos.rid);

@@ -741,8 +741,10 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
         for (auto seg_it : rs_it.second) {
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
-            bool use_row_store_column = (has_row_column && rowset->tablet_schema()->have_column(
-                                                                   BeConsts::ROW_STORE_COL));
+            auto rowset_schema = rowset->tablet_schema();
+            bool use_row_store_column =
+                    (has_row_column && rowset_schema->has_row_store_for_all_columns() &&
+                     rowset_schema->have_column(BeConsts::ROW_STORE_COL));
             std::vector<uint32_t> rids;
             for (auto id_and_pos : seg_it.second) {
                 rids.emplace_back(id_and_pos.rid);
