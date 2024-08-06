@@ -1219,6 +1219,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 
     {
         std::shared_lock meta_rlock(self->_meta_lock);
+        LOG_INFO("get header_lock, begin get_all_rs_id_unlocked(), tablet_id={}, txn_id={}",
+                 self->tablet_id(), txn_id);
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
         if (self->tablet_state() == TABLET_NOTREADY) {
             LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
@@ -1226,6 +1228,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
             return Status::OK();
         }
         RETURN_IF_ERROR(self->get_all_rs_id_unlocked(cur_version - 1, &cur_rowset_ids));
+        LOG_INFO("release header_lock, finish get_all_rs_id_unlocked() tablet_id={}, txn_id={}",
+                 self->tablet_id(), txn_id);
     }
     auto t2 = watch.get_elapse_time_us();
 

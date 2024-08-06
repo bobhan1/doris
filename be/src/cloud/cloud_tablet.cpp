@@ -584,6 +584,7 @@ void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
     CHECK(new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point)
             << "Unexpected cumulative point: " << new_point
             << ", origin: " << _cumulative_point.load();
+    LOG_INFO("tablet_id={}, set_cumu_point to {}", tablet_id(), new_point);
     _cumulative_point = new_point;
 }
 

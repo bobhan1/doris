@@ -106,8 +106,14 @@ public:
         return _cumulative_point.load(std::memory_order_relaxed);
     }
 
-    void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
-    void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
+    void set_base_compaction_cnt(int64_t cnt) {
+        LOG_INFO("tablet_id={}, set_base_cnt to {}", tablet_id(), cnt);
+        _base_compaction_cnt = cnt;
+    }
+    void set_cumulative_compaction_cnt(int64_t cnt) {
+        LOG_INFO("tablet_id={}, set_cumu_cnt to {}", tablet_id(), cnt);
+        _cumulative_compaction_cnt = cnt;
+    }
     void set_cumulative_layer_point(int64_t new_point);
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }

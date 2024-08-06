@@ -322,6 +322,8 @@ Status CloudBaseCompaction::modify_rowsets() {
 
     {
         std::unique_lock wrlock(_tablet->get_header_lock());
+        LOG_INFO("CloudBase get header_lock, begin update tablet stats, tablet_id={}, job_id={}",
+                 _tablet->tablet_id(), _uuid);
         // clang-format off
         cloud_tablet()->set_last_base_compaction_success_time(std::max(cloud_tablet()->last_base_compaction_success_time(), stats.last_base_compaction_time_ms()));
         cloud_tablet()->set_last_cumu_compaction_success_time(std::max(cloud_tablet()->last_cumu_compaction_success_time(), stats.last_cumu_compaction_time_ms()));
@@ -344,6 +346,10 @@ Status CloudBaseCompaction::modify_rowsets() {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                                     stats.num_rows(), stats.data_size());
         }
+        LOG_INFO(
+                "CloudBase release header_lock, finish update tablet stats, tablet_id={}, "
+                "job_id={}",
+                _tablet->tablet_id(), _uuid);
     }
     return Status::OK();
 }
