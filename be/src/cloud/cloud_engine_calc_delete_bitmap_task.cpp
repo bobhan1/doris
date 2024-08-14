@@ -140,6 +140,24 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     int64_t max_version = tablet->max_version_unlocked();
     int64_t t2 = MonotonicMicros();
 
+    int64_t base_compaction_cnt {-1};
+    int64_t cumulative_compaction_cnt {-1};
+    int64_t cumulative_point {-1};
+    {
+        std::shared_lock rlock(tablet->get_header_lock());
+        base_compaction_cnt = tablet->base_compaction_cnt();
+        cumulative_compaction_cnt = tablet->cumulative_compaction_cnt();
+        cumulative_point = tablet->cumulative_layer_point();
+    }
+
+    LOG_INFO(
+            "[Publish] compaction stats: _ms_base_compaction_cnt={}, base_compaction_cnt={}, "
+            "_ms_cumulative_compaction_cnt={}, cumulative_compaction_cnt={}, "
+            "_ms_cumulative_point={}, cumulative_point={}, txn_id={}, tablet_id={}",
+            _ms_base_compaction_cnt, base_compaction_cnt, _ms_cumulative_compaction_cnt,
+            cumulative_compaction_cnt, _ms_cumulative_point, cumulative_point, _transaction_id,
+            _tablet_id);
+
     auto should_sync_rowsets_produced_by_compaction = [&]() {
         if (_ms_base_compaction_cnt == -1) {
             return true;
@@ -147,13 +165,14 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
 
         // some compaction jobs finished on other BEs during this load job
         // we should sync rowsets and their delete bitmaps produced by compaction jobs
-        std::shared_lock rlock(tablet->get_header_lock());
-        return _ms_base_compaction_cnt > tablet->base_compaction_cnt() ||
-               _ms_cumulative_compaction_cnt > tablet->cumulative_compaction_cnt() ||
-               _ms_cumulative_point > tablet->cumulative_layer_point();
+        return _ms_base_compaction_cnt > base_compaction_cnt ||
+               _ms_cumulative_compaction_cnt > cumulative_compaction_cnt ||
+               _ms_cumulative_point > cumulative_point;
     };
     if (_version != max_version + 1 || should_sync_rowsets_produced_by_compaction()) {
         auto sync_st = tablet->sync_rowsets();
+        LOG_INFO("[Publish] tablet->sync_rowsets(), txn_id={}, tablet_id={}", _transaction_id,
+                 _tablet_id);
         if (sync_st.is<ErrorCode::INVALID_TABLET_STATE>()) [[unlikely]] {
             _engine_calc_delete_bitmap_task->add_succ_tablet_id(_tablet_id);
             LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
