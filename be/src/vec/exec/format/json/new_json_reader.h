@@ -202,6 +202,8 @@ private:
 
     // fe will add skip_bitmap_col to _file_slot_descs iff the target olaptable has skip_bitmap_col
     // and the current load is a flexible partial update
+    // flexible partial update can not be used when user specify jsonpaths, so we just fill the skip bitmap
+    // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
     bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
 
     RuntimeState* _state = nullptr;

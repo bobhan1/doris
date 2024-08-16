@@ -201,7 +201,7 @@ public class LoadScanProvider {
                 if (foundCol.isPresent() || shouldAddSequenceColumn(columnDescs)) {
                     columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                             new SlotRef(null, sequenceCol)));
-                } else if (!fileGroupInfo.isPartialUpdate()) {
+                } else if (!fileGroupInfo.isFixedPartialUpdate()) {
                     Column seqCol = olapTable.getFullSchema().stream()
                                     .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
                                     .findFirst().get();
@@ -221,7 +221,7 @@ public class LoadScanProvider {
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
                 formatType(context.fileGroup.getFileFormat()), fileGroupInfo.getHiddenColumns(),
-                fileGroupInfo.isPartialUpdate(), fileGroupInfo.isFlexiblePartialUpdate());
+                fileGroupInfo.isFixedPartialUpdate(), fileGroupInfo.isFlexiblePartialUpdate());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {

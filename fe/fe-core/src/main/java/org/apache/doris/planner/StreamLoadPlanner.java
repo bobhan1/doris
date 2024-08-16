@@ -143,25 +143,25 @@ public class StreamLoadPlanner {
         scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         boolean negative = taskInfo.getNegative();
         // get partial update related info
-        boolean isPartialUpdate = taskInfo.isPartialUpdate();
+        boolean isFixedPartialUpdate = taskInfo.isFixedPartialUpdate();
         boolean isFlexiblePartialUpdate = taskInfo.isFlexiblePartialUpdate();
-        if ((isPartialUpdate || isFlexiblePartialUpdate) && !destTable.getEnableUniqueKeyMergeOnWrite()) {
+        if ((isFixedPartialUpdate || isFlexiblePartialUpdate) && !destTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
-        if (isPartialUpdate && isFlexiblePartialUpdate) {
-            throw new AnalysisException("isPartialUpdate and isFlexiblePartialUpdate"
+        if (isFixedPartialUpdate && isFlexiblePartialUpdate) {
+            throw new AnalysisException("isFixedPartialUpdate and isFlexiblePartialUpdate"
                     + "can't be set to true bothly.");
         }
         if (isFlexiblePartialUpdate && !destTable.hasSkipBitmapColumn()) {
-            throw new UserException("Flexible partial update can only support table with skip bitmap hidden column. But table "
-                    + destTable.getName() + "doesn't have it");
+            throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
+                    + "But table " + destTable.getName() + "doesn't have it");
         }
         if (isFlexiblePartialUpdate && !destTable.getEnableLightSchemaChange()) {
-            throw new UserException("Flexible partial update can only support table with light_schema_change enabled. But table "
-                    + destTable.getName() + "'s property light_schema_change is false");
+            throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
+                    + "But table " + destTable.getName() + "'s property light_schema_change is false");
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
-        if (isPartialUpdate) {
+        if (isFixedPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
                 boolean existInExpr = false;
                 if (col.hasOnUpdateDefaultValue()) {
@@ -200,7 +200,7 @@ public class StreamLoadPlanner {
         }
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
-            if (isPartialUpdate && !partialUpdateInputColumns.contains(col.getName())) {
+            if (isFixedPartialUpdate && !partialUpdateInputColumns.contains(col.getName())) {
                 continue;
             }
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
@@ -265,7 +265,7 @@ public class StreamLoadPlanner {
         // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
                 fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
-                isPartialUpdate, isFlexiblePartialUpdate);
+                isFixedPartialUpdate, isFlexiblePartialUpdate);
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);
@@ -297,7 +297,7 @@ public class StreamLoadPlanner {
         int txnTimeout = timeout == 0 ? ConnectContext.get().getExecTimeout() : timeout;
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
                 taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), txnTimeout);
-        olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
+        olapTableSink.setPartialUpdateInputColumns(isFixedPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
