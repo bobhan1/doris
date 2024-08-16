@@ -490,6 +490,13 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
             }
         }
+        if (Config.enable_skip_delete_bitmap_column_by_default && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newSkipBitmapColumnDef(AggregateType.NONE));
+            }
+            // TODO(bobhan1): add support for mor table
+        }
 
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {

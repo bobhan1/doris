@@ -20,6 +20,7 @@ package org.apache.doris.task;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.LoadType;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
@@ -84,6 +85,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
     private boolean isPartialUpdate = false;
+    private LoadTask.UniquekeyUpdateMode uniquekeyUpdateMode = LoadTask.UniquekeyUpdateMode.UPSERT;
 
     private int skipLines = 0;
     private boolean enableProfile = false;
@@ -298,7 +300,17 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     @Override
     public boolean isPartialUpdate() {
-        return isPartialUpdate;
+        return uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.FLEXIBLE_PARTIAL_UPDATE || isPartialUpdate;
+    }
+
+    @Override
+    public LoadTask.UniquekeyUpdateMode getUniquekeyUpdateMode() {
+        return uniquekeyUpdateMode;
+    }
+
+    @Override
+    public boolean isFlexiblePartialUpdate() {
+        return uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.FLEXIBLE_PARTIAL_UPDATE;
     }
 
     @Override
@@ -451,7 +463,17 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (request.isSetEnableProfile()) {
             enableProfile = request.isEnableProfile();
         }
-        if (request.isSetPartialUpdate()) {
+        if (request.isSetUniqueKeyUpdateMode()) {
+            try {
+                uniquekeyUpdateMode = LoadTask.UniquekeyUpdateMode
+                        .valueOf(request.getUniqueKeyUpdateMode().toString());
+            } catch (IllegalArgumentException e) {
+                throw new UserException("unknown unique_key_update_mode: "
+                        + request.getUniqueKeyUpdateMode().toString());
+            }
+            isPartialUpdate = (uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.PARTIAL_UPDATE);
+        }
+        if (!request.isSetUniqueKeyUpdateMode() && request.isSetPartialUpdate()) {
             isPartialUpdate = request.isPartialUpdate();
         }
         if (request.isSetMemtableOnSinkNode()) {
