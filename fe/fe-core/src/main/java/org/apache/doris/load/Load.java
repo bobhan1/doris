@@ -336,6 +336,12 @@ public class Load {
                 }
                 copiedColumnExprs.add(columnDesc);
             }
+            if (hasSkipBitmapColumn && isFlexiblePartialUpdate) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("add hidden column {} to stream load task", Column.SKIP_BITMAP_COL);
+                }
+                copiedColumnExprs.add(new ImportColumnDesc(Column.SKIP_BITMAP_COL));
+            }
             if (hiddenColumns != null) {
                 for (String columnName : hiddenColumns) {
                     Column column = tbl.getColumn(columnName);
