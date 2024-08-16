@@ -200,6 +200,10 @@ private:
     Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
                                 bool* valid);
 
+    // fe will add skip_bitmap_col to _file_slot_descs iff the target olaptable has skip_bitmap_col
+    // and the current load is a flexible partial update
+    bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
+
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
@@ -283,6 +287,8 @@ private:
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
+
+    int32_t skip_bitmap_col_idx {-1};
 };
 
 } // namespace vectorized
