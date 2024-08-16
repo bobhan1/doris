@@ -259,7 +259,8 @@ public class Load {
      */
     public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
-        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, null, false, false);
+        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, null, false,
+                false, false);
     }
 
     /*
@@ -269,11 +270,12 @@ public class Load {
     public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
-            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean isPartialUpdate)
+            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean isPartialUpdate,
+            boolean isFlexiblePartialUpdate)
             throws UserException {
         rewriteColumns(columnDescs);
         initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer, srcTupleDesc, slotDescByName,
-                srcSlotIds, formatType, hiddenColumns, true, isPartialUpdate);
+                srcSlotIds, formatType, hiddenColumns, true, isPartialUpdate, isFlexiblePartialUpdate);
     }
 
     /*
@@ -288,7 +290,8 @@ public class Load {
             Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
             List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns,
-            boolean needInitSlotAndAnalyzeExprs, boolean isPartialUpdate) throws UserException {
+            boolean needInitSlotAndAnalyzeExprs, boolean isPartialUpdate,
+            boolean isFlexiblePartialUpdate) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
         // skip the mapping columns not exist in schema
@@ -304,10 +307,12 @@ public class Load {
                 copiedColumnExprs.add(importColumnDesc);
             }
         }
-        // check whether the OlapTable has sequenceCol
+        // check whether the OlapTable has sequenceCol and skipBitmapCol
         boolean hasSequenceCol = false;
-        if (tbl instanceof OlapTable && ((OlapTable) tbl).hasSequenceCol()) {
-            hasSequenceCol = true;
+        boolean hasSkipBitmapColumn = false;
+        if (tbl instanceof OlapTable) {
+            hasSequenceCol = ((OlapTable) tbl).hasSequenceCol();
+            hasSkipBitmapColumn = ((OlapTable) tbl).hasSkipBitmapColumn();
         }
 
         // If user does not specify the file field names, generate it by using base schema of table.

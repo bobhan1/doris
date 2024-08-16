@@ -144,8 +144,21 @@ public class StreamLoadPlanner {
         boolean negative = taskInfo.getNegative();
         // get partial update related info
         boolean isPartialUpdate = taskInfo.isPartialUpdate();
-        if (isPartialUpdate && !destTable.getEnableUniqueKeyMergeOnWrite()) {
+        boolean isFlexiblePartialUpdate = taskInfo.isFlexiblePartialUpdate();
+        if ((isPartialUpdate || isFlexiblePartialUpdate) && !destTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
+        }
+        if (isPartialUpdate && isFlexiblePartialUpdate) {
+            throw new AnalysisException("isPartialUpdate and isFlexiblePartialUpdate"
+                    + "can't be set to true bothly.");
+        }
+        if (isFlexiblePartialUpdate && !destTable.hasSkipBitmapColumn()) {
+            throw new UserException("Flexible partial update can only support table with skip bitmap hidden column. But table "
+                    + destTable.getName() + "doesn't have it");
+        }
+        if (isFlexiblePartialUpdate && !destTable.getEnableLightSchemaChange()) {
+            throw new UserException("Flexible partial update can only support table with light_schema_change enabled. But table "
+                    + destTable.getName() + "'s property light_schema_change is false");
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
@@ -252,7 +265,7 @@ public class StreamLoadPlanner {
         // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
                 fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
-                taskInfo.isPartialUpdate());
+                isPartialUpdate, isFlexiblePartialUpdate);
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);
