@@ -88,6 +88,7 @@ public class FileGroupInfo {
     private TFileType fileType;
     private List<String> hiddenColumns = null;
     private boolean isPartialUpdate = false;
+    private boolean isFlexiblePartialUpdate = false;
 
     // for broker load
     public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
@@ -109,7 +110,7 @@ public class FileGroupInfo {
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-            TFileType fileType, List<String> hiddenColumns, boolean isPartialUpdate) {
+            TFileType fileType, List<String> hiddenColumns, boolean isPartialUpdate, boolean isFlexiblePartialUpdate) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -123,6 +124,7 @@ public class FileGroupInfo {
         this.fileType = fileType;
         this.hiddenColumns = hiddenColumns;
         this.isPartialUpdate = isPartialUpdate;
+        this.isFlexiblePartialUpdate = isFlexiblePartialUpdate;
     }
 
     public Table getTargetTable() {
@@ -165,6 +167,10 @@ public class FileGroupInfo {
 
     public boolean isPartialUpdate() {
         return isPartialUpdate;
+    }
+
+    public boolean isFlexiblePartialUpdate() {
+        return isFlexiblePartialUpdate;
     }
 
     public void getFileStatusAndCalcInstance(FederationBackendPolicy backendPolicy) throws UserException {
