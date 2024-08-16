@@ -384,6 +384,7 @@ message TabletSchemaPB {
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
+    optional int32 skip_bitmap_col_idx = 29 [default = -1];
 }
 
 message TabletSchemaCloudPB {
