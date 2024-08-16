@@ -392,6 +392,7 @@ message TabletSchemaPB {
     optional int64 row_store_page_size = 27 [default=16384];
 
     optional bool variant_enable_flatten_nested = 28 [default=false];
+    optional int32 skip_bitmap_col_idx = 29 [default = -1];
 }
 
 message TabletSchemaCloudPB {
