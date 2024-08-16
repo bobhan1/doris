@@ -20,7 +20,6 @@ package org.apache.doris.task;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
-import org.apache.doris.analysis.LoadType;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
@@ -84,7 +83,6 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String headerType = "";
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
-    private boolean isPartialUpdate = false;
     private LoadTask.UniquekeyUpdateMode uniquekeyUpdateMode = LoadTask.UniquekeyUpdateMode.UPSERT;
 
     private int skipLines = 0;
@@ -299,8 +297,8 @@ public class StreamLoadTask implements LoadTaskInfo {
     }
 
     @Override
-    public boolean isPartialUpdate() {
-        return uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.FLEXIBLE_PARTIAL_UPDATE || isPartialUpdate;
+    public boolean isFixedPartialUpdate() {
+        return uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.FLEXIBLE_PARTIAL_UPDATE;
     }
 
     @Override
@@ -471,10 +469,9 @@ public class StreamLoadTask implements LoadTaskInfo {
                 throw new UserException("unknown unique_key_update_mode: "
                         + request.getUniqueKeyUpdateMode().toString());
             }
-            isPartialUpdate = (uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.PARTIAL_UPDATE);
         }
         if (!request.isSetUniqueKeyUpdateMode() && request.isSetPartialUpdate()) {
-            isPartialUpdate = request.isPartialUpdate();
+            uniquekeyUpdateMode.LoadTask.UniquekeyUpdateMode.FIXED_PARTIAL_UPDATE;
         }
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();

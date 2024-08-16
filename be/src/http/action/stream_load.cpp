@@ -620,7 +620,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     }
     StringCaseMap<TUniqueKeyUpdateMode::type> unique_key_update_mode_map = {
             {"UPSERT", TUniqueKeyUpdateMode::UPSERT},
-            {"PARTIAL_UPDATE", TUniqueKeyUpdateMode::PARTIAL_UPDATE},
+            {"FIXED_PARTIAL_UPDATE", TUniqueKeyUpdateMode::FIXED_PARTIAL_UPDATE},
             {"FLEXIBLE_PARTIAL_UPDATE", TUniqueKeyUpdateMode::FLEXIBLE_PARTIAL_UPDATE}};
     if (!http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty()) {
         std::string unique_key_update_mode_str = http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE);
