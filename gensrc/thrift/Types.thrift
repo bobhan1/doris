@@ -719,7 +719,7 @@ enum TMergeType {
 
 enum TUniqueKeyUpdateMode {
   UPSERT,
-  PARTIAL_UPDATE,
+  FIXED_PARTIAL_UPDATE,
   FLEXIBLE_PARTIAL_UPDATE
 }
 
