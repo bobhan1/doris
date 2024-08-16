@@ -618,7 +618,47 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_enable_profile(false);
         }
     }
-    if (!http_req->header(HTTP_PARTIAL_COLUMNS).empty()) {
+    StringCaseMap<TUniqueKeyUpdateMode::type> unique_key_update_mode_map = {
+            {"UPSERT", TUniqueKeyUpdateMode::UPSERT},
+            {"PARTIAL_UPDATE", TUniqueKeyUpdateMode::PARTIAL_UPDATE},
+            {"FLEXIBLE_PARTIAL_UPDATE", TUniqueKeyUpdateMode::FLEXIBLE_PARTIAL_UPDATE}};
+    if (!http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty()) {
+        std::string unique_key_update_mode_str = http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE);
+        auto iter = unique_key_update_mode_map.find(unique_key_update_mode_str);
+        if (iter != unique_key_update_mode_map.end()) {
+            TUniqueKeyUpdateMode::type unique_key_update_mode = iter->second;
+            if (unique_key_update_mode == TUniqueKeyUpdateMode::FLEXIBLE_PARTIAL_UPDATE) {
+                // check constraints when flexible partial update is enabled
+                if (ctx->format != TFileFormatType::FORMAT_JSON) {
+                    return Status::InvalidArgument(
+                            "flexible partial update only support json format as input file "
+                            "currently");
+                }
+                if (!http_req->header(HTTP_FUZZY_PARSE).empty() &&
+                    iequal(http_req->header(HTTP_FUZZY_PARSE), "true")) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when fuzzy_parse is enabled");
+                }
+                if (!http_req->header(HTTP_COLUMNS).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when columns is specified");
+                }
+                if (!http_req->header(HTTP_JSONPATHS).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when jsonpaths is specified");
+                }
+            }
+            request.__set_unique_key_update_mode(unique_key_update_mode);
+        } else {
+            return Status::InvalidArgument(
+                    "Invalid unique_key_partial_mode {}, must be UPSERT, PARTIAL_UPDATE or "
+                    "FLEXIBLE_PARTIAL_UPDATE",
+                    unique_key_update_mode_str);
+        }
+    }
+    if (http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty() &&
+        !http_req->header(HTTP_PARTIAL_COLUMNS).empty()) {
+        // only consider `partial_columns` parameter when `unique_key_update_mode` is not set
         if (iequal(http_req->header(HTTP_PARTIAL_COLUMNS), "true")) {
             request.__set_partial_update(true);
         } else {
