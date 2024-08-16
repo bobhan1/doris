@@ -391,6 +391,9 @@ Status VFileScanner::_init_src_block(Block* block) {
     for (auto& slot : _input_tuple_desc->slots()) {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
+        if (slot->is_skip_bitmap_col()) {
+            _skip_bitmap_col_idx = idx;
+        }
         if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
             RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
@@ -568,51 +571,53 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
         if (LIKELY(column_ptr->is_nullable())) {
-            const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            // clang-format off
+            const auto* nullable_column = reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            std::vector<BitmapValue>* skip_bitmaps {nullptr};
+            if (_should_process_skip_bitmap_col()) {
+                auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
+                        _src_block_ptr->get_by_position(_skip_bitmap_col_idx).column->assume_mutable().get());
+                skip_bitmaps = &(assert_cast<ColumnBitmap*>(
+                        skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get())->get_data());
+            }
+            // clang-format on
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
-                    if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
-                        !_src_block_ptr->get_by_position(_dest_slot_to_src_slot_index[dest_index])
-                                 .column->is_null_at(i)) {
-                        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                    // skip checks for non-mentioned columns in flexible partial update
+                    if (skip_bitmaps == nullptr ||
+                        !skip_bitmaps->at(i).contains(slot_desc->col_unique_id())) {
+                        // clang-format off
+                        if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
+                            !_src_block_ptr->get_by_position(_dest_slot_to_src_slot_index[dest_index]).column->is_null_at(i)) {
+                            RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
-                                    return _src_block_ptr->dump_one_line(i,
-                                                                         _num_of_columns_from_file);
+                                    return _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
                                     auto raw_value =
-                                            _src_block_ptr
-                                                    ->get_by_position(_dest_slot_to_src_slot_index
-                                                                              [dest_index])
-                                                    .column->get_data_at(i);
+                                            _src_block_ptr->get_by_position(_dest_slot_to_src_slot_index[dest_index]).column->get_data_at(i);
                                     std::string raw_string = raw_value.to_string();
                                     fmt::memory_buffer error_msg;
-                                    fmt::format_to(error_msg,
-                                                   "column({}) value is incorrect while strict "
-                                                   "mode is {}, "
-                                                   "src value is {}",
-                                                   slot_desc->col_name(), _strict_mode, raw_string);
+                                    fmt::format_to(error_msg,"column({}) value is incorrect while strict mode is {}, src value is {}",
+                                            slot_desc->col_name(), _strict_mode, raw_string);
                                     return fmt::to_string(error_msg);
                                 },
                                 &_scanner_eof));
-                        filter_map[i] = false;
-                    } else if (!slot_desc->is_nullable()) {
-                        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                            filter_map[i] = false;
+                        } else if (!slot_desc->is_nullable()) {
+                            RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
-                                    return _src_block_ptr->dump_one_line(i,
-                                                                         _num_of_columns_from_file);
+                                    return _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
                                     fmt::memory_buffer error_msg;
-                                    fmt::format_to(error_msg,
-                                                   "column({}) values is null while columns is not "
-                                                   "nullable",
-                                                   slot_desc->col_name());
+                                    fmt::format_to(error_msg, "column({}) values is null while columns is not nullable", slot_desc->col_name());
                                     return fmt::to_string(error_msg);
                                 },
                                 &_scanner_eof));
-                        filter_map[i] = false;
+                            filter_map[i] = false;
+                        }
+                        // clang-format on
                     }
                 }
             }
