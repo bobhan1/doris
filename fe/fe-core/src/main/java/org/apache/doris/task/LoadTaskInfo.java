@@ -108,11 +108,15 @@ public interface LoadTaskInfo {
 
     List<String> getHiddenColumns();
 
-    boolean isPartialUpdate();
+    boolean isFixedPartialUpdate();
 
-    LoadTask.UniquekeyUpdateMode getUniquekeyUpdateMode();
+    default LoadTask.UniquekeyUpdateMode getUniquekeyUpdateMode() {
+        return LoadTask.UniquekeyUpdateMode.UPSERT;
+    }
 
-    boolean isFlexiblePartialUpdate();
+    default boolean isFlexiblePartialUpdate() {
+        return false;
+    }
 
     default boolean getTrimDoubleQuotes() {
         return false;
