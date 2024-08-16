@@ -108,10 +108,10 @@ public class FileLoadScanNode extends FileScanNode {
     // Only for stream load/routine load job.
     public void setLoadInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
                             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-                            TFileType fileType, List<String> hiddenColumns, boolean isPartialUpdate,
+                            TFileType fileType, List<String> hiddenColumns, boolean isFixedPartialUpdate,
                             boolean isFlexiblePartialUpdate) {
-        FileGroupInfo fileGroupInfo = new FileGroupInfo(loadId, txnId, targetTable, brokerDesc,
-                fileGroup, fileStatus, strictMode, fileType, hiddenColumns, isPartialUpdate, isFlexiblePartialUpdate);
+        FileGroupInfo fileGroupInfo = new FileGroupInfo(loadId, txnId, targetTable, brokerDesc, fileGroup,
+                fileStatus, strictMode, fileType, hiddenColumns, isFixedPartialUpdate, isFlexiblePartialUpdate);
         fileGroupInfos.add(fileGroupInfo);
     }
 

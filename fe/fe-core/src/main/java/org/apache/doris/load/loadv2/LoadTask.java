@@ -63,7 +63,7 @@ public abstract class LoadTask extends MasterTask {
 
     public enum UniquekeyUpdateMode {
         UPSERT,
-        PARTIAL_UPDATE,
+        FIXED_PARTIAL_UPDATE,
         FLEXIBLE_PARTIAL_UPDATE
     }
 
