@@ -87,7 +87,7 @@ public class FileGroupInfo {
     // used for stream load, FILE_LOCAL or FILE_STREAM
     private TFileType fileType;
     private List<String> hiddenColumns = null;
-    private boolean isPartialUpdate = false;
+    private boolean isFixedPartialUpdate = false;
     private boolean isFlexiblePartialUpdate = false;
 
     // for broker load
@@ -110,7 +110,8 @@ public class FileGroupInfo {
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-            TFileType fileType, List<String> hiddenColumns, boolean isPartialUpdate, boolean isFlexiblePartialUpdate) {
+            TFileType fileType, List<String> hiddenColumns, boolean isFixedPartialUpdate,
+            boolean isFlexiblePartialUpdate) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -123,7 +124,7 @@ public class FileGroupInfo {
         this.strictMode = strictMode;
         this.fileType = fileType;
         this.hiddenColumns = hiddenColumns;
-        this.isPartialUpdate = isPartialUpdate;
+        this.isFixedPartialUpdate = isFixedPartialUpdate;
         this.isFlexiblePartialUpdate = isFlexiblePartialUpdate;
     }
 
@@ -165,8 +166,8 @@ public class FileGroupInfo {
         return hiddenColumns;
     }
 
-    public boolean isPartialUpdate() {
-        return isPartialUpdate;
+    public boolean isFixedPartialUpdate() {
+        return isFixedPartialUpdate;
     }
 
     public boolean isFlexiblePartialUpdate() {
