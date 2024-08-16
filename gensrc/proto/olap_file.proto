@@ -353,6 +353,12 @@ enum SortType {
     ZORDER  = 1;
 }
 
+enum UniqueKeyUpdateModePB {
+    UPSERT = 0;
+    FIXED_PARTIAL_UPDATE = 1;
+    FLEXIBLE_PARTIAL_UPDATE = 2;
+}
+
 // ATTN: When adding or deleting fields, please update `message TabletSchemaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message TabletSchemaPB {
@@ -385,6 +391,7 @@ message TabletSchemaPB {
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
     optional int32 skip_bitmap_col_idx = 29 [default = -1];
+    optional UniqueKeyUpdateModePB unique_key_partial_update_mode = 30 [default = UPSERT];
 }
 
 message TabletSchemaCloudPB {
@@ -616,4 +623,5 @@ message PartialUpdateInfoPB {
     optional bool is_schema_contains_auto_inc_column = 10 [default = false];
     repeated string default_values = 11;
     optional int64 max_version_in_flush_phase = 12 [default = -1];
+    optional UniqueKeyUpdateModePB unique_key_partial_update_mode = 13 [default = UPSERT];
 }
