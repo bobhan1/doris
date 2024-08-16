@@ -68,6 +68,7 @@ public class Column implements GsonPostProcessable {
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
+    public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     private static final String COLUMN_ARRAY_CHILDREN = "item";
@@ -446,6 +447,12 @@ public class Column implements GsonPostProcessable {
         // aggregationType is NONE for unique table with merge on write.
         return !visible && (aggregationType == AggregateType.REPLACE
                 || aggregationType == AggregateType.NONE) && nameEquals(VERSION_COL, true);
+    }
+
+    public boolean isSkipBitmapColumn() {
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE || aggregationType == null)
+                && nameEquals(SKIP_BITMAP_COL, true);
     }
 
     public PrimitiveType getDataType() {

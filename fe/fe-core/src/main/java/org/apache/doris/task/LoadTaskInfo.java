@@ -110,6 +110,10 @@ public interface LoadTaskInfo {
 
     boolean isPartialUpdate();
 
+    LoadTask.UniquekeyUpdateMode getUniquekeyUpdateMode();
+
+    boolean isFlexiblePartialUpdate();
+
     default boolean getTrimDoubleQuotes() {
         return false;
     }
