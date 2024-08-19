@@ -298,6 +298,7 @@ public class StreamLoadPlanner {
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
                 taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), txnTimeout);
         olapTableSink.setPartialUpdateInputColumns(isFixedPartialUpdate, partialUpdateInputColumns);
+        olapTableSink.setFlexiblePartialUpdate(isFlexiblePartialUpdate);
         olapTableSink.complete(analyzer);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
