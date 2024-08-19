@@ -37,20 +37,29 @@ struct RowsetWriterContext;
 struct RowsetId;
 
 struct PartialUpdateInfo {
-    void init(const TabletSchema& tablet_schema, bool partial_update,
-              const std::set<std::string>& partial_update_cols, bool is_strict_mode,
-              int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
-              const std::string& auto_increment_column, int64_t cur_max_version = -1);
+    void init(const TabletSchema& tablet_schema, bool fixed_partial_update,
+              bool flexible_partial_update, const std::set<std::string>& partial_update_cols,
+              bool is_strict_mode, int64_t timestamp_ms, int32_t nano_seconds,
+              const std::string& timezone, const std::string& auto_increment_column,
+              int64_t cur_max_version = -1);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
     Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema);
     std::string summary() const;
 
+    bool is_partial_update() const { return partial_update_mode != PartialUpdateModePB::NONE; }
+    bool is_fixed_partial_update() const {
+        return partial_update_mode == PartialUpdateModePB::FIXED;
+    }
+    bool is_flexible_partial_update() const {
+        return partial_update_mode == PartialUpdateModePB::FLEXIBLE;
+    }
+
 private:
     void _generate_default_values_for_missing_cids(const TabletSchema& tablet_schema);
 
 public:
-    bool is_partial_update {false};
+    PartialUpdateModePB partial_update_mode;
     int64_t max_version_in_flush_phase {-1};
     std::set<std::string> partial_update_input_columns;
     std::vector<uint32_t> missing_cids;
