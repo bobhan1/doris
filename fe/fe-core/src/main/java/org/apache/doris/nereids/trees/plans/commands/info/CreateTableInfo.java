@@ -501,6 +501,14 @@ public class CreateTableInfo {
                 }
             }
 
+            if (Config.enable_skip_delete_bitmap_column_by_default
+                    && keysType.equals(KeysType.UNIQUE_KEYS)) {
+                if (isEnableMergeOnWrite) {
+                    columns.add(ColumnDefinition.newSkipBitmapColumnDef(AggregateType.NONE));
+                }
+                // TODO(bobhan1): add support for mor table
+            }
+
             // validate partition
             partitionTableInfo.extractPartitionColumns();
             partitionTableInfo.validatePartitionInfo(
