@@ -117,9 +117,10 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _db_id = pschema.db_id();
     _table_id = pschema.table_id();
     _version = pschema.version();
-    _is_partial_update = pschema.partial_update();
+    _is_fixed_partial_update = pschema.partial_update();
+    _is_flexible_partial_update = pschema.is_flexible_partial_update();
     _is_strict_mode = pschema.is_strict_mode();
-    if (_is_partial_update) {
+    if (_is_fixed_partial_update) {
         _auto_increment_column = pschema.auto_increment_column();
         if (!_auto_increment_column.empty() && pschema.auto_increment_column_unique_id() == -1) {
             return Status::InternalError(
@@ -152,7 +153,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
-            if (!_is_partial_update ||
+            if (!_is_fixed_partial_update ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
                 auto it = slots_map.find(std::make_pair(
                         to_lower(pcolumn_desc.name()),
@@ -186,11 +187,13 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _db_id = tschema.db_id;
     _table_id = tschema.table_id;
     _version = tschema.version;
-    _is_partial_update = tschema.is_partial_update;
+    _is_fixed_partial_update = tschema.is_partial_update;
+    _is_flexible_partial_update =
+            tschema.__isset.is_flexible_partial_update && tschema.is_flexible_partial_update;
     if (tschema.__isset.is_strict_mode) {
         _is_strict_mode = tschema.is_strict_mode;
     }
-    if (_is_partial_update) {
+    if (_is_fixed_partial_update) {
         _auto_increment_column = tschema.auto_increment_column;
         if (!_auto_increment_column.empty() && tschema.auto_increment_column_unique_id == -1) {
             return Status::InternalError(
@@ -218,7 +221,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (const auto& tcolumn_desc : t_index.columns_desc) {
-            if (!_is_partial_update ||
+            if (!_is_fixed_partial_update ||
                 _partial_update_input_columns.contains(tcolumn_desc.column_name)) {
                 auto it = slots_map.find(
                         std::make_pair(to_lower(tcolumn_desc.column_name),
@@ -267,7 +270,8 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_db_id(_db_id);
     pschema->set_table_id(_table_id);
     pschema->set_version(_version);
-    pschema->set_partial_update(_is_partial_update);
+    pschema->set_partial_update(_is_fixed_partial_update);
+    pschema->set_is_flexible_partial_update(_is_flexible_partial_update);
     pschema->set_is_strict_mode(_is_strict_mode);
     pschema->set_auto_increment_column(_auto_increment_column);
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);
