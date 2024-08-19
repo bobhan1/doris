@@ -298,7 +298,7 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     @Override
     public boolean isFixedPartialUpdate() {
-        return uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.FLEXIBLE_PARTIAL_UPDATE;
+        return uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.FIXED_PARTIAL_UPDATE;
     }
 
     @Override
