@@ -211,7 +211,7 @@ private:
 private:
     int64_t _tablet_id;
     bool _enable_unique_key_mow = false;
-    bool _is_partial_update = false;
+    bool _is_fixed_partial_update = false;
     const KeysType _keys_type;
     std::shared_ptr<TabletSchema> _tablet_schema;
 

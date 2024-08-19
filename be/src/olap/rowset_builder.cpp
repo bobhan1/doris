@@ -275,7 +275,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     // For partial update, we need to fill in the entire row of data, during the calculation
     // of the delete bitmap. This operation is resource-intensive, and we need to minimize
     // the number of times it occurs. Therefore, we skip this operation here.
-    if (_partial_update_info->is_partial_update) {
+    if (_partial_update_info->is_partial_update()) {
         // for partial update, the delete bitmap calculation is done while append_block()
         // we print it's summarize logs here before commit.
         LOG(INFO) << fmt::format(
@@ -298,7 +298,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
 }
 
 Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
-    if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update) {
+    if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update()) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -418,7 +418,8 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
+    _partial_update_info->init(*_tablet_schema, table_schema_param->is_fixed_partial_update(),
+                               table_schema_param->is_flexible_partial_update(),
                                table_schema_param->partial_update_input_columns(),
                                table_schema_param->is_strict_mode(),
                                table_schema_param->timestamp_ms(), table_schema_param->timezone(),
