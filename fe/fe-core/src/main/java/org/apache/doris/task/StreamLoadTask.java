@@ -471,7 +471,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             }
         }
         if (!request.isSetUniqueKeyUpdateMode() && request.isSetPartialUpdate()) {
-            uniquekeyUpdateMode.LoadTask.UniquekeyUpdateMode.FIXED_PARTIAL_UPDATE;
+            uniquekeyUpdateMode = LoadTask.UniquekeyUpdateMode.FIXED_PARTIAL_UPDATE;
         }
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();

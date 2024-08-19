@@ -70,8 +70,8 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     _num_columns = _tablet_schema->num_columns();
     if (partial_update_info != nullptr) {
-        _is_partial_update = partial_update_info->is_partial_update;
-        if (_is_partial_update) {
+        _is_fixed_partial_update = partial_update_info->is_fixed_partial_update();
+        if (_is_fixed_partial_update) {
             _num_columns = partial_update_info->partial_update_input_columns.size();
             if (partial_update_info->is_schema_contains_auto_inc_column &&
                 !partial_update_info->is_input_columns_contains_auto_inc_column) {
@@ -193,7 +193,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
             RETURN_IF_CATCH_EXCEPTION(_init_agg_functions(&clone_block));
         }
         if (_tablet_schema->has_sequence_col()) {
-            if (_is_partial_update) {
+            if (_is_fixed_partial_update) {
                 // for unique key partial update, sequence column index in block
                 // may be different with the index in `_tablet_schema`
                 for (size_t i = 0; i < clone_block.columns(); i++) {
@@ -490,7 +490,7 @@ void MemTable::shrink_memtable_by_agg() {
 
 bool MemTable::need_flush() const {
     auto max_size = config::write_buffer_size;
-    if (_is_partial_update) {
+    if (_is_fixed_partial_update) {
         auto update_columns_size = _num_columns;
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > 1048576 ? max_size : 1048576;
