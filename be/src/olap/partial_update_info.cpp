@@ -30,11 +30,20 @@
 
 namespace doris {
 
-void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_update,
+void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool fixed_partial_update,
+                             bool flexible_partial_update,
                              const std::set<string>& partial_update_cols, bool is_strict_mode,
                              int64_t timestamp_ms, const std::string& timezone,
                              const std::string& auto_increment_column, int64_t cur_max_version) {
-    is_partial_update = partial_update;
+    DCHECK(!(fixed_partial_update && flexible_partial_update))
+            << "fixed_partial_update and flexible_partial_update can not be set simutanously!";
+    if (fixed_partial_update) {
+        partial_update_mode = PartialUpdateModePB::FIXED;
+    } else if (flexible_partial_update) {
+        partial_update_mode = PartialUpdateModePB::FLEXIBLE;
+    } else {
+        partial_update_mode = PartialUpdateModePB::NONE;
+    }
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     this->timestamp_ms = timestamp_ms;
@@ -58,12 +67,13 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_upd
     }
     this->is_strict_mode = is_strict_mode;
     is_input_columns_contains_auto_inc_column =
-            is_partial_update && partial_update_input_columns.contains(auto_increment_column);
+            is_fixed_partial_update() &&
+            partial_update_input_columns.contains(auto_increment_column);
     _generate_default_values_for_missing_cids(tablet_schema);
 }
 
 void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const {
-    partial_update_info_pb->set_is_partial_update(is_partial_update);
+    partial_update_info_pb->set_partial_update_mode(partial_update_mode);
     partial_update_info_pb->set_max_version_in_flush_phase(max_version_in_flush_phase);
     for (const auto& col : partial_update_input_columns) {
         partial_update_info_pb->add_partial_update_input_columns(col);
@@ -89,7 +99,16 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
 }
 
 void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
-    is_partial_update = partial_update_info_pb->is_partial_update();
+    if (!partial_update_info_pb->has_partial_update_mode()) {
+        // for backward compatibility
+        if (partial_update_info_pb->is_partial_update()) {
+            partial_update_mode = PartialUpdateModePB::FIXED;
+        } else {
+            partial_update_mode = PartialUpdateModePB::NONE;
+        }
+    } else {
+        partial_update_mode = partial_update_info_pb->partial_update_mode();
+    }
     max_version_in_flush_phase = partial_update_info_pb->has_max_version_in_flush_phase()
                                          ? partial_update_info_pb->max_version_in_flush_phase()
                                          : -1;
@@ -121,9 +140,23 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
 }
 
 std::string PartialUpdateInfo::summary() const {
+    std::string mode;
+    switch (partial_update_mode) {
+    case PartialUpdateModePB::NONE:
+        mode = "none";
+        break;
+    case PartialUpdateModePB::FIXED:
+        mode = "fixed partial update";
+        break;
+    case PartialUpdateModePB::FLEXIBLE:
+        mode = "flexible partial update";
+        break;
+    }
     return fmt::format(
-            "update_cids={}, missing_cids={}, is_strict_mode={}, max_version_in_flush_phase={}",
-            update_cids.size(), missing_cids.size(), is_strict_mode, max_version_in_flush_phase);
+            "mode={}, update_cids={}, missing_cids={}, is_strict_mode={}, "
+            "max_version_in_flush_phase={}",
+            mode, update_cids.size(), missing_cids.size(), is_strict_mode,
+            max_version_in_flush_phase);
 }
 
 Status PartialUpdateInfo::handle_non_strict_mode_not_found_error(
