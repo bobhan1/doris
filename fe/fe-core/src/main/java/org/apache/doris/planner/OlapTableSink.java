@@ -106,7 +106,8 @@ public class OlapTableSink extends DataSink {
     // specified partition ids.
     private List<Long> partitionIds;
     // partial update input columns
-    private boolean isPartialUpdate = false;
+    private boolean isFixedPartialUpdate = false;
+    private boolean isFlexiblePartialUpdate = false;
     private HashSet<String> partialUpdateInputColumns;
 
     // set after init called
@@ -178,9 +179,13 @@ public class OlapTableSink extends DataSink {
         }
     }
 
-    public void setPartialUpdateInputColumns(boolean isPartialUpdate, HashSet<String> columns) {
-        this.isPartialUpdate = isPartialUpdate;
+    public void setPartialUpdateInputColumns(boolean isFixedPartialUpdate, HashSet<String> columns) {
+        this.isFixedPartialUpdate = isFixedPartialUpdate;
         this.partialUpdateInputColumns = columns;
+    }
+
+    public void setFlexiblePartialUpdate(boolean isFlexiblePartialUpdate) {
+        this.isFlexiblePartialUpdate = isFlexiblePartialUpdate;
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -242,7 +247,15 @@ public class OlapTableSink extends DataSink {
         }
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
+        boolean isPartialUpdate = isFixedPartialUpdate || isFlexiblePartialUpdate;
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
+        if (isPartialUpdate) {
+            if (isFixedPartialUpdate) {
+                strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: FIXED_PARTIAL_UPDATE");
+            } else {
+                strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: FLEXIBLE_PARTIAL_UPDATE");
+            }
+        }
         return strBuilder.toString();
     }
 
@@ -316,8 +329,9 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
-        schemaParam.setIsPartialUpdate(isPartialUpdate);
-        if (isPartialUpdate) {
+        schemaParam.setIsPartialUpdate(isFixedPartialUpdate);
+        schemaParam.setIsFlexiblePartialUpdate(isFlexiblePartialUpdate);
+        if (isFixedPartialUpdate) {
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
             }
