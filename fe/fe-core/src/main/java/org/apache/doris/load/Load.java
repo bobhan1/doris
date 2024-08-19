@@ -454,9 +454,28 @@ public class Load {
                 if (formatType == TFileFormatType.FORMAT_ARROW) {
                     slotDesc.setColumn(new Column(realColName, colToType.get(realColName)));
                 } else {
-                    // columns default be varchar type
-                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    if (isFlexiblePartialUpdate && hasSkipBitmapColumn) {
+                        // we store the unique ids of missing columns in skip bitmap column in flexible partial update
+                        int colUniqueId = tblColumn.getUniqueId();
+                        if (realColName.equals(Column.SKIP_BITMAP_COL)) {
+                            // don't change the skip_bitmap_col's type to varchar becasue we will fill this column
+                            // in NewJsonReader manually rather than reading them from files as varchar type and then
+                            // converting them to their real type
+                            Column slotColumn = new Column(realColName, PrimitiveType.BITMAP);
+                            slotColumn.setUniqueId(colUniqueId);
+                            slotDesc.setColumn(slotColumn);
+                        } else {
+                            // columns default be varchar type
+                            Column slotColumn = new Column(realColName, PrimitiveType.VARCHAR);
+                            slotColumn.setUniqueId(colUniqueId);
+                            slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                            slotDesc.setColumn(slotColumn);
+                        }
+                    } else {
+                        // columns default be varchar type
+                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    }
                 }
 
                 // ISSUE A: src slot should be nullable even if the column is not nullable.
