@@ -1178,7 +1178,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     std::unique_ptr<RowsetWriter> transient_rs_writer;
     DeleteBitmapPtr delete_bitmap = txn_info->delete_bitmap;
     bool is_partial_update =
-            txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update;
+            txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update();
     if (is_partial_update) {
         transient_rs_writer = DORIS_TRY(self->create_transient_rowset_writer(
                 *rowset, txn_info->partial_update_info, txn_expiration));
