@@ -580,8 +580,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         rowset_schema = rowset_schema->copy_without_variant_extracted_columns();
     }
     // use for partial update
-    PartialUpdateReadPlan read_plan_ori;
-    PartialUpdateReadPlan read_plan_update;
+    FixedReadPlan read_plan_ori;
+    FixedReadPlan read_plan_update;
     int64_t conflict_rows = 0;
     int64_t new_generated_rows = 0;
 
@@ -744,9 +744,13 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     if (pos > 0) {
         auto partial_update_info = rowset_writer->get_partial_update_info();
         DCHECK(partial_update_info);
-        RETURN_IF_ERROR(generate_new_block_for_partial_update(
-                rowset_schema, partial_update_info.get(), read_plan_ori, read_plan_update,
-                rsid_to_rowset, &block));
+        if (partial_update_info->is_fixed_partial_update()) {
+            RETURN_IF_ERROR(generate_new_block_for_partial_update(
+                    rowset_schema, partial_update_info.get(), read_plan_ori, read_plan_update,
+                    rsid_to_rowset, &block));
+        } else {
+            // TODO(bobhan1): add support for flexible partial update
+        }
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
         if (new_generated_rows != rowset_writer->num_rows()) {
@@ -872,7 +876,7 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
     return Status::OK();
 }
 
-const signed char* BaseTablet::get_delete_sign_column_data(vectorized::Block& block,
+const signed char* BaseTablet::get_delete_sign_column_data(const vectorized::Block& block,
                                                            size_t rows_at_least) {
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
                 block.try_get_by_name(DELETE_SIGN);
@@ -908,7 +912,7 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
 
 Status BaseTablet::generate_new_block_for_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
-        const PartialUpdateReadPlan& read_plan_ori, const PartialUpdateReadPlan& read_plan_update,
+        const FixedReadPlan& read_plan_ori, const FixedReadPlan& read_plan_update,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block* output_block) {
     // do partial update related works
@@ -934,8 +938,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
     for (auto i = 0; i < update_cids.size(); ++i) {
         for (auto idx = 0; idx < update_rows; ++idx) {
             full_mutable_columns[update_cids[i]]->insert_from(
-                    *update_block.get_columns_with_type_and_name()[i].column.get(),
-                    read_index_update[idx]);
+                    *update_block.get_by_position(i).column, read_index_update[idx]);
         }
     }
 
@@ -985,7 +988,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
             } else if (old_block_delete_signs != nullptr &&
                        old_block_delete_signs[read_index_old[idx]] != 0) {
                 if (rs_column.has_default_value()) {
-                    mutable_column->insert_from(*mutable_default_value_columns[i].get(), 0);
+                    mutable_column->insert_from(*mutable_default_value_columns[i], 0);
                 } else if (rs_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             mutable_column.get())
@@ -994,9 +997,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
                     mutable_column->insert_default();
                 }
             } else {
-                mutable_column->insert_from(
-                        *old_block.get_columns_with_type_and_name()[i].column.get(),
-                        read_index_old[idx]);
+                mutable_column->insert_from(*old_block.get_by_position(i).column,
+                                            read_index_old[idx]);
             }
         }
     }

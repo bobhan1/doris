@@ -166,6 +166,8 @@ private:
                               std::vector<bool>& use_default_or_null_flag,
                               PartialUpdateStats& stats);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
+    Status _append_block_with_flexible_partial_content(RowsInBlock& data,
+                                                       vectorized::Block& full_block);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _generate_key_index(
             RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
