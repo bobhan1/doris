@@ -548,7 +548,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
-    PartialUpdateReadPlan read_plan;
+    FixedReadPlan read_plan;
 
     // locate rows in base data
     int64_t num_rows_updated = 0;
