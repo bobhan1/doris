@@ -159,6 +159,8 @@ private:
     void _set_max_key(const Slice& key);
     void _serialize_block_to_row_column(vectorized::Block& block);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
+    Status _append_block_with_flexible_partial_content(RowsInBlock& data,
+                                                       vectorized::Block& full_block);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _generate_key_index(
             RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,

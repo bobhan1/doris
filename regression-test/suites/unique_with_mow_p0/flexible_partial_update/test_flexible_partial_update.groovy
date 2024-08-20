@@ -38,8 +38,7 @@ suite('test_flexible_partial_update') {
         "store_row_column" = "false"); """
 
     sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
-    // order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_VERSION_COL__ from ${tableName};"
-    order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_COUNT(__DORIS_SKIP_BITMAP_COL__), BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,BITMAP_COUNT(__DORIS_SKIP_BITMAP_COL__),BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
 
     streamLoad {
@@ -51,5 +50,7 @@ suite('test_flexible_partial_update') {
         file "test1.json"
         time 1000000 // limit inflight 10s
     }
+
+    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,BITMAP_COUNT(__DORIS_SKIP_BITMAP_COL__),BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
 }
