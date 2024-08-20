@@ -35,6 +35,7 @@ class Block;
 }
 struct RowsetWriterContext;
 struct RowsetId;
+class BitmapValue;
 
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool fixed_partial_update,
@@ -98,7 +99,30 @@ public:
                                 const vectorized::Block* block) const;
 
 private:
-    std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>> plan;
+    std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> plan;
+};
+
+// TODO(bobhan1): add support for row_store_column for flexible_partial_update
+class FlexiblePartialUpdateReadPlan {
+public:
+    void prepare_to_read(const RowLocation& row_location, size_t pos,
+                         const BitmapValue& skip_bitmap);
+    Status read_columns_by_plan(const TabletSchema& tablet_schema,
+                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                vectorized::Block& block,
+                                std::map<uint32_t, std::map<uint32_t, uint32_t>>* read_index,
+                                const signed char* __restrict skip_map = nullptr) const;
+    Status fill_non_sort_key_columns(RowsetWriterContext* rowset_ctx,
+                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                const TabletSchema& tablet_schema, vectorized::Block& full_block,
+                                const std::vector<bool>& use_default_or_null_flag,
+                                bool has_default_or_nullable, const std::size_t segment_start_pos,
+                                const std::size_t block_start_pos, const vectorized::Block* block,
+                                std::vector<BitmapValue>* skip_bitmaps) const;
+
+private:
+    // rowset_id -> segment_id -> column unique id -> mappings
+    std::map<RowsetId, std::map<uint32_t, std::map<uint32_t, std::vector<RidAndPos>>>> plan;
 };
 
 } // namespace doris
