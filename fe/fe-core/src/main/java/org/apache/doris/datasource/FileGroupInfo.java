@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -87,8 +88,7 @@ public class FileGroupInfo {
     // used for stream load, FILE_LOCAL or FILE_STREAM
     private TFileType fileType;
     private List<String> hiddenColumns = null;
-    private boolean isFixedPartialUpdate = false;
-    private boolean isFlexiblePartialUpdate = false;
+    private TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
     // for broker load
     public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
@@ -110,8 +110,7 @@ public class FileGroupInfo {
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-            TFileType fileType, List<String> hiddenColumns, boolean isFixedPartialUpdate,
-            boolean isFlexiblePartialUpdate) {
+            TFileType fileType, List<String> hiddenColumns, TUniqueKeyUpdateMode uniqueKeyUpdateMode) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -124,8 +123,7 @@ public class FileGroupInfo {
         this.strictMode = strictMode;
         this.fileType = fileType;
         this.hiddenColumns = hiddenColumns;
-        this.isFixedPartialUpdate = isFixedPartialUpdate;
-        this.isFlexiblePartialUpdate = isFlexiblePartialUpdate;
+        this.uniqueKeyUpdateMode = uniqueKeyUpdateMode;
     }
 
     public Table getTargetTable() {
@@ -166,12 +164,16 @@ public class FileGroupInfo {
         return hiddenColumns;
     }
 
+    public TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return uniqueKeyUpdateMode;
+    }
+
     public boolean isFixedPartialUpdate() {
-        return isFixedPartialUpdate;
+        return uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
     }
 
     public boolean isFlexiblePartialUpdate() {
-        return isFlexiblePartialUpdate;
+        return uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
     }
 
     public void getFileStatusAndCalcInstance(FederationBackendPolicy backendPolicy) throws UserException {

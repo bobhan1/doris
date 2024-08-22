@@ -62,6 +62,7 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -143,32 +144,29 @@ public class StreamLoadPlanner {
         scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         boolean negative = taskInfo.getNegative();
         // get partial update related info
-        boolean isFixedPartialUpdate = taskInfo.isFixedPartialUpdate();
-        boolean isFlexiblePartialUpdate = taskInfo.isFlexiblePartialUpdate();
-        if ((isFixedPartialUpdate || isFlexiblePartialUpdate) && !destTable.getEnableUniqueKeyMergeOnWrite()) {
+        TUniqueKeyUpdateMode uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
+        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT && !destTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
 
         // try to convert to upsert if only has missing auto-increment key column
         boolean hasMissingColExceptAutoIncKey = false;
-        if (taskInfo.getColumnExprDescs().descs.isEmpty() && isFixedPartialUpdate) {
-            isFixedPartialUpdate = false;
+        if (taskInfo.getColumnExprDescs().descs.isEmpty()
+                && uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+            uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
         }
 
-        if (isFixedPartialUpdate && isFlexiblePartialUpdate) {
-            throw new AnalysisException("isFixedPartialUpdate and isFlexiblePartialUpdate"
-                    + "can't be set to true bothly.");
-        }
-        if (isFlexiblePartialUpdate && !destTable.hasSkipBitmapColumn()) {
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && !destTable.hasSkipBitmapColumn()) {
             throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
                     + "But table " + destTable.getName() + "doesn't have it");
         }
-        if (isFlexiblePartialUpdate && !destTable.getEnableLightSchemaChange()) {
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
+                && !destTable.getEnableLightSchemaChange()) {
             throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
                     + "But table " + destTable.getName() + "'s property light_schema_change is false");
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
-        if (isFixedPartialUpdate) {
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
             for (Column col : destTable.getFullSchema()) {
                 boolean existInExpr = false;
                 if (col.hasOnUpdateDefaultValue()) {
@@ -212,12 +210,13 @@ public class StreamLoadPlanner {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
         }
-        if (isFixedPartialUpdate && !hasMissingColExceptAutoIncKey) {
-            isFixedPartialUpdate = false;
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS && !hasMissingColExceptAutoIncKey) {
+            uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
         }
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
-            if (isFixedPartialUpdate && !partialUpdateInputColumns.contains(col.getName())) {
+            if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                    && !partialUpdateInputColumns.contains(col.getName())) {
                 continue;
             }
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
@@ -282,7 +281,7 @@ public class StreamLoadPlanner {
         // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
                 fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
-                isFixedPartialUpdate, isFlexiblePartialUpdate);
+                uniquekeyUpdateMode);
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);
@@ -314,8 +313,7 @@ public class StreamLoadPlanner {
         int txnTimeout = timeout == 0 ? ConnectContext.get().getExecTimeout() : timeout;
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
                 taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), txnTimeout);
-        olapTableSink.setPartialUpdateInputColumns(isFixedPartialUpdate, partialUpdateInputColumns);
-        olapTableSink.setFlexiblePartialUpdate(isFlexiblePartialUpdate);
+        olapTableSink.setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
