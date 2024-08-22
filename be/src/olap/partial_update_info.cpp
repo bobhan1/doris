@@ -31,20 +31,12 @@
 
 namespace doris {
 
-void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool fixed_partial_update,
-                             bool flexible_partial_update,
+void PartialUpdateInfo::init(const TabletSchema& tablet_schema,
+                             UniqueKeyUpdateModePB unique_key_update_mode,
                              const std::set<string>& partial_update_cols, bool is_strict_mode,
                              int64_t timestamp_ms, const std::string& timezone,
                              const std::string& auto_increment_column, int64_t cur_max_version) {
-    DCHECK(!(fixed_partial_update && flexible_partial_update))
-            << "fixed_partial_update and flexible_partial_update can not be set simutanously!";
-    if (fixed_partial_update) {
-        partial_update_mode = PartialUpdateModePB::FIXED;
-    } else if (flexible_partial_update) {
-        partial_update_mode = PartialUpdateModePB::FLEXIBLE;
-    } else {
-        partial_update_mode = PartialUpdateModePB::NONE;
-    }
+    partial_update_mode = unique_key_update_mode;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     this->timestamp_ms = timestamp_ms;
@@ -53,7 +45,7 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool fixed_parti
     update_cids.clear();
 
     for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
-        if (fixed_partial_update) {
+        if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
             auto tablet_column = tablet_schema.column(i);
             if (!partial_update_input_columns.contains(tablet_column.name())) {
                 missing_cids.emplace_back(i);
@@ -111,9 +103,9 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
     if (!partial_update_info_pb->has_partial_update_mode()) {
         // for backward compatibility
         if (partial_update_info_pb->is_partial_update()) {
-            partial_update_mode = PartialUpdateModePB::FIXED;
+            partial_update_mode = UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
         } else {
-            partial_update_mode = PartialUpdateModePB::NONE;
+            partial_update_mode = UniqueKeyUpdateModePB::UPSERT;
         }
     } else {
         partial_update_mode = partial_update_info_pb->partial_update_mode();
@@ -151,13 +143,13 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
 std::string PartialUpdateInfo::summary() const {
     std::string mode;
     switch (partial_update_mode) {
-    case PartialUpdateModePB::NONE:
-        mode = "none";
+    case UniqueKeyUpdateModePB::UPSERT:
+        mode = "upsert";
         break;
-    case PartialUpdateModePB::FIXED:
+    case UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS:
         mode = "fixed partial update";
         break;
-    case PartialUpdateModePB::FLEXIBLE:
+    case UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS:
         mode = "flexible partial update";
         break;
     }
