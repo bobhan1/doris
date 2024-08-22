@@ -25,6 +25,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -110,8 +111,8 @@ public interface LoadTaskInfo {
 
     boolean isFixedPartialUpdate();
 
-    default LoadTask.UniquekeyUpdateMode getUniquekeyUpdateMode() {
-        return LoadTask.UniquekeyUpdateMode.UPSERT;
+    default TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return TUniqueKeyUpdateMode.UPSERT;
     }
 
     default boolean isFlexiblePartialUpdate() {
