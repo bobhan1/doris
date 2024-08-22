@@ -645,9 +645,12 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(data.num_rows);
+
     const auto* delete_sign_column_data =
             BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_sign_column_data != nullptr);
+    int32_t delete_sign_col_unique_id =
+            _tablet_schema->column(_tablet_schema->delete_sign_idx()).unique_id();
 
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
@@ -702,7 +705,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         }
 
         // mark key with delete sign as deleted.
-        bool have_delete_sign = (delete_sign_column_data[block_pos] != 0);
+        bool have_delete_sign = (!skip_bitmap.contains(delete_sign_col_unique_id) &&
+                                 delete_sign_column_data[block_pos] != 0);
 
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
@@ -780,15 +784,6 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
                                                     _mow_context->rowset_ids);
     }
-
-    // all hidden columns will not be marked in skip bitmap
-    // row_store_col will be filled in _serialize_block_to_row_column
-    full_block.replace_by_position(
-            _tablet_schema->version_col_idx(),
-            data.block->get_by_position(_tablet_schema->version_col_idx()).column);
-    full_block.replace_by_position(
-            _tablet_schema->skip_bitmap_col_idx(),
-            data.block->get_by_position(_tablet_schema->skip_bitmap_col_idx()).column);
 
     // read to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_sort_key_columns(

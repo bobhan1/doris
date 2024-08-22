@@ -387,7 +387,7 @@ Status FlexibleReadPlan::fill_non_sort_key_columns(
         const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
     auto mutable_full_columns = full_block.mutate_columns();
 
-    // missing_cids are all non key columns' cids
+    // missing_cids are all non sort key columns' cids
     const auto& non_sort_key_cids = rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = tablet_schema.create_block_by_cids(non_sort_key_cids);
     CHECK_EQ(non_sort_key_cids.size(), old_value_block.columns());

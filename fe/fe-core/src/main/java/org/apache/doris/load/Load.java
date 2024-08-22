@@ -337,6 +337,12 @@ public class Load {
                 copiedColumnExprs.add(columnDesc);
             }
             if (hasSkipBitmapColumn && isFlexiblePartialUpdate) {
+                Preconditions.checkArgument(!specifyFileFieldNames);
+                Preconditions.checkArgument(hiddenColumns == null);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("add hidden column {} to stream load task", Column.DELETE_SIGN);
+                }
+                copiedColumnExprs.add(new ImportColumnDesc(Column.DELETE_SIGN));
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("add hidden column {} to stream load task", Column.SKIP_BITMAP_COL);
                 }
