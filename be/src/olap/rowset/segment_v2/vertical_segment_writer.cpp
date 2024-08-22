@@ -791,7 +791,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.row_pos,
             data.block, skip_bitmaps));
 
-    // TODO(bobhan1): should we replace the skip bitmap column with null literals here to reduce storage occupation?
+    // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps here to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table
 
     // row column should be filled here
