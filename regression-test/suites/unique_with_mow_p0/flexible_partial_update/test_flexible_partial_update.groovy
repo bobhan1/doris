@@ -42,7 +42,7 @@ suite('test_flexible_partial_update') {
         set 'format', 'json'
         set 'read_json_by_line', 'true'
         set 'strict_mode', 'false'
-        set 'unique_key_update_mode', 'FLEXIBLE_PARTIAL_UPDATE'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
         file "test1.json"
         time 1000000 // limit inflight 10s
     }
