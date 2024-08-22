@@ -61,12 +61,6 @@ public abstract class LoadTask extends MasterTask {
         }
     }
 
-    public enum UniquekeyUpdateMode {
-        UPSERT,
-        FIXED_PARTIAL_UPDATE,
-        FLEXIBLE_PARTIAL_UPDATE
-    }
-
     private static final Logger LOG = LogManager.getLogger(LoadTask.class);
     public static final Comparator<LoadTask> COMPARATOR = Comparator.comparing(LoadTask::getPriorityValue)
                 .thenComparingLong(LoadTask::getSignature);
