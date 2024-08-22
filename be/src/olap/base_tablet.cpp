@@ -700,8 +700,15 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 // So here we should read version 5's columns and build a new row, which is
                 // consists of version 6's update columns and version 5's origin columns
                 // here we build 2 read plan for ori values and update values
+
+                // - for fixed partial update, we should read update columns from current load's rowset
+                // and read missing columns from previous rowsets to create the final block
+                // - for flexible partial update, we should read all columns from current load's rowset
+                // and read non sort key columns from previous rowsets to create the final block
+                // So we only need to record rows to read for both mode partial update
                 read_plan_ori.prepare_to_read(loc, pos);
                 read_plan_update.prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos);
+
                 rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
                 ++pos;
                 // delete bitmap will be calculate when memtable flush and
@@ -749,7 +756,9 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                     rowset_schema, partial_update_info.get(), read_plan_ori, read_plan_update,
                     rsid_to_rowset, &block));
         } else {
-            // TODO(bobhan1): add support for flexible partial update
+            RETURN_IF_ERROR(generate_new_block_for_flexible_partial_update(
+                    rowset_schema, partial_update_info.get(), read_plan_ori, read_plan_update,
+                    rsid_to_rowset, &block));
         }
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
@@ -965,7 +974,6 @@ Status BaseTablet::generate_new_block_for_partial_update(
                 *rowset_schema, missing_cids, partial_update_info->default_values, old_block,
                 default_value_block));
     }
-    auto mutable_default_value_columns = default_value_block.mutate_columns();
 
     CHECK(update_rows >= old_rows);
 
@@ -988,7 +996,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
             } else if (old_block_delete_signs != nullptr &&
                        old_block_delete_signs[read_index_old[idx]] != 0) {
                 if (rs_column.has_default_value()) {
-                    mutable_column->insert_from(*mutable_default_value_columns[i], 0);
+                    mutable_column->insert_from(*default_value_block.get_by_position(i).column, 0);
                 } else if (rs_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             mutable_column.get())
@@ -1002,6 +1010,106 @@ Status BaseTablet::generate_new_block_for_partial_update(
             }
         }
     }
+    output_block->set_columns(std::move(full_mutable_columns));
+    VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
+    return Status::OK();
+}
+
+Status BaseTablet::generate_new_block_for_flexible_partial_update(
+        TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
+        const FixedReadPlan& read_plan_ori, const FixedReadPlan& read_plan_update,
+        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+        vectorized::Block* output_block) {
+    CHECK(output_block);
+
+    const auto& non_sort_key_cids = partial_update_info->missing_cids;
+    std::vector<uint32_t> all_cids(rowset_schema->num_columns());
+    std::iota(all_cids.begin(), all_cids.end(), 0);
+    auto old_block = rowset_schema->create_block_by_cids(non_sort_key_cids);
+    auto update_block = rowset_schema->create_block_by_cids(all_cids);
+
+    // rowid in the final block(start from 0, increase continuously) -> rowid to read in update_block
+    std::map<uint32_t, uint32_t> read_index_update;
+
+    // 1. read the current rowset first, if a row in the current rowset has delete sign mark
+    // we don't need to read values from old block for that row
+    RETURN_IF_ERROR(read_plan_update.read_columns_by_plan(*rowset_schema, all_cids, rsid_to_rowset,
+                                                          update_block, &read_index_update));
+    size_t update_rows = read_index_update.size();
+
+    // TODO(bobhan1): add the delete sign optimazation here
+    // // if there is sequence column in the table, we need to read the sequence column,
+    // // otherwise it may cause the merge-on-read based compaction policy to produce incorrect results
+    // const auto* __restrict new_block_delete_signs =
+    //         rowset_schema->has_sequence_col()
+    //                 ? nullptr
+    //                 : get_delete_sign_column_data(update_block, update_rows);
+
+    // 2. read previous rowsets
+    // rowid in the final block(start from 0, increase, may not continuous becasue we skip to read some rows) -> rowid to read in old_block
+    std::map<uint32_t, uint32_t> read_index_old;
+    RETURN_IF_ERROR(read_plan_ori.read_columns_by_plan(*rowset_schema, non_sort_key_cids,
+                                                       rsid_to_rowset, old_block, &read_index_old));
+    size_t old_rows = read_index_old.size();
+    DCHECK(update_rows >= old_rows);
+    const auto* __restrict old_block_delete_signs =
+            get_delete_sign_column_data(old_block, old_rows);
+    DCHECK(old_block_delete_signs != nullptr);
+
+    // 3. build default value block
+    auto default_value_block = old_block.clone_empty();
+    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(*rowset_schema, non_sort_key_cids,
+                                                             partial_update_info->default_values,
+                                                             old_block, default_value_block));
+
+    // 4. build the final block
+    auto full_mutable_columns = output_block->mutate_columns();
+    DCHECK(rowset_schema->has_skip_bitmap_col());
+    auto skip_bitmap_col_idx = rowset_schema->skip_bitmap_col_idx();
+    const std::vector<BitmapValue>* skip_bitmaps =
+            &(assert_cast<const vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
+                      update_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
+                      ->get_data());
+    for (std::size_t cid {0}; cid < rowset_schema->num_columns(); cid++) {
+        if (cid < rowset_schema->num_key_columns()) {
+            full_mutable_columns[cid] =
+                    std::move(*update_block.get_by_position(cid).column).mutate();
+        } else {
+            const auto& rs_column = rowset_schema->column(cid);
+            auto col_uid = rs_column.unique_id();
+            auto& cur_col = full_mutable_columns[cid];
+            for (auto idx = 0; idx < update_rows; ++idx) {
+                if (skip_bitmaps->at(idx).contains(col_uid)) {
+                    if (old_block_delete_signs != nullptr &&
+                        old_block_delete_signs[read_index_old[idx]] != 0) {
+                        if (rs_column.has_default_value()) {
+                            const auto& src_column =
+                                    *default_value_block
+                                             .get_by_position(cid -
+                                                              rowset_schema->num_key_columns())
+                                             .column;
+                            cur_col->insert_from(src_column, 0);
+                        } else if (rs_column.is_nullable()) {
+                            assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                                    cur_col.get())
+                                    ->insert_null_elements(1);
+                        } else {
+                            cur_col->insert_default();
+                        }
+                    } else {
+                        const auto& src_column =
+                                *old_block.get_by_position(cid - rowset_schema->num_key_columns())
+                                         .column;
+                        cur_col->insert_from(src_column, idx);
+                    }
+                } else {
+                    cur_col->insert_from(*update_block.get_by_position(cid).column, idx);
+                }
+            }
+        }
+        DCHECK(full_mutable_columns[cid]->size() == update_rows);
+    }
+
     output_block->set_columns(std::move(full_mutable_columns));
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
