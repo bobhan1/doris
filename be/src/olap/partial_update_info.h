@@ -112,13 +112,13 @@ public:
                                 vectorized::Block& old_value_block,
                                 std::map<uint32_t, std::map<uint32_t, uint32_t>>* read_index,
                                 const signed char* __restrict skip_map = nullptr) const;
-    Status fill_non_sort_key_columns(RowsetWriterContext* rowset_ctx,
-                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                const TabletSchema& tablet_schema, vectorized::Block& full_block,
-                                const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const std::size_t segment_start_pos,
-                                const std::size_t block_start_pos, const vectorized::Block* block,
-                                std::vector<BitmapValue>* skip_bitmaps) const;
+    Status fill_non_sort_key_columns(
+            RowsetWriterContext* rowset_ctx,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            const TabletSchema& tablet_schema, vectorized::Block& full_block,
+            const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
+            const std::size_t segment_start_pos, const std::size_t block_start_pos,
+            const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
 
 private:
     // rowset_id -> segment_id -> column unique id -> mappings

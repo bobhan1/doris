@@ -16,10 +16,6 @@
 // under the License.
 
 suite('test_flexible_partial_update') {
-    
-    sql "set global enable_auto_analyze=false;"
-    sql "set global enable_auto_analyze_internal_catalog=false;"
-    sql "sync;"
 
     def tableName = "test_flexible_partial_update"
     sql """ DROP TABLE IF EXISTS ${tableName} """
