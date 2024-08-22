@@ -22,6 +22,7 @@
 #include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/descriptors.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -117,10 +118,18 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _db_id = pschema.db_id();
     _table_id = pschema.table_id();
     _version = pschema.version();
-    _is_fixed_partial_update = pschema.partial_update();
-    _is_flexible_partial_update = pschema.is_flexible_partial_update();
+    if (pschema.has_unique_key_update_mode()) {
+        _unique_key_update_mode = pschema.unique_key_update_mode();
+    } else {
+        // for backward compatibility
+        if (pschema.has_partial_update() && pschema.partial_update()) {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+        } else {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPSERT;
+        }
+    }
     _is_strict_mode = pschema.is_strict_mode();
-    if (_is_fixed_partial_update) {
+    if (_unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         _auto_increment_column = pschema.auto_increment_column();
         if (!_auto_increment_column.empty() && pschema.auto_increment_column_unique_id() == -1) {
             return Status::InternalError(
@@ -153,7 +162,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
-            if (!_is_fixed_partial_update ||
+            if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
                 auto it = slots_map.find(std::make_pair(
                         to_lower(pcolumn_desc.name()),
@@ -187,13 +196,39 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _db_id = tschema.db_id;
     _table_id = tschema.table_id;
     _version = tschema.version;
-    _is_fixed_partial_update = tschema.is_partial_update;
-    _is_flexible_partial_update =
-            tschema.__isset.is_flexible_partial_update && tschema.is_flexible_partial_update;
+    if (tschema.__isset.unique_key_update_mode) {
+        switch (tschema.unique_key_update_mode) {
+        case doris::TUniqueKeyUpdateMode::UPSERT: {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPSERT;
+            break;
+        }
+        case doris::TUniqueKeyUpdateMode::UPDATE_FIXED_COLUMNS: {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+            break;
+        }
+        case doris::TUniqueKeyUpdateMode::UPDATE_FLEXIBLE_COLUMNS: {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
+            break;
+        }
+        default: {
+            return Status::InternalError(
+                    "Unknown unique_key_update_mode: {}, should be one of "
+                    "UPSERT/UPDATE_FIXED_COLUMNS/UPDATE_FLEXIBLE_COLUMNS",
+                    tschema.unique_key_update_mode);
+        }
+        }
+    } else {
+        // for backward compatibility
+        if (tschema.__isset.is_partial_update && tschema.is_partial_update) {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+        } else {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPSERT;
+        }
+    }
     if (tschema.__isset.is_strict_mode) {
         _is_strict_mode = tschema.is_strict_mode;
     }
-    if (_is_fixed_partial_update) {
+    if (_unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         _auto_increment_column = tschema.auto_increment_column;
         if (!_auto_increment_column.empty() && tschema.auto_increment_column_unique_id == -1) {
             return Status::InternalError(
@@ -221,7 +256,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (const auto& tcolumn_desc : t_index.columns_desc) {
-            if (!_is_fixed_partial_update ||
+            if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(tcolumn_desc.column_name)) {
                 auto it = slots_map.find(
                         std::make_pair(to_lower(tcolumn_desc.column_name),
@@ -270,8 +305,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_db_id(_db_id);
     pschema->set_table_id(_table_id);
     pschema->set_version(_version);
-    pschema->set_partial_update(_is_fixed_partial_update);
-    pschema->set_is_flexible_partial_update(_is_flexible_partial_update);
+    pschema->set_unique_key_update_mode(_unique_key_update_mode);
     pschema->set_is_strict_mode(_is_strict_mode);
     pschema->set_auto_increment_column(_auto_increment_column);
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);
