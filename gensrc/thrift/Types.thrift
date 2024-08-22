@@ -719,8 +719,8 @@ enum TMergeType {
 
 enum TUniqueKeyUpdateMode {
   UPSERT,
-  FIXED_PARTIAL_UPDATE,
-  FLEXIBLE_PARTIAL_UPDATE
+  UPDATE_FIXED_COLUMNS,
+  UPDATE_FLEXIBLE_COLUMNS
 }
 
 enum TSortType {
