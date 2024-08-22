@@ -20,6 +20,7 @@
 #include <butil/fast_rand.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/descriptors.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include <cstdint>
 #include <functional>
@@ -88,11 +89,17 @@ public:
         return _proto_schema;
     }
 
+    UniqueKeyUpdateModePB unique_key_update_mode() const { return _unique_key_update_mode; }
+
     bool is_partial_update() const {
-        return _is_fixed_partial_update || _is_flexible_partial_update;
+        return _unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT;
     }
-    bool is_fixed_partial_update() const { return _is_fixed_partial_update; }
-    bool is_flexible_partial_update() const { return _is_flexible_partial_update; }
+    bool is_fixed_partial_update() const {
+        return _unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+    }
+    bool is_flexible_partial_update() const {
+        return _unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
+    }
 
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
@@ -117,9 +124,8 @@ private:
     mutable POlapTableSchemaParam* _proto_schema = nullptr;
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
-    bool _is_fixed_partial_update = false;
+    UniqueKeyUpdateModePB _unique_key_update_mode {UniqueKeyUpdateModePB::UPSERT};
     std::set<std::string> _partial_update_input_columns;
-    bool _is_flexible_partial_update;
     bool _is_strict_mode = false;
     std::string _auto_increment_column;
     int32_t _auto_increment_column_unique_id;

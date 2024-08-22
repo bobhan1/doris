@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -108,10 +109,9 @@ public class FileLoadScanNode extends FileScanNode {
     // Only for stream load/routine load job.
     public void setLoadInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
                             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-                            TFileType fileType, List<String> hiddenColumns, boolean isFixedPartialUpdate,
-                            boolean isFlexiblePartialUpdate) {
+                            TFileType fileType, List<String> hiddenColumns, TUniqueKeyUpdateMode uniquekeyUpdateMode) {
         FileGroupInfo fileGroupInfo = new FileGroupInfo(loadId, txnId, targetTable, brokerDesc, fileGroup,
-                fileStatus, strictMode, fileType, hiddenColumns, isFixedPartialUpdate, isFlexiblePartialUpdate);
+                fileStatus, strictMode, fileType, hiddenColumns, uniquekeyUpdateMode);
         fileGroupInfos.add(fileGroupInfo);
     }
 

@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -83,7 +84,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String headerType = "";
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
-    private LoadTask.UniquekeyUpdateMode uniquekeyUpdateMode = LoadTask.UniquekeyUpdateMode.UPSERT;
+    private TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
     private int skipLines = 0;
     private boolean enableProfile = false;
@@ -298,17 +299,17 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     @Override
     public boolean isFixedPartialUpdate() {
-        return uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.FIXED_PARTIAL_UPDATE;
+        return uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
     }
 
     @Override
-    public LoadTask.UniquekeyUpdateMode getUniquekeyUpdateMode() {
+    public TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
         return uniquekeyUpdateMode;
     }
 
     @Override
     public boolean isFlexiblePartialUpdate() {
-        return uniquekeyUpdateMode == LoadTask.UniquekeyUpdateMode.FLEXIBLE_PARTIAL_UPDATE;
+        return uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
     }
 
     @Override
@@ -463,15 +464,17 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetUniqueKeyUpdateMode()) {
             try {
-                uniquekeyUpdateMode = LoadTask.UniquekeyUpdateMode
-                        .valueOf(request.getUniqueKeyUpdateMode().toString());
+                uniquekeyUpdateMode = request.getUniqueKeyUpdateMode();
             } catch (IllegalArgumentException e) {
                 throw new UserException("unknown unique_key_update_mode: "
                         + request.getUniqueKeyUpdateMode().toString());
             }
-        }
-        if (!request.isSetUniqueKeyUpdateMode() && request.isSetPartialUpdate()) {
-            uniquekeyUpdateMode = LoadTask.UniquekeyUpdateMode.FIXED_PARTIAL_UPDATE;
+        } else {
+            if (request.isSetPartialUpdate() && request.isPartialUpdate()) {
+                uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+            } else {
+                uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+            }
         }
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();
