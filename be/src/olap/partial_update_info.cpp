@@ -37,10 +37,11 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema,
                              const std::set<string>& partial_update_cols, bool is_strict_mode,
                              int64_t timestamp_ms, int32_t nano_seconds,
                              const std::string& timezone, const std::string& auto_increment_column,
-                             int64_t cur_max_version) {
+                             int32_t sequence_map_col_uid, int64_t cur_max_version) {
     partial_update_mode = unique_key_update_mode;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
+    sequence_map_col_unqiue_id = sequence_map_col_uid;
     this->timestamp_ms = timestamp_ms;
     this->nano_seconds = nano_seconds;
     this->timezone = timezone;
@@ -240,7 +241,8 @@ void FixedReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos)
 Status FixedReadPlan::read_columns_by_plan(
         const TabletSchema& tablet_schema, const std::vector<uint32_t> cids_to_read,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, vectorized::Block& block,
-        std::map<uint32_t, uint32_t>* read_index, const signed char* __restrict skip_map) const {
+        std::map<uint32_t, uint32_t>* read_index,
+        const signed char* __restrict delete_signs) const {
     bool has_row_column = tablet_schema.has_row_store_for_all_columns();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;
@@ -250,7 +252,7 @@ Status FixedReadPlan::read_columns_by_plan(
             CHECK(rowset_iter != rsid_to_rowset.end());
             std::vector<uint32_t> rids;
             for (auto [rid, pos] : mappings) {
-                if (skip_map && skip_map[pos]) {
+                if (delete_signs && delete_signs[pos]) {
                     continue;
                 }
                 rids.emplace_back(rid);
@@ -372,8 +374,7 @@ Status FlexibleReadPlan::read_columns_by_plan(
         const TabletSchema& tablet_schema,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block& old_value_block,
-        std::map<uint32_t, std::map<uint32_t, uint32_t>>* read_index,
-        const signed char* __restrict skip_map) const {
+        std::map<uint32_t, std::map<uint32_t, uint32_t>>* read_index) const {
     auto mutable_columns = old_value_block.mutate_columns();
 
     // cid -> next rid to fill in block
@@ -392,9 +393,6 @@ Status FlexibleReadPlan::read_columns_by_plan(
                 DCHECK(cid >= tablet_schema.num_key_columns());
                 std::vector<uint32_t> rids;
                 for (auto [rid, pos] : mappings) {
-                    if (skip_map && skip_map[pos]) {
-                        continue;
-                    }
                     rids.emplace_back(rid);
                     (*read_index)[cid][pos] = next_read_idx[cid]++;
                 }
@@ -427,8 +425,8 @@ Status FlexibleReadPlan::fill_non_sort_key_columns(
 
     // cid -> segment pos to write -> rowid to read in old_value_block
     std::map<uint32_t, std::map<uint32_t, uint32_t>> read_index;
-    RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, rsid_to_rowset, old_value_block,
-                                         &read_index, nullptr));
+    RETURN_IF_ERROR(
+            read_columns_by_plan(tablet_schema, rsid_to_rowset, old_value_block, &read_index));
     // !!!ATTENTION!!!: columns in old_value_block may have different size because every row has different columns to update
 
     const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(old_value_block);

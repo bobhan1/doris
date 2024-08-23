@@ -77,7 +77,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
                 set 'strict_mode', 'false'
                 set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
                 file "test1.json"
-                time 1000000
+                time 20000
             }
         }
 
@@ -91,7 +91,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
                 set 'strict_mode', 'false'
                 set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
                 file "test2.json"
-                time 1000000
+                time 20000
             }
         }
 

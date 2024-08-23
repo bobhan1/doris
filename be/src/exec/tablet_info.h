@@ -113,6 +113,7 @@ public:
     void set_timezone(std::string timezone) { _timezone = timezone; }
     std::string timezone() const { return _timezone; }
     bool is_strict_mode() const { return _is_strict_mode; }
+    int32_t sequence_map_col_uid() const { return _sequence_map_col_uid; }
     std::string debug_string() const;
 
 private:
@@ -132,6 +133,7 @@ private:
     int64_t _timestamp_ms = 0;
     int32_t _nano_seconds {0};
     std::string _timezone;
+    int32_t _sequence_map_col_uid {-1};
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;
