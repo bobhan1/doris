@@ -43,7 +43,8 @@ struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, UniqueKeyUpdateModePB unique_key_update_mode,
               const std::set<std::string>& partial_update_cols, bool is_strict_mode,
               int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
-              const std::string& auto_increment_column, int64_t cur_max_version = -1);
+              const std::string& auto_increment_column, int32_t sequence_map_col_uid = -1,
+              int64_t cur_max_version = -1);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
     Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema);
@@ -56,6 +57,7 @@ struct PartialUpdateInfo {
     bool is_flexible_partial_update() const {
         return partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
     }
+    int32_t sequence_map_col_uid() const { return sequence_map_col_unqiue_id; }
 
 private:
     void _generate_default_values_for_missing_cids(const TabletSchema& tablet_schema);
@@ -78,6 +80,8 @@ public:
 
     // default values for missing cids
     std::vector<std::string> default_values;
+
+    int32_t sequence_map_col_unqiue_id {-1};
 };
 
 // used in mow partial update
@@ -94,7 +98,7 @@ public:
                                 const std::vector<uint32_t> cids_to_read,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
-                                const signed char* __restrict skip_map = nullptr) const;
+                                const signed char* __restrict delete_signs = nullptr) const;
     Status fill_missing_columns(RowsetWriterContext* rowset_ctx,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 const TabletSchema& tablet_schema, vectorized::Block& full_block,
@@ -111,11 +115,18 @@ class FlexibleReadPlan {
 public:
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          const BitmapValue& skip_bitmap);
+    // for column store
     Status read_columns_by_plan(const TabletSchema& tablet_schema,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 vectorized::Block& old_value_block,
-                                std::map<uint32_t, std::map<uint32_t, uint32_t>>* read_index,
-                                const signed char* __restrict skip_map = nullptr) const;
+                                std::map<uint32_t, std::map<uint32_t, uint32_t>>* read_index) const;
+
+    // for row_store
+    Status read_columns_by_plan(const TabletSchema& tablet_schema,
+                                const std::vector<uint32_t> cids_to_read,
+                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                vectorized::Block& block,
+                                std::map<uint32_t, uint32_t>* read_index) const;
     Status fill_non_sort_key_columns(
             RowsetWriterContext* rowset_ctx,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
@@ -127,6 +138,8 @@ public:
 private:
     // rowset_id -> segment_id -> column unique id -> mappings
     std::map<RowsetId, std::map<uint32_t, std::map<uint32_t, std::vector<RidAndPos>>>> plan;
+
+    std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> plan;
 };
 
 struct PartialUpdateStats {
