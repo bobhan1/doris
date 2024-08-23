@@ -74,5 +74,6 @@ message POlapTableSchemaParam {
     optional string timezone = 12;
     optional int32 auto_increment_column_unique_id = 13 [default = -1];
     optional UniqueKeyUpdateModePB unique_key_update_mode = 14 [default = UPSERT];
+    optional int32 sequence_map_col_unique_id = 15 [default = -1];
 };
 
