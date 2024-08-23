@@ -334,6 +334,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableSkipBitmapColumn = false;
         // analyze key desc
         if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // olap table
@@ -419,6 +420,24 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 }
             }
 
+            if (properties != null) {
+                if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
+                        && !(keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
+                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                            + "only be set in merge-on-write unique table.");
+                }
+                // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
+                // and its value should be consistent with whether the table's full schema contains
+                // the skip bitmap hidden column
+                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
+                    properties = PropertyAnalyzer.addEnableUniqueKeySkipBitmapPropertyIfNotExists(properties);
+                    // `analyzeXXX` would modify `properties`, which will be used later,
+                    // so we just clone a properties map here.
+                    enableSkipBitmapColumn = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(
+                                new HashMap<>(properties));
+                }
+            }
+
             keysDesc.analyze(columnDefs);
             if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames())) {
                 if (!enableUniqueKeyMergeOnWrite) {
@@ -487,7 +506,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
             }
         }
-        if (Config.enable_skip_delete_bitmap_column_by_default && keysDesc != null
+        if (enableSkipBitmapColumn && keysDesc != null
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             if (enableUniqueKeyMergeOnWrite) {
                 columnDefs.add(ColumnDef.newSkipBitmapColumnDef(AggregateType.NONE));
