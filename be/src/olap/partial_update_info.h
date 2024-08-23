@@ -136,8 +136,6 @@ public:
 private:
     // rowset_id -> segment_id -> column unique id -> mappings
     std::map<RowsetId, std::map<uint32_t, std::map<uint32_t, std::vector<RidAndPos>>>> plan;
-
-    std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> plan;
 };
 
 } // namespace doris
