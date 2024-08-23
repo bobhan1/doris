@@ -120,6 +120,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     if (pschema.has_unique_key_update_mode()) {
         _unique_key_update_mode = pschema.unique_key_update_mode();
+        if (pschema.has_sequence_map_col_unique_id()) {
+            _sequence_map_col_uid = pschema.sequence_map_col_unique_id();
+        }
     } else {
         // for backward compatibility
         if (pschema.has_partial_update() && pschema.partial_update()) {
@@ -220,6 +223,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                     tschema.unique_key_update_mode);
         }
         }
+        if (tschema.__isset.sequence_map_col_unique_id) {
+            _sequence_map_col_uid = tschema.sequence_map_col_unique_id;
+        }
     } else {
         // for backward compatibility
         if (tschema.__isset.is_partial_update && tschema.is_partial_update) {
@@ -315,6 +321,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_timestamp_ms(_timestamp_ms);
     pschema->set_timezone(_timezone);
     pschema->set_nano_seconds(_nano_seconds);
+    pschema->set_sequence_map_col_unique_id(_sequence_map_col_uid);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }
