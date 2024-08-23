@@ -33,6 +33,8 @@ suite('test_flexible_partial_update') {
         "light_schema_change" = "true",
         "store_row_column" = "false"); """
 
+    def show_res = sql "show create table ${tableName}"
+    assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
     sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
     order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 

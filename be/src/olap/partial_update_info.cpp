@@ -222,7 +222,8 @@ void FixedReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos)
 Status FixedReadPlan::read_columns_by_plan(
         const TabletSchema& tablet_schema, const std::vector<uint32_t> cids_to_read,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, vectorized::Block& block,
-        std::map<uint32_t, uint32_t>* read_index, const signed char* __restrict delete_signs) const {
+        std::map<uint32_t, uint32_t>* read_index,
+        const signed char* __restrict delete_signs) const {
     bool has_row_column = tablet_schema.has_row_store_for_all_columns();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;

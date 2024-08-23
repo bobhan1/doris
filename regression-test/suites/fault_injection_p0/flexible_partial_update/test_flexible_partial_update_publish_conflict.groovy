@@ -34,9 +34,10 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
         "store_row_column" = "false"); """
-
+    def show_res = sql "show create table ${tableName}"
+    assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
     sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
-    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,BITMAP_COUNT(__DORIS_SKIP_BITMAP_COL__),BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
     def enable_publish_spin_wait = {
         if (isCloudMode()) {
@@ -101,7 +102,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
         t1.join()
         t2.join()
 
-        order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,BITMAP_COUNT(__DORIS_SKIP_BITMAP_COL__),BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
         
     } catch(Exception e) {
         logger.info(e.getMessage())

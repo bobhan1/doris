@@ -33,7 +33,8 @@ suite('test_flexible_partial_update_seq_col') {
         "light_schema_change" = "true",
         "function_column.sequence_col" = "v5",
         "store_row_column" = "false"); """
-
+    def show_res = sql "show create table ${tableName}"
+    assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
     sql """insert into ${tableName} select number, number, number, number, number, number * 10 from numbers("number" = "6"); """
     order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
