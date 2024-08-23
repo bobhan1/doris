@@ -591,6 +591,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // a valid sequence column to encode the key with seq col.
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     int32_t seq_col_unique_id = -1;
+    int32_t seq_map_col_unique_id = _opts.rowset_ctx->partial_update_info->sequence_map_col_uid();
     bool schema_has_sequence_col = _tablet_schema->has_sequence_col();
     if (schema_has_sequence_col) {
         auto seq_col_idx = _tablet_schema->sequence_col_idx();
@@ -663,8 +664,14 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         size_t delta_pos = block_pos - data.row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
-        // always need to read delete sign column from old rows
-        skip_bitmap.add(_tablet_schema->delete_sign_idx());
+
+        // the hidden sequence column should have the same mark with sequence map column
+        if (seq_map_col_unique_id != -1) {
+            DCHECK(schema_has_sequence_col);
+            if (skip_bitmap.contains(seq_map_col_unique_id)) {
+                skip_bitmap.add(seq_col_unique_id);
+            }
+        }
 
         std::string key = _full_encode_keys(key_columns, delta_pos);
         _maybe_invalid_row_cache(key);
@@ -761,7 +768,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.row_pos,
             data.block, skip_bitmaps));
 
-    // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps here to reduce storage occupation?
+    // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table
 
     // row column should be filled here
