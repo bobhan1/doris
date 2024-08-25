@@ -36,15 +36,15 @@ suite('test_flexible_partial_update_property') {
     def show_res = sql "show create table ${tableName}"
     assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
 
-    // test {
-    //     sql """alter table ${tableName} set ("enable_unique_key_skip_bitmap_column" = "true");"""
-    //     exception "Nothing is changed. please check your alter stmt." 
-    // }
+    test {
+        sql """alter table ${tableName} set ("enable_unique_key_skip_bitmap_column" = "true");"""
+        exception "Nothing is changed. please check your alter stmt." 
+    }
 
-    // test {
-    //     sql """alter table ${tableName} set ("enable_unique_key_skip_bitmap_column" = "false");"""
-    //     exception "Can not alter enable_unique_key_skip_bitmap_column from true to false currently." 
-    // }
+    test {
+        sql """alter table ${tableName} set ("enable_unique_key_skip_bitmap_column" = "false");"""
+        exception "Can not alter enable_unique_key_skip_bitmap_column from true to false currently." 
+    }
 
     tableName = "test_flexible_partial_update_property2"
     sql """ DROP TABLE IF EXISTS ${tableName} """
