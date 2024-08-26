@@ -39,6 +39,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -202,6 +203,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public void setSequenceColTypeInfo(boolean hasSequenceColChanged, Type type) {
+        this.hasSequenceColChanged = hasSequenceColChanged;
+        this.sequenceColType = type;
     }
 
     /**
@@ -733,7 +739,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.setStoreRowColumn(storeRowColumn);
             tbl.setRowStoreColumns(rowStoreColumns);
         }
-
         // set storage format of table, only set if format is v2
         if (storageFormat == TStorageFormat.V2) {
             tbl.setStorageFormat(storageFormat);

@@ -67,6 +67,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -1384,6 +1385,21 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        // don't need to record information in schemaChangeJob
+        boolean hasSequenceColChanged = false;
+        if (!olapTable.hasSequenceCol() && propertyMap.containsKey(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN
+                + "." + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE)) {
+            hasSequenceColChanged = true;
+            try {
+                Type sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, olapTable.getKeysType());
+                if (sequenceColType == null) {
+                    throw new DdlException("unknown sequence column type in alter stmt.");
+                }
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            } 
+        }
+
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop
         long tableId = olapTable.getId();
@@ -1454,6 +1470,8 @@ public class SchemaChangeHandler extends AlterHandler {
             } else if (hasIndexChange) {
                 needAlter = true;
             } else if (hasRowStoreChanged) {
+                needAlter = true;
+            } else if (hasSequenceColChanged) {
                 needAlter = true;
             } else if (storageFormat == TStorageFormat.V2) {
                 if (olapTable.getStorageFormat() != TStorageFormat.V2) {
@@ -1576,7 +1594,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         } // end for indices
 
-        if (changedIndexIdToSchema.isEmpty() && !hasIndexChange && !hasRowStoreChanged) {
+        if (changedIndexIdToSchema.isEmpty() && !hasIndexChange && !hasRowStoreChanged && !hasSequenceColChanged) {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
@@ -1590,6 +1608,7 @@ public class SchemaChangeHandler extends AlterHandler {
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
         schemaChangeJob.setAlterIndexInfo(hasIndexChange, indexes);
         schemaChangeJob.setStoreRowColumnInfo(hasRowStoreChanged, storeRowColumn, rsColumns);
+        schemaChangeJob.setSequenceColTypeInfo(hasSequenceColChanged, sequenceColType);
 
         // If StorageFormat is set to TStorageFormat.V2
         // which will create tablet with preferred_rowset_type set to BETA
@@ -2013,6 +2032,9 @@ public class SchemaChangeHandler extends AlterHandler {
                             rowColumn.setUniqueId(maxColUniqueId + 1);
                             indexSchemaMap.get(olapTable.getBaseIndexId()).add(rowColumn);
                         }
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN
+                            + "." + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE)) {
+                        
                     }
                 }
 

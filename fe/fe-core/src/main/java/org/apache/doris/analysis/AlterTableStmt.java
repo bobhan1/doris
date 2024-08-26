@@ -104,53 +104,63 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                         && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                     throw new AnalysisException("Sequence load only supported in unique tables.");
                 }
-                // analyse sequence column
-                Type sequenceColType = null;
-                if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                    Map<String, String> propertyMap = alterClause.getProperties();
-                    try {
-                        sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
-                        if (sequenceColType == null) {
-                            throw new AnalysisException("unknown sequence column type");
-                        }
-                    } catch (Exception e) {
-                        throw new AnalysisException(e.getMessage());
-                    }
-                }
 
-                // has rollup table
-                if (table.getVisibleIndex().size() > 1) {
-                    for (MaterializedIndex idx : table.getVisibleIndex()) {
-                        // add a column to rollup index it will add to base table automatically,
-                        // if add a column here it will duplicated
-                        if (idx.getId() == table.getBaseIndexId()) {
-                            continue;
+                if (table.getEnableUniqueKeyMergeOnWrite()
+                        && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
+                    // for merge-on-write table, we can't do light schema change for adding sequence type column
+                    // rewrite it to ModifyTablePropertiesClause
+                    ModifyTablePropertiesClause modifyPropertyClause =
+                            new ModifyTablePropertiesClause(alterClause.getProperties());
+                    modifyPropertyClause.analyze(analyzer);
+                    clauses.add(modifyPropertyClause);
+                } else {
+                    // analyse sequence column
+                    Type sequenceColType = null;
+                    if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
+                        Map<String, String> propertyMap = alterClause.getProperties();
+                        try {
+                            sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
+                            if (sequenceColType == null) {
+                                throw new AnalysisException("unknown sequence column type");
+                            }
+                        } catch (Exception e) {
+                            throw new AnalysisException(e.getMessage());
                         }
+                    }
+                    // has rollup table
+                    if (table.getVisibleIndex().size() > 1) {
+                        for (MaterializedIndex idx : table.getVisibleIndex()) {
+                            // add a column to rollup index it will add to base table automatically,
+                            // if add a column here it will duplicated
+                            if (idx.getId() == table.getBaseIndexId()) {
+                                continue;
+                            }
+                            AddColumnClause addColumnClause = null;
+                            if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
+                                addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
+                                        table.getIndexNameById(idx.getId()), null);
+                            } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
+                                addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType),
+                                        null, table.getIndexNameById(idx.getId()), null);
+                            } else {
+                                throw new AnalysisException("unknown feature : " + alterFeature);
+                            }
+                            addColumnClause.analyze(analyzer);
+                            clauses.add(addColumnClause);
+                        }
+                    } else {
+                        // no rollup tables
                         AddColumnClause addColumnClause = null;
                         if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                             addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
-                                    table.getIndexNameById(idx.getId()), null);
+                                    null, null);
                         } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
-                                    table.getIndexNameById(idx.getId()), null);
-                        } else {
-                            throw new AnalysisException("unknown feature : " + alterFeature);
+                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType),
+                                    null, null, null);
                         }
                         addColumnClause.analyze(analyzer);
                         clauses.add(addColumnClause);
                     }
-                } else {
-                    // no rollup tables
-                    AddColumnClause addColumnClause = null;
-                    if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
-                        addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
-                                null, null);
-                    } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                        addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
-                                null, null);
-                    }
-                    addColumnClause.analyze(analyzer);
-                    clauses.add(addColumnClause);
                 }
             // add hidden column to rollup table
             } else {
