@@ -100,23 +100,6 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                         && alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                     throw new AnalysisException("Batch delete only supported in unique tables.");
                 }
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS
-                        && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                    throw new AnalysisException("Sequence load only supported in unique tables.");
-                }
-                // analyse sequence column
-                Type sequenceColType = null;
-                if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                    Map<String, String> propertyMap = alterClause.getProperties();
-                    try {
-                        sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
-                        if (sequenceColType == null) {
-                            throw new AnalysisException("unknown sequence column type");
-                        }
-                    } catch (Exception e) {
-                        throw new AnalysisException(e.getMessage());
-                    }
-                }
 
                 // has rollup table
                 if (table.getVisibleIndex().size() > 1) {
@@ -130,9 +113,6 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                         if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                             addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
                                     table.getIndexNameById(idx.getId()), null);
-                        } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
-                                    table.getIndexNameById(idx.getId()), null);
                         } else {
                             throw new AnalysisException("unknown feature : " + alterFeature);
                         }
@@ -144,9 +124,6 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                     AddColumnClause addColumnClause = null;
                     if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                         addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
-                                null, null);
-                    } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                        addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
                                 null, null);
                     }
                     addColumnClause.analyze(analyzer);

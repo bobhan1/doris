@@ -72,13 +72,6 @@ public class EnableFeatureClause extends AlterTableClause {
                 this.needSchemaChange = true;
                 this.feature = Features.BATCH_DELETE;
                 break;
-            case  "SEQUENCE_LOAD":
-                this.needSchemaChange = true;
-                this.feature = Features.SEQUENCE_LOAD;
-                if (properties == null || properties.isEmpty()) {
-                    throw new AnalysisException("Properties is not set");
-                }
-                break;
             default:
                 throw new AnalysisException("unknown feature name: " + featureName);
         }

@@ -319,15 +319,6 @@ public class AlterTest {
     }
 
     @Test
-    public void alterTableWithEnableFeature() throws Exception {
-        String stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"int\") ";
-        alterTable(stmt, false);
-
-        stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
-        alterTable(stmt, true);
-    }
-
-    @Test
     public void alterTableModifyRepliaAlloc() throws Exception {
         String[] tables = new String[]{"test.colocate_tbl1", "test.colocate_tbl2"};
         final String errChangeReplicaAlloc = "Cannot change replication allocation of colocate table";
