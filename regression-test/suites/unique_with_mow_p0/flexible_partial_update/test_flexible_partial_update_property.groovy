@@ -37,13 +37,8 @@ suite('test_flexible_partial_update_property') {
     assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
 
     test {
-        sql """alter table ${tableName} set ("enable_unique_key_skip_bitmap_column" = "true");"""
-        exception "Nothing is changed. please check your alter stmt." 
-    }
-
-    test {
-        sql """alter table ${tableName} set ("enable_unique_key_skip_bitmap_column" = "false");"""
-        exception "Can not alter enable_unique_key_skip_bitmap_column from true to false currently." 
+        sql """alter table ${tableName} enable feature "UPDATE_FLEXIBLE_COLUMNS"; """
+        exception "table ${tableName} has enabled update flexible columns feature already." 
     }
 
     tableName = "test_flexible_partial_update_property2"
@@ -77,8 +72,7 @@ suite('test_flexible_partial_update_property') {
         }
     }
 
-    doSchemaChange """alter table ${tableName} set ("enable_unique_key_skip_bitmap_column" = "true");"""
-
+    doSchemaChange """alter table ${tableName} enable feature "UPDATE_FLEXIBLE_COLUMNS";"""
     show_res = sql "show create table ${tableName}"
     assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
     order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
