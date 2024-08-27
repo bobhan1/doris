@@ -963,7 +963,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (newColumn.getAggregationType() != null) {
+            if (newColumn.getAggregationType() != null && newColumn.getAggregationType() != AggregateType.NONE) {
                 throw new DdlException(
                         "Can not assign aggregation method" + " on column in Unique data model table: " + newColName);
             }
@@ -3063,9 +3063,17 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Long> indexIds = new ArrayList<Long>();
         indexIds.add(baseIndexId);
         indexIds.addAll(olapTable.getIndexIdListExceptBaseIndex());
+        boolean hasEnableUniqueKeySkipBitmapChanged = false;
         for (int i = 0; i < indexIds.size(); i++) {
             List<Column> indexSchema = indexSchemaMap.get(indexIds.get(i));
             MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
+            if (i == 0 && !olapTable.getEnableUniqueKeySkipBitmap()) {
+                Preconditions.checkState(!currentIndexMeta.getSchema(true).stream()
+                        .anyMatch(col -> col.isSkipBitmapColumn()));
+                if (indexSchema.stream().anyMatch(col -> col.isSkipBitmapColumn())) {
+                    hasEnableUniqueKeySkipBitmapChanged = true;
+                }
+            }
             currentIndexMeta.setSchema(indexSchema);
 
             int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
@@ -3081,6 +3089,9 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             currentIndexMeta.setMaxColUniqueId(maxColUniqueId);
             currentIndexMeta.setIndexes(indexes);
+        }
+        if (hasEnableUniqueKeySkipBitmapChanged) {
+            olapTable.setEnableUniqueKeySkipBitmap(true);
         }
         olapTable.setIndexes(indexes);
         olapTable.rebuildFullSchema();
