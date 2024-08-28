@@ -195,10 +195,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     return Status::OK();
 }
 
-Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
-    _db_id = tschema.db_id;
-    _table_id = tschema.table_id;
-    _version = tschema.version;
+Status OlapTableSchemaParam::init_unique_key_update_mode(const TOlapTableSchemaParam& tschema) {
     if (tschema.__isset.unique_key_update_mode) {
         switch (tschema.unique_key_update_mode) {
         case doris::TUniqueKeyUpdateMode::UPSERT: {
@@ -231,6 +228,14 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             _unique_key_update_mode = UniqueKeyUpdateModePB::UPSERT;
         }
     }
+    return Status::OK();
+}
+
+Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
+    _db_id = tschema.db_id;
+    _table_id = tschema.table_id;
+    _version = tschema.version;
+    RETURN_IF_ERROR(init_unique_key_update_mode(tschema));
     if (tschema.__isset.is_strict_mode) {
         _is_strict_mode = tschema.is_strict_mode;
     }
