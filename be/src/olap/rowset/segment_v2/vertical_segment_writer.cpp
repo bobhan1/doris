@@ -585,6 +585,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     DCHECK(_is_mow());
     DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
     DCHECK(_opts.rowset_ctx->partial_update_info->is_flexible_partial_update());
+    DCHECK(data.row_pos == 0);
 
     // data.block has the same schema with full_block
     DCHECK(data.block->columns() == _tablet_schema->num_columns());
@@ -717,8 +718,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
-        auto st = _tablet->lookup_row_key(key, row_has_sequence_col, specified_rowsets, &loc,
-                                          _mow_context->max_version, segment_caches, &rowset);
+        auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), row_has_sequence_col,
+                                          specified_rowsets, &loc, _mow_context->max_version,
+                                          segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
             if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
@@ -836,14 +838,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     }
 
     // build primary key index
-    for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
-        size_t delta_pos = block_pos - data.row_pos;
-        std::string key = _full_encode_keys(key_columns, delta_pos);
-        if (schema_has_sequence_col) {
-            _encode_seq_column(seq_column, delta_pos, &key);
-        }
-        RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-    }
+    RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column,
+                                                    data.num_rows, false));
 
     _num_rows_written += data.num_rows;
     DCHECK_EQ(_primary_key_index_builder->num_rows(), _num_rows_written)
