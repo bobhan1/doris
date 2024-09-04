@@ -158,12 +158,12 @@ public class StreamLoadPlanner {
 
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && !destTable.hasSkipBitmapColumn()) {
             throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
-                    + "But table " + destTable.getName() + "doesn't have it");
+                    + " But table " + destTable.getName() + " doesn't have it");
         }
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
                 && !destTable.getEnableLightSchemaChange()) {
             throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
-                    + "But table " + destTable.getName() + "'s property light_schema_change is false");
+                    + " But table " + destTable.getName() + "'s property light_schema_change is false");
         }
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
                 && destTable.hasVariantColumns()) {
