@@ -474,6 +474,11 @@ public class Load {
                             // columns default be varchar type
                             Column slotColumn = new Column(realColName, PrimitiveType.VARCHAR);
                             slotColumn.setUniqueId(colUniqueId);
+                            // In flexible partial update, every row can update different columns, we should check
+                            // key columns intergrity for every row in XXXReader on BE rather than checking it on FE
+                            // directly for all rows like in fixed columns partial update. So we should set if a slot
+                            // is key column here
+                            slotColumn.setIsKey(tblColumn.isKey());
                             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                             slotDesc.setColumn(slotColumn);
                         }
