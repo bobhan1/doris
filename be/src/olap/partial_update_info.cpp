@@ -349,8 +349,8 @@ Status FlexibleReadPlan::read_columns_by_plan(
                 auto rowset_iter = rsid_to_rowset.find(rowset_id);
                 CHECK(rowset_iter != rsid_to_rowset.end());
                 auto cid = tablet_schema.field_index(col_uid);
-                DCHECK(cid != -1);
-                DCHECK(cid >= tablet_schema.num_key_columns());
+                DCHECK_NE(cid, -1);
+                DCHECK_GE(cid, tablet_schema.num_key_columns());
                 std::vector<uint32_t> rids;
                 for (auto [rid, pos] : mappings) {
                     rids.emplace_back(rid);
@@ -413,12 +413,6 @@ Status FlexibleReadPlan::fill_non_sort_key_columns(
                 DCHECK(cid != tablet_schema.version_col_idx());
                 DCHECK(!tablet_column.is_row_store_column());
 
-                // `use_default_or_null_flag[idx] == false` doesn't mean that we should read values from the old row
-                // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
-                // marked will not be marked in delete bitmap(see https://github.com/apache/doris/pull/24011), so it will
-                // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not
-                // read values from old rows for missing values in this occasion. So we should read the DELETE_SIGN column
-                // to check if a row REALLY exists in the table.
                 auto delete_sign_pos = read_index[tablet_schema.delete_sign_idx()][segment_pos];
                 if (use_default_or_null_flag[idx] ||
                     (delete_sign_column_data != nullptr &&
@@ -430,9 +424,6 @@ Status FlexibleReadPlan::fill_non_sort_key_columns(
                                 cur_col.get())
                                 ->insert_null_elements(1);
                     } else {
-                        // If the control flow reaches this branch, the column neither has default value
-                        // nor is nullable. It means that the row's delete sign is marked, and the value
-                        // columns are useless and won't be read. So we can just put arbitary values in the cells
                         cur_col->insert_default();
                     }
                 } else {
