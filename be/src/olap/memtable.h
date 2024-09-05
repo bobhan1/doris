@@ -202,6 +202,7 @@ public:
 
 private:
     // for vectorized
+    template <bool has_skip_bitmap_col>
     void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
 
@@ -254,7 +255,7 @@ private:
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);
-    template <bool is_final>
+    template <bool is_final, bool has_skip_bitmap_col = false>
     void _aggregate();
     Status _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
@@ -269,6 +270,7 @@ private:
 
     size_t _num_columns;
     int32_t _seq_col_idx_in_block = -1;
+    int32_t _skip_bitmap_col_idx {-1};
 
     bool _is_partial_update_and_auto_inc = false;
 }; // class MemTable

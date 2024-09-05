@@ -106,10 +106,16 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
         if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow) {
             // In such table, non-key column's aggregation type is NONE, so we need to construct
             // the aggregate function manually.
-            function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                    "replace_load", {block->get_data_type(cid)},
-                    block->get_data_type(cid)->is_nullable(),
-                    BeExecVersionManager::get_newest_version());
+            if (_skip_bitmap_col_idx != cid) {
+                function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+                        "replace_load", {block->get_data_type(cid)},
+                        block->get_data_type(cid)->is_nullable(),
+                        BeExecVersionManager::get_newest_version());
+            } else {
+                function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+                        "bitmap_intersect", {block->get_data_type(cid)}, false,
+                        BeExecVersionManager::get_newest_version());
+            }
         } else {
             function = _tablet_schema->column(cid).get_aggregate_function(
                     vectorized::AGG_LOAD_SUFFIX, _tablet_schema->column(cid).get_be_exec_version());
@@ -189,6 +195,10 @@ Status MemTable::insert(const vectorized::Block* input_block,
         _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
         _vec_row_comparator->set_block(&_input_mutable_block);
         _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
+        if (_tablet_schema->has_skip_bitmap_col()) {
+            // init of _skip_bitmap_col_idx must be before _init_agg_functions()
+            _skip_bitmap_col_idx = _tablet_schema->skip_bitmap_col_idx();
+        }
         if (_keys_type != KeysType::DUP_KEYS) {
             // there may be additional intermediate columns in input_block
             // we only need columns indicated by column offset in the output
@@ -196,7 +206,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
         }
         if (_tablet_schema->has_sequence_col()) {
             if (_is_fixed_partial_update) {
-                // for unique key partial update, sequence column index in block
+                // for unique key fixed partial update, sequence column index in block
                 // may be different with the index in `_tablet_schema`
                 for (size_t i = 0; i < clone_block.columns(); i++) {
                     if (clone_block.get_by_position(i).name == SEQUENCE_COL) {
@@ -229,6 +239,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
     return Status::OK();
 }
 
+template <bool has_skip_bitmap_col>
 void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
                                            RowInBlock* src_row, RowInBlock* dst_row) {
     if (_tablet_schema->has_sequence_col() && _seq_col_idx_in_block >= 0) {
@@ -244,11 +255,31 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
         dst_row->_row_pos = src_row->_row_pos;
     }
     // dst is non-sequence row, or dst sequence is smaller
-    for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
-        auto col_ptr = mutable_block.mutable_columns()[cid].get();
-        _agg_functions[cid]->add(dst_row->agg_places(cid),
-                                 const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                 src_row->_row_pos, _arena.get());
+    if constexpr (!has_skip_bitmap_col) {
+        DCHECK(_skip_bitmap_col_idx == -1);
+        for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+            auto* col_ptr = mutable_block.mutable_columns()[cid].get();
+            _agg_functions[cid]->add(dst_row->agg_places(cid),
+                                     const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                                     src_row->_row_pos, _arena.get());
+        }
+    } else {
+        DCHECK(_skip_bitmap_col_idx != -1);
+        DCHECK_LT(_skip_bitmap_col_idx, mutable_block.columns());
+        BitmapValue skip_bitmap =
+                assert_cast<vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
+                        mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
+                        ->get_data()[src_row->_row_pos];
+        for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+            const auto& col = _tablet_schema->column(cid);
+            if (cid != _skip_bitmap_col_idx && skip_bitmap.contains(col.unique_id())) {
+                continue;
+            }
+            auto* col_ptr = mutable_block.mutable_columns()[cid].get();
+            _agg_functions[cid]->add(dst_row->agg_places(cid),
+                                     const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                                     src_row->_row_pos, _arena.get());
+        }
     }
 }
 Status MemTable::_put_into_output(vectorized::Block& in_block) {
@@ -417,7 +448,7 @@ void MemTable::_finalize_one_row(RowInBlock* row,
     }
 }
 
-template <bool is_final>
+template <bool is_final, bool has_skip_bitmap_col>
 void MemTable::_aggregate() {
     SCOPED_RAW_TIMER(&_stat.agg_ns);
     _stat.agg_times++;
@@ -439,6 +470,7 @@ void MemTable::_aggregate() {
                         _arena->aligned_alloc(_total_size_of_aggregate_states, 16),
                         _offsets_of_aggregate_states.data());
                 for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; cid++) {
+                    // don't need to consider skip bitmap col when init agg data
                     auto col_ptr = mutable_block.mutable_columns()[cid].get();
                     auto data = prev_row->agg_places(cid);
                     _agg_functions[cid]->create(data);
@@ -448,7 +480,8 @@ void MemTable::_aggregate() {
                 }
             }
             _stat.merged_rows++;
-            _aggregate_two_row_in_block(mutable_block, _row_in_blocks[i], prev_row);
+            _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, _row_in_blocks[i],
+                                                             prev_row);
         } else {
             prev_row = _row_in_blocks[i];
             if (!temp_row_in_blocks.empty()) {
@@ -486,7 +519,7 @@ void MemTable::shrink_memtable_by_agg() {
     }
     size_t same_keys_num = _sort();
     if (same_keys_num != 0) {
-        _aggregate<false>();
+        (_skip_bitmap_col_idx == -1) ? _aggregate<false, false>() : _aggregate<false, true>();
     }
 }
 
@@ -518,7 +551,7 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
             RETURN_IF_ERROR(_put_into_output(in_block));
         }
     } else {
-        _aggregate<true>();
+        (_skip_bitmap_col_idx == -1) ? _aggregate<true, false>() : _aggregate<true, true>();
     }
     if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow &&
         !_tablet_schema->cluster_key_idxes().empty()) {
