@@ -796,6 +796,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
                         if (column->size() != cur_row_count) {
                             DCHECK(column->size() == cur_row_count + 1);
                             column->pop_back(1);
+                            DCHECK(column->size() == cur_row_count);
                         }
                     }
                     return Status::OK();
@@ -1451,8 +1452,21 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             DCHECK(column_ptr->size() == cur_row_count);
             if (_should_process_skip_bitmap_col()) {
                 if (slot_desc->is_key()) {
-                    // TODO(bobhan1): handle this error
-                    // abort the whole load or just discard this line
+                    RETURN_IF_ERROR(
+                            _append_error_msg(value,
+                                              "The key columns can not be ommited in flexible "
+                                              "partial update, missing key column: {}",
+                                              slot_desc->col_name(), valid));
+                    // remove this line in block
+                    for (int i = 0; i < block.columns(); ++i) {
+                        auto column = block.get_by_position(i).column->assume_mutable();
+                        if (column->size() != cur_row_count) {
+                            DCHECK(column->size() == cur_row_count + 1);
+                            column->pop_back(1);
+                            DCHECK(column->size() == cur_row_count);
+                        }
+                    }
+                    return Status::OK();
                 }
                 // we record the missing column's column unique id in skip bitmap
                 // to indicate which columns need to do the alignment process
