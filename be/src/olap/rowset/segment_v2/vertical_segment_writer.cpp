@@ -700,23 +700,26 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                                                   DeleteBitmap::TEMP_VERSION_COMMON},
                                                  segment_pos);
             } else {
-                bool can_insert_new_rows_in_partial_update = true;
-                std::string error_column;
-                for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
-                    const TabletColumn& col = _tablet_schema->column(cid);
-                    if (skip_bitmap.contains(col.unique_id()) && !col.has_default_value() &&
-                        !col.is_nullable()) {
-                        error_column = col.name();
-                        can_insert_new_rows_in_partial_update = false;
-                        break;
+                if (!have_delete_sign) {
+                    bool can_insert_new_rows_in_partial_update = true;
+                    std::string error_column;
+                    for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
+                        const TabletColumn& col = _tablet_schema->column(cid);
+                        if (skip_bitmap.contains(col.unique_id()) && !col.has_default_value() &&
+                            !col.is_nullable()) {
+                            error_column = col.name();
+                            can_insert_new_rows_in_partial_update = false;
+                            break;
+                        }
                     }
-                }
-                if (!can_insert_new_rows_in_partial_update) {
-                    return Status::Error<INVALID_SCHEMA, false>(
-                            "the unmentioned column `{}` should have default value or be nullable "
-                            "for "
-                            "newly inserted rows in non-strict mode partial update",
-                            error_column);
+                    if (!can_insert_new_rows_in_partial_update) {
+                        return Status::Error<INVALID_SCHEMA, false>(
+                                "the unmentioned column `{}` should have default value or be "
+                                "nullable "
+                                "for "
+                                "newly inserted rows in non-strict mode partial update",
+                                error_column);
+                    }
                 }
             }
             ++num_rows_new_added;
