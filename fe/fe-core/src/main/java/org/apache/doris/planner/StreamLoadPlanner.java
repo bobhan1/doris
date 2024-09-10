@@ -175,6 +175,10 @@ public class StreamLoadPlanner {
             throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
                     + "But table " + destTable.getName() + "'s property light_schema_change is false");
         }
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
+                && destTable.hasVariantColumns()) {
+            throw new UserException("Flexible partial update can only support table without variant columns.");
+        }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
             for (Column col : destTable.getFullSchema()) {
