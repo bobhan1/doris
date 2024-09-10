@@ -309,10 +309,13 @@ public class Load {
         }
         // check whether the OlapTable has sequenceCol and skipBitmapCol
         boolean hasSequenceCol = false;
+        boolean hasSequenceMapCol = false;
         boolean hasSkipBitmapColumn = false;
         if (tbl instanceof OlapTable) {
-            hasSequenceCol = ((OlapTable) tbl).hasSequenceCol();
-            hasSkipBitmapColumn = ((OlapTable) tbl).hasSkipBitmapColumn();
+            OlapTable olapTable = (OlapTable) tbl;
+            hasSequenceCol = olapTable.hasSequenceCol();
+            hasSequenceMapCol = (olapTable.getSequenceMapCol() != null);
+            hasSkipBitmapColumn = olapTable.hasSkipBitmapColumn();
         }
 
         // If user does not specify the file field names, generate it by using base schema of table.
@@ -345,6 +348,13 @@ public class Load {
                 copiedColumnExprs.add(new ImportColumnDesc(Column.DELETE_SIGN));
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("add hidden column {} to stream load task", Column.SKIP_BITMAP_COL);
+                }
+                // allow to specify __DORIS_SEQUENCE_COL__ if table has sequence type column
+                if (hasSequenceCol && !hasSequenceMapCol) {
+                    copiedColumnExprs.add(new ImportColumnDesc(Column.SEQUENCE_COL));
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("add hidden column {} to stream load task", Column.SEQUENCE_COL);
+                    }
                 }
                 copiedColumnExprs.add(new ImportColumnDesc(Column.SKIP_BITMAP_COL));
             }
