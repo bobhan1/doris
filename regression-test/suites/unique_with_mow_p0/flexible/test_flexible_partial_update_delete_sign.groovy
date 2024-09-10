@@ -17,6 +17,7 @@
 
 suite('test_flexible_partial_update_delete_sign') {
 
+    // 1. table without sequence col
     def tableName = "test_flexible_partial_update_delete_sign"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ CREATE TABLE ${tableName} (
@@ -73,4 +74,40 @@ suite('test_flexible_partial_update_delete_sign') {
     }
     order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
     inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+
+
+    // 2. table with sequence map col
+    tableName = "test_flexible_partial_update_delete_sign2"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ CREATE TABLE ${tableName} (
+        `k` int(11) NULL, 
+        `v1` BIGINT NULL,
+        `v2` BIGINT NULL DEFAULT "9876",
+        `v3` BIGINT NOT NULL,
+        `v4` BIGINT NOT NULL DEFAULT "1234",
+        `v5` BIGINT NULL
+        ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES(
+        "replication_num" = "1",
+        "enable_unique_key_merge_on_write" = "true",
+        "light_schema_change" = "true",
+        "function_column.sequence_col" = "v5",
+        "store_row_column" = "false"); """
+
+    sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
+    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    // update rows(2,4,5), delete rows(1,3), insert new rows(6), delete new rows(7)
+    // __DORIS_SEQUENCE_COL__ should be filled from old rows for rows(1,3)
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "delete1.json"
+        time 20000
+    }
+    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+
 }
