@@ -575,6 +575,10 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             const auto* nullable_column = reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             std::vector<BitmapValue>* skip_bitmaps {nullptr};
             if (_should_process_skip_bitmap_col()) {
+                // NOTE: if the table has sequence map column, __DORIS_SEQUENCE_COL__ will not be put in _input_tuple_desc,
+                // so __DORIS_SEQUENCE_COL__ will be ommited if it't specified in a row and will not be marked in skip bitmap
+                // if the table has sequence type column, __DORIS_SEQUENCE_COL__ will be put in _input_tuple_desc, so whether
+                // __DORIS_SEQUENCE_COL__ will be marked in skip bitmap depends on whether it's specified in that row
                 auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
                         _src_block_ptr->get_by_position(_skip_bitmap_col_idx).column->assume_mutable().get());
                 skip_bitmaps = &(assert_cast<ColumnBitmap*>(
