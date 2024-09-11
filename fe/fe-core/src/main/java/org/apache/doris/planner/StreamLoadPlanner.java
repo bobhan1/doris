@@ -127,8 +127,9 @@ public class StreamLoadPlanner {
                 && !destTable.hasDeleteSign()) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
-
-        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
+        TUniqueKeyUpdateMode uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
+        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
+                && destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
             throw new UserException("Table " + destTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
@@ -144,7 +145,6 @@ public class StreamLoadPlanner {
         scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         boolean negative = taskInfo.getNegative();
         // get partial update related info
-        TUniqueKeyUpdateMode uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
         if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT && !destTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
