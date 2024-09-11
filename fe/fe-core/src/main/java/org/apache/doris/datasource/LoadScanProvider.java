@@ -211,7 +211,7 @@ public class LoadScanProvider {
                                 + " has sequence column, need to specify the sequence column");
                     }
                 }
-            } else {
+            } else if (!fileGroupInfo.isFlexiblePartialUpdate()) {
                 sequenceCol = context.fileGroup.getSequenceCol();
                 columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                         new SlotRef(null, sequenceCol)));
