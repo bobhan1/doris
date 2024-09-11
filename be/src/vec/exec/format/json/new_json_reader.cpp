@@ -784,7 +784,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
         } else {
             if (_should_process_skip_bitmap_col()) {
                 // not found, skip this column in flexible partial update
-                if (slot_desc->is_key()) {
+                if (slot_desc->is_key() && !slot_desc->is_auto_increment()) {
                     RETURN_IF_ERROR(
                             _append_error_msg(objectValue,
                                               "The key columns can not be ommited in flexible "
@@ -1451,7 +1451,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         if (column_ptr->size() < cur_row_count + 1) {
             DCHECK(column_ptr->size() == cur_row_count);
             if (_should_process_skip_bitmap_col()) {
-                if (slot_desc->is_key()) {
+                if (slot_desc->is_key() && !slot_desc->is_auto_increment()) {
                     RETURN_IF_ERROR(
                             _append_error_msg(value,
                                               "The key columns can not be ommited in flexible "
