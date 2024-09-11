@@ -473,29 +473,24 @@ public class Load {
                     if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && hasSkipBitmapColumn) {
                         // we store the unique ids of missing columns in skip bitmap column in flexible partial update
                         int colUniqueId = tblColumn.getUniqueId();
+                        Column slotColumn = null;
                         if (realColName.equals(Column.SKIP_BITMAP_COL)) {
                             // don't change the skip_bitmap_col's type to varchar becasue we will fill this column
                             // in NewJsonReader manually rather than reading them from files as varchar type and then
                             // converting them to their real type
-                            Column slotColumn = new Column(realColName, PrimitiveType.BITMAP);
-                            slotColumn.setIsKey(tblColumn.isKey());
-                            slotColumn.setUniqueId(colUniqueId);
-                            slotDesc.setAutoInc(tblColumn.isAutoInc());
-                            slotDesc.setColumn(slotColumn);
+                            slotColumn = new Column(realColName, PrimitiveType.BITMAP);
                         } else {
                             // columns default be varchar type
-                            Column slotColumn = new Column(realColName, PrimitiveType.VARCHAR);
-                            slotColumn.setUniqueId(colUniqueId);
-                            // In flexible partial update, every row can update different columns, we should check
-                            // key columns intergrity for every row in XXXReader on BE rather than checking it on FE
-                            // directly for all rows like in fixed columns partial update. So we should set if a slot
-                            // is key column here
-                            slotColumn.setIsKey(tblColumn.isKey());
-                            slotColumn.setIsAutoInc(tblColumn.isAutoInc());
-                            slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                            slotDesc.setAutoInc(tblColumn.isAutoInc());
-                            slotDesc.setColumn(slotColumn);
+                            slotColumn = new Column(realColName, PrimitiveType.VARCHAR);
                         }
+                        // In flexible partial update, every row can update different columns, we should check
+                        // key columns intergrity for every row in XXXReader on BE rather than checking it on FE
+                        // directly for all rows like in fixed columns partial update. So we should set if a slot
+                        // is key column here
+                        slotColumn.setIsKey(tblColumn.isKey());
+                        slotColumn.setUniqueId(colUniqueId);
+                        slotDesc.setAutoInc(tblColumn.isAutoInc());
+                        slotDesc.setColumn(slotColumn);
                     } else {
                         // columns default be varchar type
                         slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
