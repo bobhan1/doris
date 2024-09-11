@@ -516,6 +516,10 @@ public class Column implements GsonPostProcessable {
         return isAutoInc;
     }
 
+    public void setIsAutoInc(boolean isAutoinc) {
+        this.isAutoInc = isAutoInc;
+    }
+
     public void setIsAllowNull(boolean isAllowNull) {
         this.isAllowNull = isAllowNull;
     }
