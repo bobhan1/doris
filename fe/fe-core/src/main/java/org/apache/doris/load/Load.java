@@ -478,7 +478,9 @@ public class Load {
                             // in NewJsonReader manually rather than reading them from files as varchar type and then
                             // converting them to their real type
                             Column slotColumn = new Column(realColName, PrimitiveType.BITMAP);
+                            slotColumn.setIsKey(tblColumn.isKey());
                             slotColumn.setUniqueId(colUniqueId);
+                            slotDesc.setAutoInc(tblColumn.isAutoInc());
                             slotDesc.setColumn(slotColumn);
                         } else {
                             // columns default be varchar type
@@ -489,7 +491,9 @@ public class Load {
                             // directly for all rows like in fixed columns partial update. So we should set if a slot
                             // is key column here
                             slotColumn.setIsKey(tblColumn.isKey());
+                            slotColumn.setIsAutoInc(tblColumn.isAutoInc());
                             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                            slotDesc.setAutoInc(tblColumn.isAutoInc());
                             slotDesc.setColumn(slotColumn);
                         }
                     } else {
