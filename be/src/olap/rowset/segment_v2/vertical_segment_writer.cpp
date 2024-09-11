@@ -706,7 +706,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                     for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
                         const TabletColumn& col = _tablet_schema->column(cid);
                         if (skip_bitmap.contains(col.unique_id()) && !col.has_default_value() &&
-                            !col.is_nullable()) {
+                            !col.is_nullable() && col.is_auto_increment()) {
                             error_column = col.name();
                             can_insert_new_rows_in_partial_update = false;
                             break;
