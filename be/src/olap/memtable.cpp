@@ -186,8 +186,6 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 
 Status MemTable::insert(const vectorized::Block* input_block,
                         const std::vector<uint32_t>& row_idxs) {
-    LOG_INFO("MemTable::insert input_block, input_block:\n{}\n,{}", input_block->dump_structure(),
-             input_block->dump_data());
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto clone_block = input_block->clone_without_columns(&_column_offset);

@@ -31,6 +31,7 @@
 namespace doris {
 class TabletSchema;
 class PartialUpdateInfoPB;
+class BitmapValue;
 struct RowLocation;
 namespace vectorized {
 class Block;
@@ -47,7 +48,8 @@ struct PartialUpdateInfo {
               int64_t cur_max_version = -1);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
-    Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema);
+    Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema,
+                                                  BitmapValue* skip_bitmap = nullptr);
     std::string summary() const;
 
     bool is_partial_update() const { return partial_update_mode != UniqueKeyUpdateModePB::UPSERT; }
