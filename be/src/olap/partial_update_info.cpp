@@ -168,23 +168,43 @@ std::string PartialUpdateInfo::summary() const {
             max_version_in_flush_phase);
 }
 
-Status PartialUpdateInfo::handle_non_strict_mode_not_found_error(
-        const TabletSchema& tablet_schema) {
-    if (!can_insert_new_rows_in_partial_update) {
+Status PartialUpdateInfo::handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema,
+                                                                 BitmapValue* skip_bitmap) {
+    if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
+        if (!can_insert_new_rows_in_partial_update) {
+            std::string error_column;
+            for (auto cid : missing_cids) {
+                const TabletColumn& col = tablet_schema.column(cid);
+                if (!col.has_default_value() && !col.is_nullable() &&
+                    !(tablet_schema.auto_increment_column() == col.name())) {
+                    error_column = col.name();
+                    break;
+                }
+            }
+            return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
+                    "the unmentioned column `{}` should have default value or be nullable "
+                    "for newly inserted rows in non-strict mode partial update",
+                    error_column);
+        }
+    } else if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS) {
+        DCHECK(skip_bitmap != nullptr);
+        bool can_insert_new_rows_in_partial_update = true;
         std::string error_column;
         for (auto cid : missing_cids) {
             const TabletColumn& col = tablet_schema.column(cid);
-            if (!col.has_default_value() && !col.is_nullable() &&
-                !(tablet_schema.auto_increment_column() == col.name())) {
+            if (skip_bitmap->contains(col.unique_id()) && !col.has_default_value() &&
+                !col.is_nullable() && col.is_auto_increment()) {
                 error_column = col.name();
+                can_insert_new_rows_in_partial_update = false;
                 break;
             }
         }
-        return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
-                "the unmentioned column `{}` should have default value or be nullable "
-                "for "
-                "newly inserted rows in non-strict mode partial update",
-                error_column);
+        if (!can_insert_new_rows_in_partial_update) {
+            return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
+                    "the unmentioned column `{}` should have default value or be "
+                    "nullable for newly inserted rows in non-strict mode flexible partial update",
+                    error_column);
+        }
     }
     return Status::OK();
 }
