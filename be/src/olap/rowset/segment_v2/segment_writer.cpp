@@ -464,7 +464,7 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 
 Status SegmentWriter::probe_key_for_mow(
         std::string key, std::size_t segment_pos, bool have_input_seq_column, bool have_delete_sign,
-        PartialUpdateReadPlan& read_plan, const std::vector<RowsetSharedPtr>& specified_rowsets,
+        FixedReadPlan& read_plan, const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
         PartialUpdateStats& stats) {
@@ -625,10 +625,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
-        RETURN_IF_ERROR(probe_key_for_mow(key, segment_pos, have_input_seq_column, have_delete_sign,
-                                          read_plan, specified_rowsets, segment_caches,
-                                          has_default_or_nullable, use_default_or_null_flag,
-                                          stats));
+        RETURN_IF_ERROR(probe_key_for_mow(std::move(key), segment_pos, have_input_seq_column,
+                                          have_delete_sign, read_plan, specified_rowsets,
+                                          segment_caches, has_default_or_nullable,
+                                          use_default_or_null_flag, stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
