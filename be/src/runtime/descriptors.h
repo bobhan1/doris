@@ -35,6 +35,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
+#include "olap/tablet_meta.h"
 #include "olap/utils.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
@@ -85,6 +86,7 @@ public:
     bool is_auto_increment() const { return _is_auto_increment; }
 
     bool is_skip_bitmap_col() const { return _col_name == SKIP_BITMAP_COL; }
+    bool is_sequence_col() const { return _col_name == SEQUENCE_COL; }
 
     const std::string& col_default_value() const { return _col_default_value; }
     PrimitiveType col_type() const { return _col_type; }
