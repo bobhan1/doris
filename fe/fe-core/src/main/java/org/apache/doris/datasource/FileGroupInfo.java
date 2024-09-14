@@ -89,6 +89,7 @@ public class FileGroupInfo {
     private TFileType fileType;
     private List<String> hiddenColumns = null;
     private TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+    private String sequenceMapCol = null;
 
     // for broker load
     public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
@@ -110,7 +111,8 @@ public class FileGroupInfo {
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-            TFileType fileType, List<String> hiddenColumns, TUniqueKeyUpdateMode uniqueKeyUpdateMode) {
+            TFileType fileType, List<String> hiddenColumns, TUniqueKeyUpdateMode uniqueKeyUpdateMode,
+            String sequenceMapCol) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -124,6 +126,7 @@ public class FileGroupInfo {
         this.fileType = fileType;
         this.hiddenColumns = hiddenColumns;
         this.uniqueKeyUpdateMode = uniqueKeyUpdateMode;
+        this.sequenceMapCol = sequenceMapCol;
     }
 
     public Table getTargetTable() {
@@ -174,6 +177,11 @@ public class FileGroupInfo {
 
     public boolean isFlexiblePartialUpdate() {
         return uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
+    }
+
+
+    public String getSequenceMapCol() {
+        return sequenceMapCol;
     }
 
     public void getFileStatusAndCalcInstance(FederationBackendPolicy backendPolicy) throws UserException {

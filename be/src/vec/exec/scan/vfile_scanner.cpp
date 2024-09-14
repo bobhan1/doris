@@ -394,6 +394,14 @@ Status VFileScanner::_init_src_block(Block* block) {
         if (slot->is_skip_bitmap_col()) {
             _skip_bitmap_col_idx = idx;
         }
+        if (_params->__isset.sequence_map_col) {
+            if (_params->sequence_map_col == slot->col_name()) {
+                _sequence_map_col_uid = slot->col_unique_id();
+            }
+            if (slot->is_sequence_col()) {
+                _sequence_col_uid = slot->col_unique_id();
+            }
+        }
         if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
             RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
@@ -550,6 +558,30 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             VectorizedUtils::build_mutable_mem_reuse_block(block, *_dest_row_desc);
     auto& mutable_output_columns = mutable_output_block.mutable_columns();
 
+    std::vector<BitmapValue>* skip_bitmaps {nullptr};
+    if (_should_process_skip_bitmap_col()) {
+        auto* skip_bitmap_nullable_col_ptr =
+                assert_cast<ColumnNullable*>(_src_block_ptr->get_by_position(_skip_bitmap_col_idx)
+                                                     .column->assume_mutable()
+                                                     .get());
+        auto* skip_bitmaps = &(assert_cast<ColumnBitmap*>(
+                                       skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get())
+                                       ->get_data());
+        // NOTE:
+        // - If the table has sequence type column, __DORIS_SEQUENCE_COL__ will be put in _input_tuple_desc, so whether
+        //   __DORIS_SEQUENCE_COL__ will be marked in skip bitmap depends on whether it's specified in that row
+        // - If the table has sequence map column, __DORIS_SEQUENCE_COL__ will not be put in _input_tuple_desc,
+        //   so __DORIS_SEQUENCE_COL__ will be ommited if it't specified in a row and will not be marked in skip bitmap.
+        //   So we should mark __DORIS_SEQUENCE_COL__ in skip bitmap here if the corresponding sequence map column us marked
+        if (_sequence_map_col_uid != -1) {
+            for (int i = 0; i < rows; ++i) {
+                if ((*skip_bitmaps)[i].contains(_sequence_map_col_uid)) {
+                    (*skip_bitmaps)[i].add(_sequence_col_uid);
+                }
+            }
+        }
+    }
+
     // for (auto slot_desc : _output_tuple_desc->slots()) {
     for (int i = 0; i < mutable_output_columns.size(); ++i) {
         auto slot_desc = _output_tuple_desc->slots()[i];
@@ -571,20 +603,8 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
         if (LIKELY(column_ptr->is_nullable())) {
-            // clang-format off
-            const auto* nullable_column = reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
-            std::vector<BitmapValue>* skip_bitmaps {nullptr};
-            if (_should_process_skip_bitmap_col()) {
-                // NOTE: if the table has sequence map column, __DORIS_SEQUENCE_COL__ will not be put in _input_tuple_desc,
-                // so __DORIS_SEQUENCE_COL__ will be ommited if it't specified in a row and will not be marked in skip bitmap
-                // if the table has sequence type column, __DORIS_SEQUENCE_COL__ will be put in _input_tuple_desc, so whether
-                // __DORIS_SEQUENCE_COL__ will be marked in skip bitmap depends on whether it's specified in that row
-                auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
-                        _src_block_ptr->get_by_position(_skip_bitmap_col_idx).column->assume_mutable().get());
-                skip_bitmaps = &(assert_cast<ColumnBitmap*>(
-                        skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get())->get_data());
-            }
-            // clang-format on
+            const auto* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
                     // skip checks for non-mentioned columns in flexible partial update

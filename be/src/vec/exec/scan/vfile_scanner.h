@@ -173,6 +173,8 @@ protected:
 
     // idx of skip_bitmap_col in _input_tuple_desc
     int32_t _skip_bitmap_col_idx {-1};
+    int32_t _sequence_map_col_uid {-1};
+    int32_t _sequence_col_uid {-1};
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;

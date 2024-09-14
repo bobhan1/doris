@@ -92,6 +92,9 @@ public class LoadScanProvider {
         params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat()));
         params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
+        if (fileGroupInfo.getSequenceMapCol() != null) {
+            params.setSequenceMapCol(fileGroupInfo.getSequenceMapCol());
+        }
         if (fileGroupInfo.getFileGroup().getFileFormat() != null
                 && fileGroupInfo.getFileGroup().getFileFormat().equals("hive_text")) {
             params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
