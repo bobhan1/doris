@@ -73,6 +73,7 @@ import org.apache.doris.thrift.TOlapTablePartitionParam;
 import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloNodesInfo;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
@@ -108,6 +109,7 @@ public class OlapTableSink extends DataSink {
     // partial update input columns
     private boolean isPartialUpdate = false;
     private HashSet<String> partialUpdateInputColumns;
+    private TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy;
 
     // set after init called
     protected TDataSink tDataSink;
@@ -181,6 +183,10 @@ public class OlapTableSink extends DataSink {
     public void setPartialUpdateInputColumns(boolean isPartialUpdate, HashSet<String> columns) {
         this.isPartialUpdate = isPartialUpdate;
         this.partialUpdateInputColumns = columns;
+    }
+
+    public void setPartialUpdateNewRowPolicy(TPartialUpdateNewRowPolicy policy) {
+        this.partialUpdateNewRowPolicy = policy;
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -313,6 +319,9 @@ public class OlapTableSink extends DataSink {
             schemaParam.addToIndexes(indexSchema);
         }
         schemaParam.setIsPartialUpdate(isPartialUpdate);
+        if (isPartialUpdate) {
+            schemaParam.setPartialUpdateNewRowPolicy(partialUpdateNewRowPolicy);
+        }
         if (isPartialUpdate) {
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);

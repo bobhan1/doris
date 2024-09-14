@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -48,13 +49,15 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     private final OlapTable targetTable;
     private final List<Long> partitionIds;
     private final boolean isPartialUpdate;
+    private final TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy;
     private final DMLCommandType dmlCommandType;
 
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
-            List<NamedExpression> outputExprs, boolean isPartialUpdate, DMLCommandType dmlCommandType,
-            CHILD_TYPE child) {
-        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, dmlCommandType,
-                Optional.empty(), Optional.empty(), child);
+            List<NamedExpression> outputExprs, boolean isPartialUpdate,
+            TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy,
+            DMLCommandType dmlCommandType, CHILD_TYPE child) {
+        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, partialUpdateNewRowPolicy,
+                dmlCommandType, Optional.empty(), Optional.empty(), child);
     }
 
     /**
@@ -62,12 +65,14 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
      */
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean isPartialUpdate,
+            TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy,
             DMLCommandType dmlCommandType, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalOlapTableSink");
         this.isPartialUpdate = isPartialUpdate;
+        this.partialUpdateNewRowPolicy = partialUpdateNewRowPolicy;
         this.dmlCommandType = dmlCommandType;
         this.partitionIds = Utils.copyRequiredList(partitionIds);
     }
@@ -77,14 +82,14 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, output, isPartialUpdate,
-                dmlCommandType, Optional.empty(), Optional.empty(), child);
+                partialUpdateNewRowPolicy, dmlCommandType, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalOlapTableSink only accepts one child");
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
+                partialUpdateNewRowPolicy, dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public Database getDatabase() {
@@ -103,13 +108,17 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
         return isPartialUpdate;
     }
 
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return partialUpdateNewRowPolicy;
+    }
+
     public DMLCommandType getDmlCommandType() {
         return dmlCommandType;
     }
 
     public LogicalOlapTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                dmlCommandType, Optional.empty(), Optional.empty(), child());
+                partialUpdateNewRowPolicy, dmlCommandType, Optional.empty(), Optional.empty(), child());
     }
 
     @Override
@@ -125,6 +134,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
         }
         LogicalOlapTableSink<?> that = (LogicalOlapTableSink<?>) o;
         return isPartialUpdate == that.isPartialUpdate && dmlCommandType == that.dmlCommandType
+                && partialUpdateNewRowPolicy == that.partialUpdateNewRowPolicy
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols)
                 && Objects.equals(partitionIds, that.partitionIds);
@@ -133,7 +143,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), database, targetTable, cols, partitionIds,
-                isPartialUpdate, dmlCommandType);
+                isPartialUpdate, partialUpdateNewRowPolicy, dmlCommandType);
     }
 
     @Override
@@ -145,6 +155,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
                 "cols", cols,
                 "partitionIds", partitionIds,
                 "isPartialUpdate", isPartialUpdate,
+                "partialUpdateNewRowPolicy", partialUpdateNewRowPolicy,
                 "dmlCommandType", dmlCommandType
         );
     }
@@ -157,13 +168,14 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
+                partialUpdateNewRowPolicy, dmlCommandType, groupExpression, Optional.of(getLogicalProperties()),
+                        child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                dmlCommandType, groupExpression, logicalProperties, children.get(0));
+                partialUpdateNewRowPolicy, dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 }
