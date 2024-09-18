@@ -29,6 +29,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
@@ -700,6 +701,21 @@ public class ColumnDefinition {
     public static ColumnDefinition newVersionColumnDefinition(AggregateType aggregateType) {
         return new ColumnDefinition(Column.VERSION_COL, BigIntType.INSTANCE, false, aggregateType, false,
                 Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris version hidden column", false);
+    }
+
+    // used in CreateTableInfo.validate(), specify the default value as DefaultValue.NULL_DEFAULT_VALUE
+    // becasue ColumnDefinition.validate() will check that bitmap type column don't set default value
+    // and then set the default value of that column to bitmap_empty()
+    public static ColumnDefinition newSkipBitmapColumnDef(AggregateType aggregateType) {
+        return new ColumnDefinition(Column.SKIP_BITMAP_COL, BitmapType.INSTANCE, false, aggregateType, false,
+                Optional.of(DefaultValue.NULL_DEFAULT_VALUE), "doris skip bitmap hidden column", false);
+    }
+
+    // used in SchemaChangeHandler.process() when alter table property enable_unique_key_skip_bitmap
+    // to add this hidden column to existing table
+    public static ColumnDefinition newSkipBitmapColumnDefWithDefaultValue(AggregateType aggregateType) {
+        return new ColumnDefinition(Column.SKIP_BITMAP_COL, BitmapType.INSTANCE, false, aggregateType, false,
+                Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE), "doris skip bitmap hidden column", false);
     }
 
     public Optional<GeneratedColumnDesc> getGeneratedColumnDesc() {

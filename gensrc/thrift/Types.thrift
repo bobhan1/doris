@@ -717,6 +717,12 @@ enum TMergeType {
   DELETE
 }
 
+enum TUniqueKeyUpdateMode {
+  UPSERT,
+  UPDATE_FIXED_COLUMNS,
+  UPDATE_FLEXIBLE_COLUMNS
+}
+
 enum TSortType {
     LEXICAL,
     ZORDER,
