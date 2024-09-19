@@ -88,8 +88,6 @@ suite('test_flexible_partial_update_seq_col') {
         file "test2.json"
         time 20000 // limit inflight 10s
     }
-    // TODO(bobhan): FIXME! result is incorrect, wait for https://github.com/apache/doris/pull/40272 to be merged
-    // and process for flexible partial update
     order_qt_seq_map_has_default_val2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
 
@@ -176,6 +174,90 @@ suite('test_flexible_partial_update_seq_col') {
     }
     order_qt_seq_type_col_multi_rows_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
-    // TODO(bobhan1): add cases that has multiple rows with same key in one memtable flush
-    // some rows have seq map col, some rows don't
+    // 5. sequence map col(without default value)
+    tableName = "test_flexible_partial_update_seq_map_col3"
+    sql """ DROP TABLE IF EXISTS ${tableName} force;"""
+    sql """ CREATE TABLE ${tableName} (
+    `k` int(11) NULL, 
+    `v1` BIGINT NULL,
+    `v2` BIGINT NULL DEFAULT "9876",
+    `v3` BIGINT NOT NULL,
+    `v4` BIGINT NOT NULL DEFAULT "1234",
+    `v5` BIGINT NULL,
+    `v6` BIGINT NULL
+    ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+    PROPERTIES(
+    "replication_num" = "1",
+    "enable_unique_key_merge_on_write" = "true",
+    "light_schema_change" = "true",
+    "function_column.sequence_col" = "v6",
+    "store_row_column" = "false"); """
+    sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,v6) select number, number, number, number, number, number, number * 10 from numbers("number" = "6"); """
+    order_qt_seq_map_col_no_default_val_multi_rows_1 "select k,v1,v2,v3,v4,v5,v6,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    // rows with same keys are neighbers
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test6.json"
+        time 20000 // limit inflight 10s
+    }
+    order_qt_seq_map_col_no_default_val_multi_rows_2 "select k,v1,v2,v3,v4,v5,v6,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    // rows with same keys are interleaved
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test7.json"
+        time 20000 // limit inflight 10s
+    }
+    order_qt_seq_map_col_no_default_val_multi_rows_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+
+    // 6. sequence map col(with default value)
+    tableName = "test_flexible_partial_update_seq_map_col4"
+    sql """ DROP TABLE IF EXISTS ${tableName} force;"""
+    sql """ CREATE TABLE ${tableName} (
+    `k` int(11) NULL, 
+    `v1` BIGINT NULL,
+    `v2` BIGINT NULL DEFAULT "9876",
+    `v3` BIGINT NOT NULL,
+    `v4` BIGINT NOT NULL DEFAULT "1234",
+    `v5` BIGINT NULL,
+    `v6` BIGINT NULL default "60"
+    ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+    PROPERTIES(
+    "replication_num" = "1",
+    "enable_unique_key_merge_on_write" = "true",
+    "light_schema_change" = "true",
+    "function_column.sequence_col" = "v6",
+    "store_row_column" = "false"); """
+    sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,v6) select number, number, number, number, number, number, number * 10 from numbers("number" = "6"); """
+    order_qt_seq_map_col_has_default_val_multi_rows_1 "select k,v1,v2,v3,v4,v5,v6,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    // rows with same keys are neighbers
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test6.json"
+        time 20000 // limit inflight 10s
+    }
+    order_qt_seq_map_col_has_default_val_multi_rows_2 "select k,v1,v2,v3,v4,v5,v6,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    // rows with same keys are interleaved
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test7.json"
+        time 20000 // limit inflight 10s
+    }
+    order_qt_seq_map_col_has_default_val_multi_rows_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+
 }
