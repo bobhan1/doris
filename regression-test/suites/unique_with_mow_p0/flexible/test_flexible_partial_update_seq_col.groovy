@@ -64,7 +64,7 @@ suite('test_flexible_partial_update_seq_col') {
     `v2` BIGINT NULL DEFAULT "9876",
     `v3` BIGINT NOT NULL,
     `v4` BIGINT NOT NULL DEFAULT "1234",
-    `v5` BIGINT NULL DEFAULT "30"
+    `v5` BIGINT NULL DEFAULT "31"
     ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
     PROPERTIES(
     "replication_num" = "1",
