@@ -398,9 +398,6 @@ Status VFileScanner::_init_src_block(Block* block) {
             if (_params->sequence_map_col == slot->col_name()) {
                 _sequence_map_col_uid = slot->col_unique_id();
             }
-            if (slot->is_sequence_col()) {
-                _sequence_col_uid = slot->col_unique_id();
-            }
         }
         if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
@@ -414,6 +411,15 @@ Status VFileScanner::_init_src_block(Block* block) {
         _src_block.insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot->col_name()));
         _src_block_name_to_idx.emplace(slot->col_name(), idx++);
+    }
+    if (_params->__isset.sequence_map_col) {
+        for (const auto& slot : _output_tuple_desc->slots()) {
+            // When the target table has seqeunce map column, _input_tuple_desc will not contains __DORIS_SEQUENCE_COL__,
+            // so we should get its column unique id from _output_tuple_desc
+            if (slot->is_sequence_col()) {
+                _sequence_col_uid = slot->col_unique_id();
+            }
+        }
     }
     _src_block_ptr = &_src_block;
     _src_block_init = true;
@@ -540,7 +546,8 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     if (!_is_load) {
         return Status::OK();
     }
-
+    LOG_INFO("VFileScanner::_convert_to_output_block, block:\n{}\n,{}",
+             _src_block_ptr->dump_structure(), _src_block_ptr->dump_data());
     SCOPED_TIMER(_convert_to_output_block_timer);
     // The block is passed from scanner context's free blocks,
     // which is initialized by output columns
@@ -564,9 +571,9 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                 assert_cast<ColumnNullable*>(_src_block_ptr->get_by_position(_skip_bitmap_col_idx)
                                                      .column->assume_mutable()
                                                      .get());
-        auto* skip_bitmaps = &(assert_cast<ColumnBitmap*>(
-                                       skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get())
-                                       ->get_data());
+        skip_bitmaps = &(assert_cast<ColumnBitmap*>(
+                                 skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get())
+                                 ->get_data());
         // NOTE:
         // - If the table has sequence type column, __DORIS_SEQUENCE_COL__ will be put in _input_tuple_desc, so whether
         //   __DORIS_SEQUENCE_COL__ will be marked in skip bitmap depends on whether it's specified in that row
@@ -574,9 +581,9 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         //   so __DORIS_SEQUENCE_COL__ will be ommited if it't specified in a row and will not be marked in skip bitmap.
         //   So we should mark __DORIS_SEQUENCE_COL__ in skip bitmap here if the corresponding sequence map column us marked
         if (_sequence_map_col_uid != -1) {
-            for (int i = 0; i < rows; ++i) {
-                if ((*skip_bitmaps)[i].contains(_sequence_map_col_uid)) {
-                    (*skip_bitmaps)[i].add(_sequence_col_uid);
+            for (int j = 0; j < rows; ++j) {
+                if ((*skip_bitmaps)[j].contains(_sequence_map_col_uid)) {
+                    (*skip_bitmaps)[j].add(_sequence_col_uid);
                 }
             }
         }
