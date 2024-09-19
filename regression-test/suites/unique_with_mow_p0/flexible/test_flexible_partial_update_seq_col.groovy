@@ -164,7 +164,7 @@ suite('test_flexible_partial_update_seq_col') {
         time 20000 // limit inflight 10s
     }
     order_qt_seq_type_col_multi_rows_2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
-    // rows are interleaved
+    // rows with same keys are interleaved
     streamLoad {
         table "${tableName}"
         set 'format', 'json'
