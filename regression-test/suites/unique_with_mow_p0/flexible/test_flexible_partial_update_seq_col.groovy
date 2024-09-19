@@ -36,7 +36,7 @@ suite('test_flexible_partial_update_seq_col') {
         "store_row_column" = "false"); """
 
     sql """insert into ${tableName} select number, number, number, number, number, number * 10 from numbers("number" = "6"); """
-    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_seq_map_no_default_val1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
     // update rows(1,5) with lower seq map col
     // update rows(2,4) with higher seq map col
@@ -52,7 +52,7 @@ suite('test_flexible_partial_update_seq_col') {
         file "test2.json"
         time 20000 // limit inflight 10s
     }
-    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_seq_map_no_default_val2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
 
     // 2. sequence map col(with default value)
@@ -73,7 +73,7 @@ suite('test_flexible_partial_update_seq_col') {
     "function_column.sequence_col" = "v5",
     "store_row_column" = "false"); """
     sql """insert into ${tableName} select number, number, number, number, number, number * 10 from numbers("number" = "6"); """
-    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_seq_map_has_default_val1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
     // update rows(1,5) with lower seq map col
     // update rows(2,4) with higher seq map col
     // update rows(3) wihout seq map col, should use original seq map col
@@ -90,7 +90,7 @@ suite('test_flexible_partial_update_seq_col') {
     }
     // TODO(bobhan): FIXME! result is incorrect, wait for https://github.com/apache/doris/pull/40272 to be merged
     // and process for flexible partial update
-    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_seq_map_has_default_val2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
 
     // 3. sequence type col
@@ -111,7 +111,7 @@ suite('test_flexible_partial_update_seq_col') {
     "function_column.sequence_type" = "int",
     "store_row_column" = "false"); """
     sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, number * 10 from numbers("number" = "6"); """
-    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_seq_type_col1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
     // update rows(1,5) with lower seq type col
     // update rows(2,4) with higher seq type col
     // update rows(3) wihout seq type col, should use original seq type col
@@ -128,7 +128,7 @@ suite('test_flexible_partial_update_seq_col') {
     }
     // TODO(bobhan1): behavior here may be changed, maybe we need to force user to specify __DORIS_SEQUENCE_COL__ for tables
     // with sequence type col and discard rows without it in XXXReader
-    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_seq_type_col2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
 
     // ==============================================================================================================================
@@ -152,7 +152,8 @@ suite('test_flexible_partial_update_seq_col') {
     "function_column.sequence_type" = "int",
     "store_row_column" = "false"); """
     sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, number * 10 from numbers("number" = "6"); """
-    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_seq_type_col_multi_rows_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    // rows with same keys are neighbers
     streamLoad {
         table "${tableName}"
         set 'format', 'json'
@@ -162,7 +163,18 @@ suite('test_flexible_partial_update_seq_col') {
         file "test4.json"
         time 20000 // limit inflight 10s
     }
-    order_qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_seq_type_col_multi_rows_2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    // rows are interleaved
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test5.json"
+        time 20000 // limit inflight 10s
+    }
+    order_qt_seq_type_col_multi_rows_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
     // TODO(bobhan1): add cases that has multiple rows with same key in one memtable flush
     // some rows have seq map col, some rows don't
