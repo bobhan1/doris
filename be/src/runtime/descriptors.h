@@ -35,7 +35,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
-#include "olap/tablet_meta.h"
 #include "olap/utils.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
