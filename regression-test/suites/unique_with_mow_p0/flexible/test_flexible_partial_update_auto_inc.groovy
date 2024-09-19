@@ -35,7 +35,7 @@ suite('test_flexible_partial_update_auto_inc') {
         "store_row_column" = "false"); """
 
     sql """insert into ${tableName} select (1+number)*1000, number, number, number, number, number from numbers("number" = "6"); """
-    order_qt_sql1 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_autoinc_key_1 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
     streamLoad {
         table "${tableName}"
@@ -46,11 +46,11 @@ suite('test_flexible_partial_update_auto_inc') {
         file "autoinc1.json"
         time 20000
     }
-    qt_sql1 "select count(distinct k) from ${tableName};"
+    qt_autoinc_key_2 "select count(distinct k) from ${tableName};"
     // new rows' auto-inc col will be filled with values
-    order_qt_sql1 "select v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k<1000;"
+    order_qt_autoinc_key_3 "select v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k<1000;"
     // old rows should be updated
-    order_qt_sql1 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k>=1000;"
+    order_qt_autoinc_key_4 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k>=1000;"
 
     // 2. value col is auto-inc col
     tableName = "test_flexible_partial_update_auto_inc2"
@@ -70,7 +70,7 @@ suite('test_flexible_partial_update_auto_inc') {
         "store_row_column" = "false"); """
 
     sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
-    order_qt_sql2 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    order_qt_autoinc_val_1 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
     // rows(2,3) specify v3, it will be updated
     // row(1) doesn't specify v3, it will use old values
     // insert new row(8,10), don't specify v3, it will be filled generated value
@@ -84,7 +84,7 @@ suite('test_flexible_partial_update_auto_inc') {
         file "autoinc2.json"
         time 20000
     }
-    qt_sql2 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k not in (8,10) order by k;"
-    qt_sql2 "select k,v1,v2,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k in (8,10) order by k;"
-    qt_sql2 "select count(distinct v3) from ${tableName} where k in (8,10);"
+    qt_autoinc_val_2 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k not in (8,10) order by k;"
+    qt_autoinc_val_3 "select k,v1,v2,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k in (8,10) order by k;"
+    qt_autoinc_val_4 "select count(distinct v3) from ${tableName} where k in (8,10);"
 }
