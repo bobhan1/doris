@@ -797,27 +797,28 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         Status st;
         if (delta_pos > 0 && previous_key == key) {
             DCHECK(previous_has_seq_col == !row_has_sequence_col);
+            has_duplicate_key = true;
             RowLocation loc;
             RowsetSharedPtr rowset;
             size_t row_index {};
             size_t neighber_idx {};
+            if (row_has_sequence_col) {
+                row_index = block_pos - 1;
+                neighber_idx = block_pos;
+            } else {
+                row_index = block_pos;
+                neighber_idx = block_pos - 1;
+            }
             st = _tablet->lookup_row_key(key, _tablet_schema.get(), false, specified_rowsets, &loc,
                                          _mow_context->max_version, segment_caches, &rowset);
             if (st.is<KEY_NOT_FOUND>()) {
                 use_default.insert(block_pos);
             } else {
                 _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-                has_duplicate_key = true;
-                if (row_has_sequence_col) {
-                    row_index = block_pos - 1;
-                    neighber_idx = block_pos;
-                } else {
-                    row_index = block_pos;
-                    neighber_idx = block_pos - 1;
-                }
                 read_plan.prepare_to_read(loc, row_index);
-                neighber_index[row_index] = neighber_idx;
             }
+            neighber_index[row_index] = neighber_idx;
+
             LOG_INFO(
                     "_merge_rows_for_sequence_column:, row={}, key={}, st={}, "
                     "row_has_sequence_col={}, "
