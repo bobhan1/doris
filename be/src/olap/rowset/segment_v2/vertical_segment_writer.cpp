@@ -780,7 +780,6 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
-    LOG_INFO("_merge_rows_for_sequence_column: block:\n{}\n", data.block->dump_data());
     auto seq_col_unique_id = _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id();
     FixedReadPlan read_plan;
     std::unordered_map<size_t, size_t> neighber_index;
@@ -819,17 +818,10 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
             }
             neighber_index[row_index] = neighber_idx;
 
-            LOG_INFO(
-                    "_merge_rows_for_sequence_column:, row={}, key={}, st={}, "
-                    "row_has_sequence_col={}, "
-                    "use_default={}, row_index={}, neighber={}",
-                    block_pos, key, st.to_string(), row_has_sequence_col,
-                    use_default.contains(block_pos), row_index, neighber_idx);
         }
         previous_key = std::move(key);
         previous_has_seq_col = row_has_sequence_col;
     }
-    LOG_INFO("_merge_rows_for_sequence_column: neighber_index.size()={}", neighber_index.size());
     if (has_duplicate_key) {
         auto seq_col_idx = _tablet_schema->sequence_col_idx();
         std::vector<uint32_t> cids {static_cast<uint32_t>(seq_col_idx)};
@@ -870,8 +862,6 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
         data.num_rows = block->rows();
     }
-    LOG_INFO("_merge_rows_for_sequence_column, after filter: block:\n{}\n",
-             data.block->dump_data());
     return Status::OK();
 }
 
