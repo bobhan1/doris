@@ -546,8 +546,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     if (!_is_load) {
         return Status::OK();
     }
-    LOG_INFO("VFileScanner::_convert_to_output_block, block:\n{}\n,{}",
-             _src_block_ptr->dump_structure(), _src_block_ptr->dump_data());
     SCOPED_TIMER(_convert_to_output_block_timer);
     // The block is passed from scanner context's free blocks,
     // which is initialized by output columns

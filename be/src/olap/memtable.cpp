@@ -184,6 +184,7 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 Status MemTable::insert(const vectorized::Block* input_block,
                         const std::vector<uint32_t>& row_idxs) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto clone_block = input_block->clone_without_columns(&_column_offset);
@@ -236,8 +237,6 @@ Status MemTable::insert(const vectorized::Block* input_block,
 template <bool has_skip_bitmap_col>
 void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
                                            RowInBlock* src_row, RowInBlock* dst_row) {
-    LOG_INFO("MemTable::_aggregate_two_row_in_block, merge src={} to dst={}", src_row->_row_pos,
-             dst_row->_row_pos);
     // for flexible partial update, the caller guarantees that either src_row and dst_row
     // both specify the sequence column, or src_row and dst_row both don't specify the
     // sequence column
@@ -269,8 +268,6 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
                 assert_cast<vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
                         mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
                         ->get_data()[src_row->_row_pos];
-        LOG_INFO("MemTable::_aggregate_two_row_in_block, src={}, bitmap={}", src_row->_row_pos,
-                 skip_bitmap.to_string());
         for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
             const auto& col = _tablet_schema->column(cid);
             if (cid != _skip_bitmap_col_idx && skip_bitmap.contains(col.unique_id())) {
@@ -338,7 +335,6 @@ size_t MemTable::_sort() {
         for (const auto& row : _row_in_blocks) {
             res += fmt::format(",{}", row->_row_pos);
         }
-        LOG_INFO("MemTable::_sort, after sort, {}", res);
     }
     return same_keys_num;
 }
@@ -528,18 +524,10 @@ void MemTable::_aggregate() {
         auto finalize_rows = [&]() {
             if (row_with_seq_col != nullptr) {
                 _finalize_one_row<is_final>(row_with_seq_col, block_data, row_pos_with_seq);
-                LOG_INFO(
-                        "MemTable::_aggregate, finalize row_with_seq_col, _row_pos={}, "
-                        "pos_in_final_block={}",
-                        row_with_seq_col->_row_pos, row_pos_with_seq);
                 row_with_seq_col = nullptr;
             }
             if (row_without_seq_col != nullptr) {
                 _finalize_one_row<is_final>(row_without_seq_col, block_data, row_pos_without_seq);
-                LOG_INFO(
-                        "MemTable::_aggregate, finalize row_without_seq_col, _row_pos={}, "
-                        "pos_in_final_block={}",
-                        row_without_seq_col->_row_pos, row_pos_without_seq);
                 row_without_seq_col = nullptr;
             }
         };
@@ -553,10 +541,6 @@ void MemTable::_aggregate() {
                 row_without_seq_col = row;
                 row_pos_without_seq = row_pos;
             }
-            LOG_INFO(
-                    "MemTable::_aggregate, add new row, with_seq_col={}, row->_row_pos={}, "
-                    "pos_in_final_block={}",
-                    with_seq_col, row->_row_pos, row_pos);
         };
         // TODO(bobhan1): correct the skip bitmap in NewJsonReader when the table has sequence map col
         for (auto* cur_row : _row_in_blocks) {
@@ -655,7 +639,6 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
 
 Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
-    LOG_INFO("MemTable::to_block, res:\n{}\n,{}", (*res)->dump_structure(), (*res)->dump_data());
     return Status::OK();
 }
 
