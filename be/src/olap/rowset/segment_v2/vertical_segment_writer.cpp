@@ -817,7 +817,6 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
                 read_plan.prepare_to_read(loc, row_index);
             }
             neighber_index[row_index] = neighber_idx;
-
         }
         previous_key = std::move(key);
         previous_has_seq_col = row_has_sequence_col;
