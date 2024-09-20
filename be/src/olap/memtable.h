@@ -220,7 +220,7 @@ private:
     int64_t _tablet_id;
     bool _enable_unique_key_mow = false;
     bool _is_flush_success = false;
-    bool _is_fixed_partial_update = false;
+    UniqueKeyUpdateModePB _partial_update_mode {UniqueKeyUpdateModePB::UPSERT};
     const KeysType _keys_type;
     std::shared_ptr<TabletSchema> _tablet_schema;
 

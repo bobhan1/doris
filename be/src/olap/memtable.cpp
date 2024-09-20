@@ -65,8 +65,8 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     _num_columns = _tablet_schema->num_columns();
     if (partial_update_info != nullptr) {
-        _is_fixed_partial_update = partial_update_info->is_fixed_partial_update();
-        if (_is_fixed_partial_update) {
+        _partial_update_mode = partial_update_info->update_mode();
+        if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
             _num_columns = partial_update_info->partial_update_input_columns.size();
             if (partial_update_info->is_schema_contains_auto_inc_column &&
                 !partial_update_info->is_input_columns_contains_auto_inc_column) {
@@ -192,7 +192,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
         _vec_row_comparator->set_block(&_input_mutable_block);
         _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
         if (_tablet_schema->has_sequence_col()) {
-            if (_is_fixed_partial_update) {
+            if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
                 // for unique key fixed partial update, sequence column index in block
                 // may be different with the index in `_tablet_schema`
                 for (size_t i = 0; i < clone_block.columns(); i++) {
@@ -205,7 +205,8 @@ Status MemTable::insert(const vectorized::Block* input_block,
                 _seq_col_idx_in_block = _tablet_schema->sequence_col_idx();
             }
         }
-        if (_tablet_schema->has_skip_bitmap_col()) {
+        if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS &&
+            _tablet_schema->has_skip_bitmap_col()) {
             // init of _skip_bitmap_col_idx must be before _init_agg_functions()
             _skip_bitmap_col_idx = _tablet_schema->skip_bitmap_col_idx();
             if (_seq_col_idx_in_block != -1) {
@@ -597,7 +598,7 @@ void MemTable::shrink_memtable_by_agg() {
 
 bool MemTable::need_flush() const {
     auto max_size = config::write_buffer_size;
-    if (_is_fixed_partial_update) {
+    if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > 1048576 ? max_size : 1048576;
