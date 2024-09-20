@@ -59,6 +59,7 @@ struct PartialUpdateInfo {
     bool is_flexible_partial_update() const {
         return partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
     }
+    UniqueKeyUpdateModePB update_mode() const { return partial_update_mode; }
     int32_t sequence_map_col_uid() const { return sequence_map_col_unqiue_id; }
 
 private:
