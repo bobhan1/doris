@@ -309,14 +309,6 @@ public class ColumnDef {
 
     public static ColumnDef newSkipBitmapColumnDef(AggregateType aggregateType) {
         return new ColumnDef(Column.SKIP_BITMAP_COL, TypeDef.create(PrimitiveType.BITMAP), false, aggregateType,
-                ColumnNullableType.NOT_NULLABLE, -1, DefaultValue.NULL_DEFAULT_VALUE,
-                "doris skip bitmap hidden column", false, Optional.empty());
-    }
-
-    // used in AlterTableStmt.rewriteAlterClause() when `alter table enable feature "UPDATE FLEXIBLE COLUMNS"`
-    // to add this hidden column to existing merge-on-write table
-    public static ColumnDef newSkipBitmapColumnDefWithDefaultValue(AggregateType aggregateType) {
-        return new ColumnDef(Column.SKIP_BITMAP_COL, TypeDef.create(PrimitiveType.BITMAP), false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE,
                 "doris skip bitmap hidden column", false, Optional.empty());
     }

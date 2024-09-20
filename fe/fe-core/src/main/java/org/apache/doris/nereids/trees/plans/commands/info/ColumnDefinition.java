@@ -710,13 +710,6 @@ public class ColumnDefinition {
     // and then set the default value of that column to bitmap_empty()
     public static ColumnDefinition newSkipBitmapColumnDef(AggregateType aggregateType) {
         return new ColumnDefinition(Column.SKIP_BITMAP_COL, BitmapType.INSTANCE, false, aggregateType, false,
-                Optional.of(DefaultValue.NULL_DEFAULT_VALUE), "doris skip bitmap hidden column", false);
-    }
-
-    // used in SchemaChangeHandler.process() when alter table property enable_unique_key_skip_bitmap
-    // to add this hidden column to existing table
-    public static ColumnDefinition newSkipBitmapColumnDefWithDefaultValue(AggregateType aggregateType) {
-        return new ColumnDefinition(Column.SKIP_BITMAP_COL, BitmapType.INSTANCE, false, aggregateType, false,
                 Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE), "doris skip bitmap hidden column", false);
     }
 

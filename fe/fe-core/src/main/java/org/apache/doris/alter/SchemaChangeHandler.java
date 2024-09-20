@@ -2038,7 +2038,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                         if (!olapTable.hasSkipBitmapColumn()) {
                             Column skipBitmapColumn =
-                                    ColumnDefinition.newSkipBitmapColumnDefWithDefaultValue(AggregateType.NONE)
+                                    ColumnDefinition.newSkipBitmapColumnDef(AggregateType.NONE)
                                             .translateToCatalogStyle();
                             int maxColUniqueId = olapTable.getIndexMetaByIndexId(olapTable.getBaseIndexId())
                                     .getMaxColUniqueId();
