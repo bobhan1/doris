@@ -17,38 +17,40 @@
 
 suite('test_flexible_partial_update') {
 
-    def tableName = "test_flexible_partial_update"
-    sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """ CREATE TABLE ${tableName} (
-        `k` int(11) NULL, 
-        `v1` BIGINT NULL,
-        `v2` BIGINT NULL DEFAULT "9876",
-        `v3` BIGINT NOT NULL,
-        `v4` BIGINT NOT NULL DEFAULT "1234",
-        `v5` BIGINT NULL
-        ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
-        PROPERTIES(
-        "replication_num" = "1",
-        "enable_unique_key_merge_on_write" = "true",
-        "light_schema_change" = "true",
-        "store_row_column" = "false"); """
+    for (def use_row_store : [false, true]) {
+        logger.info("current params: use_row_store: ${use_row_store}")
+        def tableName = "test_flexible_partial_update_${use_row_store}"
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """ CREATE TABLE ${tableName} (
+            `k` int(11) NULL, 
+            `v1` BIGINT NULL,
+            `v2` BIGINT NULL DEFAULT "9876",
+            `v3` BIGINT NOT NULL,
+            `v4` BIGINT NOT NULL DEFAULT "1234",
+            `v5` BIGINT NULL
+            ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "store_row_column" = "${use_row_store}"); """
 
-    def show_res = sql "show create table ${tableName}"
-    assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
-    sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
-    order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        def show_res = sql "show create table ${tableName}"
+        assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
+        sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
+        order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
 
-    streamLoad {
-        table "${tableName}"
-        set 'format', 'json'
-        set 'read_json_by_line', 'true'
-        set 'strict_mode', 'false'
-        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-        file "test1.json"
-        time 20000
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "test1.json"
+            time 20000
+        }
+
+        order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
     }
-
-    order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
-
 }
