@@ -384,10 +384,19 @@ Status FixedReadPlan::fill_missing_columns(
 
 void FlexibleReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos,
                                        const BitmapValue& skip_bitmap) {
-    for (uint64_t col_uid : skip_bitmap) {
-        plan[row_location.rowset_id][row_location.segment_id][col_uid].emplace_back(
+    if (!has_row_store) {
+        for (uint64_t col_uid : skip_bitmap) {
+            plan[row_location.rowset_id][row_location.segment_id][col_uid].emplace_back(
+                    row_location.row_id, pos);
+        }
+    } else {
+        row_store_plan[row_location.rowset_id][row_location.segment_id].emplace_back(
                 row_location.row_id, pos);
     }
+}
+
+void FlexibleReadPlan::set_row_store(bool has_row_store_column) {
+    has_row_store = has_row_store_column;
 }
 
 Status FlexibleReadPlan::read_columns_by_plan(
@@ -430,6 +439,38 @@ Status FlexibleReadPlan::read_columns_by_plan(
     return Status::OK();
 }
 
+Status FlexibleReadPlan::read_columns_by_plan(
+        const TabletSchema& tablet_schema, const std::vector<uint32_t>& cids_to_read,
+        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+        vectorized::Block& old_value_block, std::map<uint32_t, uint32_t>* read_index) const {
+    DCHECK(has_row_store);
+    auto mutable_columns = old_value_block.mutate_columns();
+    size_t read_idx = 0;
+    for (const auto& [rowset_id, segment_row_mappings] : row_store_plan) {
+        for (const auto& [segment_id, mappings] : segment_row_mappings) {
+            auto rowset_iter = rsid_to_rowset.find(rowset_id);
+            CHECK(rowset_iter != rsid_to_rowset.end());
+            std::vector<uint32_t> rids;
+            for (auto [rid, pos] : mappings) {
+                rids.emplace_back(rid);
+                (*read_index)[pos] = read_idx++;
+            }
+            for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
+                TabletColumn tablet_column = tablet_schema.column(cids_to_read[cid]);
+                auto st = doris::BaseTablet::fetch_value_by_rowids(
+                        rowset_iter->second, segment_id, rids, tablet_column, mutable_columns[cid]);
+                // set read value to output block
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to fetch value";
+                    return st;
+                }
+            }
+        }
+    }
+    old_value_block.set_columns(std::move(mutable_columns));
+    return Status::OK();
+}
+
 Status FlexibleReadPlan::fill_non_sort_key_columns(
         RowsetWriterContext* rowset_ctx, const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         const TabletSchema& tablet_schema, vectorized::Block& full_block,
@@ -437,62 +478,119 @@ Status FlexibleReadPlan::fill_non_sort_key_columns(
         const std::size_t segment_start_pos, const std::size_t block_start_pos,
         const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
     auto mutable_full_columns = full_block.mutate_columns();
+    bool has_row_column = tablet_schema.has_row_store_for_all_columns();
 
     // missing_cids are all non sort key columns' cids
     const auto& non_sort_key_cids = rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = tablet_schema.create_block_by_cids(non_sort_key_cids);
     CHECK_EQ(non_sort_key_cids.size(), old_value_block.columns());
 
-    // cid -> segment pos to write -> rowid to read in old_value_block
-    std::map<uint32_t, std::map<uint32_t, uint32_t>> read_index;
-    RETURN_IF_ERROR(
-            read_columns_by_plan(tablet_schema, rsid_to_rowset, old_value_block, &read_index));
-    // !!!ATTENTION!!!: columns in old_value_block may have different size because every row has different columns to update
+    if (!has_row_column) {
+        // cid -> segment pos to write -> rowid to read in old_value_block
+        std::map<uint32_t, std::map<uint32_t, uint32_t>> read_index;
+        RETURN_IF_ERROR(
+                read_columns_by_plan(tablet_schema, rsid_to_rowset, old_value_block, &read_index));
+        // !!!ATTENTION!!!: columns in old_value_block may have different size because every row has different columns to update
 
-    const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(old_value_block);
+        const auto* delete_sign_column_data =
+                BaseTablet::get_delete_sign_column_data(old_value_block);
+        // build default value columns
+        auto default_value_block = old_value_block.clone_empty();
+        if (has_default_or_nullable || delete_sign_column_data != nullptr) {
+            RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+                    tablet_schema, non_sort_key_cids,
+                    rowset_ctx->partial_update_info->default_values, old_value_block,
+                    default_value_block));
+        }
 
-    // build default value columns
-    auto default_value_block = old_value_block.clone_empty();
-    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
-        RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                tablet_schema, non_sort_key_cids, rowset_ctx->partial_update_info->default_values,
-                old_value_block, default_value_block));
-    }
+        // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
+        for (std::size_t i {0}; i < non_sort_key_cids.size(); i++) {
+            auto cid = non_sort_key_cids[i];
+            const auto& tablet_column = tablet_schema.column(cid);
+            auto col_uid = tablet_column.unique_id();
+            auto& cur_col = mutable_full_columns[cid];
+            for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
+                auto segment_pos = segment_start_pos + idx;
+                auto block_pos = block_start_pos + idx;
+                if (skip_bitmaps->at(block_pos).contains(col_uid)) {
+                    DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
+                    DCHECK(cid != tablet_schema.version_col_idx());
+                    DCHECK(!tablet_column.is_row_store_column());
 
-    // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
-    for (std::size_t i {0}; i < non_sort_key_cids.size(); i++) {
-        auto cid = non_sort_key_cids[i];
-        const auto& tablet_column = tablet_schema.column(cid);
-        auto col_uid = tablet_column.unique_id();
-        auto& cur_col = mutable_full_columns[cid];
-        for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-            auto segment_pos = segment_start_pos + idx;
-            auto block_pos = block_start_pos + idx;
-            if (skip_bitmaps->at(block_pos).contains(col_uid)) {
-                DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
-                DCHECK(cid != tablet_schema.version_col_idx());
-                DCHECK(!tablet_column.is_row_store_column());
-
-                auto delete_sign_pos = read_index[tablet_schema.delete_sign_idx()][segment_pos];
-                if (use_default_or_null_flag[idx] ||
-                    (delete_sign_column_data != nullptr &&
-                     delete_sign_column_data[delete_sign_pos] != 0)) {
-                    if (tablet_column.has_default_value()) {
-                        cur_col->insert_from(*default_value_block.get_by_position(i).column, 0);
-                    } else if (tablet_column.is_nullable()) {
-                        assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                                cur_col.get())
-                                ->insert_null_elements(1);
+                    auto delete_sign_pos = read_index[tablet_schema.delete_sign_idx()][segment_pos];
+                    if (use_default_or_null_flag[idx] ||
+                        (delete_sign_column_data != nullptr &&
+                         delete_sign_column_data[delete_sign_pos] != 0)) {
+                        if (tablet_column.has_default_value()) {
+                            cur_col->insert_from(*default_value_block.get_by_position(i).column, 0);
+                        } else if (tablet_column.is_nullable()) {
+                            assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                                    cur_col.get())
+                                    ->insert_null_elements(1);
+                        } else {
+                            cur_col->insert_default();
+                        }
                     } else {
-                        cur_col->insert_default();
+                        auto pos_in_old_block = read_index.at(cid).at(segment_pos);
+                        cur_col->insert_from(*old_value_block.get_by_position(i).column,
+                                             pos_in_old_block);
                     }
                 } else {
-                    auto pos_in_old_block = read_index.at(cid).at(segment_pos);
-                    cur_col->insert_from(*old_value_block.get_by_position(i).column,
-                                         pos_in_old_block);
+                    cur_col->insert_from(*block->get_by_position(cid).column, block_pos);
                 }
-            } else {
-                cur_col->insert_from(*block->get_by_position(cid).column, block_pos);
+            }
+        }
+    } else {
+        // segment pos to write -> rowid to read in old_value_block
+        std::map<uint32_t, uint32_t> read_index;
+        RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, non_sort_key_cids, rsid_to_rowset,
+                                             old_value_block, &read_index));
+
+        const auto* delete_sign_column_data =
+                BaseTablet::get_delete_sign_column_data(old_value_block);
+        // build default value columns
+        auto default_value_block = old_value_block.clone_empty();
+        if (has_default_or_nullable || delete_sign_column_data != nullptr) {
+            RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+                    tablet_schema, non_sort_key_cids,
+                    rowset_ctx->partial_update_info->default_values, old_value_block,
+                    default_value_block));
+        }
+
+        // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
+        for (std::size_t i {0}; i < non_sort_key_cids.size(); i++) {
+            auto cid = non_sort_key_cids[i];
+            const auto& tablet_column = tablet_schema.column(cid);
+            auto col_uid = tablet_column.unique_id();
+            auto& cur_col = mutable_full_columns[cid];
+            for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
+                auto segment_pos = segment_start_pos + idx;
+                auto block_pos = block_start_pos + idx;
+                auto pos_in_old_block = read_index[segment_pos];
+                if (skip_bitmaps->at(block_pos).contains(col_uid)) {
+                    DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
+                    DCHECK(cid != tablet_schema.version_col_idx());
+                    DCHECK(!tablet_column.is_row_store_column());
+
+                    if (use_default_or_null_flag[idx] ||
+                        (delete_sign_column_data != nullptr &&
+                         delete_sign_column_data[pos_in_old_block] != 0)) {
+                        if (tablet_column.has_default_value()) {
+                            cur_col->insert_from(*default_value_block.get_by_position(i).column, 0);
+                        } else if (tablet_column.is_nullable()) {
+                            assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                                    cur_col.get())
+                                    ->insert_null_elements(1);
+                        } else {
+                            cur_col->insert_default();
+                        }
+                    } else {
+                        cur_col->insert_from(*old_value_block.get_by_position(i).column,
+                                             pos_in_old_block);
+                    }
+                } else {
+                    cur_col->insert_from(*block->get_by_position(cid).column, block_pos);
+                }
             }
         }
     }

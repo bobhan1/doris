@@ -673,6 +673,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     }
 
     FlexibleReadPlan read_plan;
+    bool has_row_column = _tablet_schema->has_row_store_for_all_columns();
+    read_plan.set_row_store(has_row_column);
+
     PartialUpdateStats stats;
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         size_t delta_pos = block_pos - data.row_pos;
