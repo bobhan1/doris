@@ -347,7 +347,6 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
                                       segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
         auto ignore_cb = [&]() {
-            ++stats.num_rows_filtered;
             // delete the invalid newly inserted row
             _mow_context->delete_bitmap->add(
                     {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
