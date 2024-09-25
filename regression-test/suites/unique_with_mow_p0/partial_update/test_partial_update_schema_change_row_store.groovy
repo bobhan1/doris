@@ -419,13 +419,13 @@ suite("test_partial_update_row_store_schema_change", "p0") {
     });
 
     // test load data with all key column, should fail because
-    // it inserts a new row in strict mode
+    // it inserts a new row when partial_update_new_row_policy=ERROR
     streamLoad {
         table "${tableName}"
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
-        set 'strict_mode', 'true'
+        set 'partial_update_new_row_policy', 'ERROR'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'
@@ -1015,7 +1015,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
-        set 'strict_mode', 'true'
+        set 'partial_update_new_row_policy', 'ERROR'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'

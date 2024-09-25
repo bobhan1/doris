@@ -42,13 +42,12 @@ suite("test_partial_update_only_keys", "p0") {
             qt_sql """select * from ${tableName} order by k;"""
             // new rows will be appended
             sql "set enable_unique_key_partial_update=true;"
-            sql "set enable_insert_strict=false;"
             sql "sync"
             sql "insert into ${tableName}(k) values(0),(1),(4),(5),(6);"
             qt_sql """select * from ${tableName} order by k;"""
 
-            // fail if has new rows
-            sql "set enable_insert_strict=true;"
+            // fail if has new rows when partial_update_new_row_policy=ERROR
+            sql "set partial_update_new_row_policy=ERROR;"
             sql "sync"
             sql "insert into ${tableName}(k) values(0),(1),(4),(5),(6);"
             qt_sql """select * from ${tableName} order by k;"""
