@@ -193,7 +193,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         // make UnboundTableSink
         return UnboundTableSinkCreator.createUnboundTableSink(nameParts,
                 isPartialUpdate ? partialUpdateColNames : ImmutableList.of(), ImmutableList.of(),
-                false, ImmutableList.of(), isPartialUpdate, TPartialUpdateNewRowPolicy.IGNORE,
+                false, ImmutableList.of(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
                 DMLCommandType.UPDATE, logicalQuery);
     }
 

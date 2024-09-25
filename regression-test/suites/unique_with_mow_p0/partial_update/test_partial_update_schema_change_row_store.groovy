@@ -438,9 +438,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
-            assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.toString().contains("[E-7003]Can't append new rows in partial update when partial_update_new_row_policy is ERROR"))
         }
     }
 
@@ -1028,9 +1026,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
-            assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.toString().contains("[E-7003]Can't append new rows in partial update when partial_update_new_row_policy is ERROR"))
         }
     }
 

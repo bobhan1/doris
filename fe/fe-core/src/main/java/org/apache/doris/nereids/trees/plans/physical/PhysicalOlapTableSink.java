@@ -119,6 +119,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
         return isPartialUpdate;
     }
 
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return partialUpdateNewRowPolicy;
+    }
+
     public DMLCommandType getDmlCommandType() {
         return dmlCommandType;
     }
