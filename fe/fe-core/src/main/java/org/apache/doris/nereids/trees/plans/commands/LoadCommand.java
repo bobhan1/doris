@@ -240,11 +240,8 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
         tvfLogicalPlan = new LogicalProject<>(selectLists, tvfLogicalPlan);
         checkAndAddSequenceCol(olapTable, dataDesc, sinkCols, selectLists);
-        boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
-                && sinkCols.size() < olapTable.getColumns().size();
-        /* TODO(bobhan1): set partialUpdateNewRowPolicy correctly */
         return UnboundTableSinkCreator.createUnboundTableSink(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
-                false, dataDesc.getPartitionNames(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                false, dataDesc.getPartitionNames(), false, TPartialUpdateNewRowPolicy.APPEND,
                         DMLCommandType.LOAD, tvfLogicalPlan);
     }
 

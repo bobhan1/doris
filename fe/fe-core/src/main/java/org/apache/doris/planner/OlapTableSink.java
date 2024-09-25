@@ -245,6 +245,9 @@ public class OlapTableSink extends DataSink {
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
+        if (isPartialUpdate) {
+            strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_ROW_POLICY: " + partialUpdateNewRowPolicy);
+        }
         return strBuilder.toString();
     }
 
