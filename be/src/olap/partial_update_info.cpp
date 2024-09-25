@@ -40,6 +40,7 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_upd
                              const std::string& timezone, const std::string& auto_increment_column,
                              int64_t cur_max_version) {
     is_partial_update = partial_update;
+    partial_update_new_row_policy = policy;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     this->timestamp_ms = timestamp_ms;
