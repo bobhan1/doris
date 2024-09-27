@@ -4181,7 +4181,7 @@ public class SessionVariable implements Serializable, Writable {
         if (policy == null) {
             UnsupportedOperationException exception =
                     new UnsupportedOperationException(PARTIAL_UPDATE_NEW_KEY_POLICY
-                            + "should be one of {'APPEND', 'ERROR'}, but found "
+                            + " should be one of {'APPEND', 'ERROR'}, but found "
                                     + partialUpdateNewKeyPolicy);
             LOG.warn("Check " + PARTIAL_UPDATE_NEW_KEY_POLICY + " failed", exception);
             throw exception;
