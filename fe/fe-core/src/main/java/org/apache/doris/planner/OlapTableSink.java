@@ -109,7 +109,7 @@ public class OlapTableSink extends DataSink {
     // partial update input columns
     private boolean isPartialUpdate = false;
     private HashSet<String> partialUpdateInputColumns;
-    private TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy;
 
     // set after init called
     protected TDataSink tDataSink;
@@ -186,7 +186,7 @@ public class OlapTableSink extends DataSink {
     }
 
     public void setPartialUpdateNewRowPolicy(TPartialUpdateNewRowPolicy policy) {
-        this.partialUpdateNewRowPolicy = policy;
+        this.partialUpdateNewKeyPolicy = policy;
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -246,7 +246,7 @@ public class OlapTableSink extends DataSink {
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
         if (isPartialUpdate) {
-            strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_ROW_POLICY: " + partialUpdateNewRowPolicy);
+            strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_KEY_POLICY: " + partialUpdateNewKeyPolicy);
         }
         return strBuilder.toString();
     }
@@ -323,7 +323,7 @@ public class OlapTableSink extends DataSink {
         }
         schemaParam.setIsPartialUpdate(isPartialUpdate);
         if (isPartialUpdate) {
-            schemaParam.setPartialUpdateNewRowPolicy(partialUpdateNewRowPolicy);
+            schemaParam.setPartialUpdateNewKeyPolicy(partialUpdateNewKeyPolicy);
         }
         if (isPartialUpdate) {
             for (String s : partialUpdateInputColumns) {

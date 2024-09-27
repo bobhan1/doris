@@ -33,56 +33,56 @@ suite("test_partial_update_new_row_policy", "p0") {
     qt_sql """select * from ${tableName} order by k;"""
 
     def checkVariable = { expected -> 
-        def res = sql_return_maparray """show variables where Variable_name="partial_update_new_row_policy";""";
+        def res = sql_return_maparray """show variables where Variable_name="partial_update_new_key_policy";""";
         assertTrue(res[0].Value.equalsIgnoreCase(expected));
     }
 
     sql "set enable_unique_key_partial_update=true;"
     sql "sync"
 
-    sql """set partial_update_new_row_policy="APPEND";"""
+    sql """set partial_update_new_key_policy="APPEND";"""
     sql "sync;"
     checkVariable("APPEND")
     explain {
         sql "insert into ${tableName}(k,c1) values(0,10),(3,10),(4,10),(5,10);"
-        contains "PARTIAL_UPDATE_NEW_ROW_POLICY: APPEND" 
+        contains "PARTIAL_UPDATE_NEW_KEY_POLICY: APPEND" 
     }
     sql "insert into ${tableName}(k,c1) values(0,10),(3,10),(4,10),(5,10);"
     qt_append """select * from ${tableName} order by k;"""
 
 
-    sql """set partial_update_new_row_policy="ignore";"""
+    sql """set partial_update_new_key_policy="ignore";"""
     sql "sync;"
     checkVariable("IGNORE")
     explain {
         sql "insert into ${tableName}(k,c2) values(1,20),(3,80),(6,80),(7,80);"
-        contains "PARTIAL_UPDATE_NEW_ROW_POLICY: IGNORE" 
+        contains "PARTIAL_UPDATE_NEW_KEY_POLICY: IGNORE" 
     }
     sql "insert into ${tableName}(k,c2) values(1,20),(3,80),(6,80),(7,80);"
     qt_ignore """select * from ${tableName} order by k;"""
 
 
-    sql """set partial_update_new_row_policy="ERROR";"""
+    sql """set partial_update_new_key_policy="ERROR";"""
     sql "sync;"
     checkVariable("ERROR")
     explain {
         sql "insert into ${tableName}(k,c2) values(1,30),(2,30);"
-        contains "PARTIAL_UPDATE_NEW_ROW_POLICY: ERROR"
+        contains "PARTIAL_UPDATE_NEW_KEY_POLICY: ERROR"
     }
     sql "insert into ${tableName}(k,c2) values(1,30),(2,30);"
     qt_error1 """select * from ${tableName} order by k;"""
     test {
         sql "insert into ${tableName}(k,c2) values(1,30),(10,999),(11,999);"
-        exception "[E-7003]Can't append new rows in partial update when partial_update_new_row_policy is ERROR"
+        exception "[E-7003]Can't append new rows in partial update when partial_update_new_key_policy is ERROR"
     }
     qt_error2 """select * from ${tableName} order by k;"""
 
 
-    sql """set partial_update_new_row_policy=default;"""
+    sql """set partial_update_new_key_policy=default;"""
     sql "sync;"
     checkVariable("APPEND")
     test {
-        sql """set partial_update_new_row_policy="invalid";"""
+        sql """set partial_update_new_key_policy="invalid";"""
         exception "partial_update_new_row_policyshould be one of {'APPEND', 'IGNORE', 'ERROR'}, but found invalid"
     }
     checkVariable("APPEND")
@@ -96,7 +96,7 @@ suite("test_partial_update_new_row_policy", "p0") {
         set 'format', 'csv'
         set 'columns', 'k,c3'
         set 'partial_columns', 'true'
-        set 'partial_update_new_row_policy', 'append'
+        set 'partial_update_new_key_policy', 'append'
         file 'row_policy1.csv'
         time 10000
     }
@@ -108,7 +108,7 @@ suite("test_partial_update_new_row_policy", "p0") {
         set 'format', 'csv'
         set 'columns', 'k,c3'
         set 'partial_columns', 'true'
-        set 'partial_update_new_row_policy', 'IGNORE'
+        set 'partial_update_new_key_policy', 'IGNORE'
         file 'row_policy2.csv'
         time 10000
     }
@@ -120,7 +120,7 @@ suite("test_partial_update_new_row_policy", "p0") {
         set 'format', 'csv'
         set 'columns', 'k,c3'
         set 'partial_columns', 'true'
-        set 'partial_update_new_row_policy', 'IGNORE'
+        set 'partial_update_new_key_policy', 'IGNORE'
         file 'row_policy3.csv'
         time 10000
     }
@@ -132,7 +132,7 @@ suite("test_partial_update_new_row_policy", "p0") {
         set 'format', 'csv'
         set 'columns', 'k,c3'
         set 'partial_columns', 'true'
-        set 'partial_update_new_row_policy', 'IGNORE'
+        set 'partial_update_new_key_policy', 'IGNORE'
         file 'row_policy4.csv'
         time 10000
     }

@@ -346,15 +346,8 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
                                       specified_rowsets, &loc, _mow_context->max_version,
                                       segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
-        auto ignore_cb = [&]() {
-            // delete the invalid newly inserted row
-            _mow_context->delete_bitmap->add(
-                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                    segment_pos);
-        };
         if (!have_delete_sign) {
-            RETURN_IF_ERROR(_opts.rowset_ctx->partial_update_info->handle_new_row(*_tablet_schema,
-                                                                                  ignore_cb));
+            RETURN_IF_ERROR(_opts.rowset_ctx->partial_update_info->handle_new_key(*_tablet_schema));
         }
         ++stats.num_rows_new_added;
         has_default_or_nullable = true;

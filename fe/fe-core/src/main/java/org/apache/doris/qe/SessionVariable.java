@@ -512,7 +512,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
 
-    public static final String PARTIAL_UPDATE_NEW_ROW_POLICY = "partial_update_new_row_policy";
+    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_policy";
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
@@ -1784,11 +1784,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
-    @VariableMgr.VarAttr(name = PARTIAL_UPDATE_NEW_ROW_POLICY, needForward = true, description = {
+    @VariableMgr.VarAttr(name = PARTIAL_UPDATE_NEW_KEY_POLICY, needForward = true, description = {
             "用于设置部分列更新中对于新插入的行的处理策略",
             "Used to set the handling policy for newly inserted rows in partial update."
-            }, checker = "checkPartialUpdateNewRowPolicy", options = {"APPEND", "IGNORE", "ERROR"})
-    public String partialUpdateNewRowPolicy = "APPEND";
+            }, checker = "checkPartialUpdateNewRowPolicy", options = {"APPEND", "ERROR"})
+    public String partialUpdateNewKeyPolicy = "APPEND";
 
     @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
             "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
@@ -3624,7 +3624,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
-        return parsePartialUpdateNewRowPolicy(partialUpdateNewRowPolicy);
+        return parsePartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
     }
 
     public int getLoadStreamPerNode() {
@@ -4170,22 +4170,20 @@ public class SessionVariable implements Serializable, Writable {
             return null;
         } else if (policy.equalsIgnoreCase("APPEND")) {
             return TPartialUpdateNewRowPolicy.APPEND;
-        } else if (policy.equalsIgnoreCase("IGNORE")) {
-            return TPartialUpdateNewRowPolicy.IGNORE;
         } else if (policy.equalsIgnoreCase("ERROR")) {
             return TPartialUpdateNewRowPolicy.ERROR;
         }
         return null;
     }
 
-    public void checkPartialUpdateNewRowPolicy(String partialUpdateNewRowPolicy) {
-        TPartialUpdateNewRowPolicy policy = parsePartialUpdateNewRowPolicy(partialUpdateNewRowPolicy);
+    public void checkPartialUpdateNewRowPolicy(String partialUpdateNewKeyPolicy) {
+        TPartialUpdateNewRowPolicy policy = parsePartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
         if (policy == null) {
             UnsupportedOperationException exception =
-                    new UnsupportedOperationException(PARTIAL_UPDATE_NEW_ROW_POLICY
-                            + "should be one of {'APPEND', 'IGNORE', 'ERROR'}, but found "
-                                    + partialUpdateNewRowPolicy);
-            LOG.warn("Check " + PARTIAL_UPDATE_NEW_ROW_POLICY + " failed", exception);
+                    new UnsupportedOperationException(PARTIAL_UPDATE_NEW_KEY_POLICY
+                            + "should be one of {'APPEND', 'ERROR'}, but found "
+                                    + partialUpdateNewKeyPolicy);
+            LOG.warn("Check " + PARTIAL_UPDATE_NEW_KEY_POLICY + " failed", exception);
             throw exception;
         }
     }

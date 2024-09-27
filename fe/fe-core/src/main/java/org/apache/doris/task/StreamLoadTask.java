@@ -85,7 +85,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
     private boolean isPartialUpdate = false;
-    private TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy = TPartialUpdateNewRowPolicy.APPEND;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     private int skipLines = 0;
     private boolean enableProfile = false;
@@ -305,7 +305,7 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     @Override
     public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
-        return partialUpdateNewRowPolicy;
+        return partialUpdateNewKeyPolicy;
     }
 
     @Override
@@ -461,8 +461,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (request.isSetPartialUpdate()) {
             isPartialUpdate = request.isPartialUpdate();
         }
-        if (request.isSetPartialUpdateNewRowPolicy()) {
-            partialUpdateNewRowPolicy = request.getPartialUpdateNewRowPolicy();
+        if (request.isSetPartialUpdateNewKeyPolicy()) {
+            partialUpdateNewKeyPolicy = request.getPartialUpdateNewKeyPolicy();
         }
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();

@@ -125,7 +125,7 @@ public class BindSink implements AnalysisRuleFactory {
         Database database = pair.first;
         OlapTable table = pair.second;
         boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType() == KeysType.UNIQUE_KEYS;
-        TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy = sink.getPartialUpdateNewRowPolicy();
+        TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = sink.getPartialUpdateNewRowPolicy();
 
         LogicalPlan child = ((LogicalPlan) sink.child());
         boolean childHasSeqCol = child.getOutput().stream()
@@ -148,7 +148,7 @@ public class BindSink implements AnalysisRuleFactory {
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
                 isPartialUpdate,
-                partialUpdateNewRowPolicy,
+                partialUpdateNewKeyPolicy,
                 sink.getDMLCommandType(),
                 child);
 

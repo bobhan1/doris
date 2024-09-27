@@ -128,8 +128,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
                     "different from BE.");
         }
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
-        if (pschema.has_partial_update_new_row_policy()) {
-            _partial_update_new_row_policy = pschema.partial_update_new_row_policy();
+        if (pschema.has_partial_update_new_key_policy()) {
+            _partial_update_new_row_policy = pschema.partial_update_new_key_policy();
         }
     }
     _timestamp_ms = pschema.timestamp_ms();
@@ -205,14 +205,10 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                     "different from BE.");
         }
         _auto_increment_column_unique_id = tschema.auto_increment_column_unique_id;
-        if (tschema.__isset.partial_update_new_row_policy) {
-            switch (tschema.partial_update_new_row_policy) {
+        if (tschema.__isset.partial_update_new_key_policy) {
+            switch (tschema.partial_update_new_key_policy) {
             case doris::TPartialUpdateNewRowPolicy::APPEND: {
                 _partial_update_new_row_policy = PartialUpdateNewRowPolicyPB::APPEND;
-                break;
-            }
-            case doris::TPartialUpdateNewRowPolicy::IGNORE: {
-                _partial_update_new_row_policy = PartialUpdateNewRowPolicyPB::IGNORE;
                 break;
             }
             case doris::TPartialUpdateNewRowPolicy::ERROR: {
@@ -220,10 +216,10 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 break;
             }
             default: {
-                return Status::InternalError(
-                        "Unknown partial_update_new_row_policy: {}, should be one of "
-                        "{'APPEND', 'IGNORE', 'ERROR'}",
-                        tschema.partial_update_new_row_policy);
+                return Status::InvalidArgument(
+                        "Unknown partial_update_new_key_policy: {}, should be one of "
+                        "'APPEND', 'IGNORE' or 'ERROR'",
+                        tschema.partial_update_new_key_policy);
             }
             }
         }
@@ -297,7 +293,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_table_id(_table_id);
     pschema->set_version(_version);
     pschema->set_partial_update(_is_partial_update);
-    pschema->set_partial_update_new_row_policy(_partial_update_new_row_policy);
+    pschema->set_partial_update_new_key_policy(_partial_update_new_row_policy);
     pschema->set_is_strict_mode(_is_strict_mode);
     pschema->set_auto_increment_column(_auto_increment_column);
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);

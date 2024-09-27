@@ -40,7 +40,7 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_upd
                              const std::string& timezone, const std::string& auto_increment_column,
                              int64_t cur_max_version) {
     is_partial_update = partial_update;
-    partial_update_new_row_policy = policy;
+    partial_update_new_key_policy = policy;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     this->timestamp_ms = timestamp_ms;
@@ -71,7 +71,7 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_upd
 
 void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const {
     partial_update_info_pb->set_is_partial_update(is_partial_update);
-    partial_update_info_pb->set_partial_update_new_row_policy(partial_update_new_row_policy);
+    partial_update_info_pb->set_partial_update_new_key_policy(partial_update_new_key_policy);
     partial_update_info_pb->set_max_version_in_flush_phase(max_version_in_flush_phase);
     for (const auto& col : partial_update_input_columns) {
         partial_update_info_pb->add_partial_update_input_columns(col);
@@ -99,8 +99,8 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
 
 void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
     is_partial_update = partial_update_info_pb->is_partial_update();
-    if (partial_update_info_pb->has_partial_update_new_row_policy()) {
-        partial_update_new_row_policy = partial_update_info_pb->partial_update_new_row_policy();
+    if (partial_update_info_pb->has_partial_update_new_key_policy()) {
+        partial_update_new_key_policy = partial_update_info_pb->partial_update_new_key_policy();
     }
     max_version_in_flush_phase = partial_update_info_pb->has_max_version_in_flush_phase()
                                          ? partial_update_info_pb->max_version_in_flush_phase()
@@ -139,13 +139,12 @@ std::string PartialUpdateInfo::summary() const {
     return fmt::format(
             "update_cids={}, missing_cids={}, is_strict_mode={}, new_row_policy={}, "
             "max_version_in_flush_phase={}",
-            update_cids.size(), missing_cids.size(), is_strict_mode, partial_update_new_row_policy,
+            update_cids.size(), missing_cids.size(), is_strict_mode, partial_update_new_key_policy,
             max_version_in_flush_phase);
 }
 
-Status PartialUpdateInfo::handle_new_row(const TabletSchema& tablet_schema,
-                                         const std::function<void()>& ignore_cb) {
-    switch (partial_update_new_row_policy) {
+Status PartialUpdateInfo::handle_new_key(const TabletSchema& tablet_schema) {
+    switch (partial_update_new_key_policy) {
     case doris::PartialUpdateNewRowPolicyPB::APPEND: {
         if (!can_insert_new_rows_in_partial_update) {
             std::string error_column;
@@ -163,12 +162,9 @@ Status PartialUpdateInfo::handle_new_row(const TabletSchema& tablet_schema,
                     error_column);
         }
     } break;
-    case doris::PartialUpdateNewRowPolicyPB::IGNORE: {
-        ignore_cb();
-    } break;
     case doris::PartialUpdateNewRowPolicyPB::ERROR: {
         return Status::Error<ErrorCode::NEW_ROWS_IN_PARTIAL_UPDATE, false>(
-                "Can't append new rows in partial update when partial_update_new_row_policy is "
+                "Can't append new rows in partial update when partial_update_new_key_policy is "
                 "ERROR");
     } break;
     }

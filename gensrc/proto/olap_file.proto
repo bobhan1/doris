@@ -613,8 +613,7 @@ message RowsetBinlogMetasPB {
 
 enum PartialUpdateNewRowPolicyPB {
     APPEND = 1;
-    IGNORE = 2;
-    ERROR = 3;
+    ERROR = 2;
 }
 
 message PartialUpdateInfoPB {
@@ -631,5 +630,5 @@ message PartialUpdateInfoPB {
     repeated string default_values = 11;
     optional int64 max_version_in_flush_phase = 12 [default = -1];
     optional int32 nano_seconds = 13 [default = 0];
-    optional PartialUpdateNewRowPolicyPB partial_update_new_row_policy = 14 [default = APPEND];
+    optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 14 [default = APPEND];
 }

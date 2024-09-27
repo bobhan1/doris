@@ -93,7 +93,7 @@ public:
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
-    PartialUpdateNewRowPolicyPB partial_update_new_row_policy() const {
+    PartialUpdateNewRowPolicyPB partial_update_new_key_policy() const {
         return _partial_update_new_row_policy;
     }
     std::string auto_increment_coulumn() const { return _auto_increment_column; }
