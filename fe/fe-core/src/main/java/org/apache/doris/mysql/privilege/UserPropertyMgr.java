@@ -27,7 +27,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Maps;
