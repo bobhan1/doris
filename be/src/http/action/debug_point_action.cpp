@@ -18,6 +18,7 @@
 #include "http/action/debug_point_action.h"
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "http/http_channel.h"
 #include "http/http_status.h"
 #include "util/debug_points.h"
@@ -49,6 +50,10 @@ Status AddDebugPointAction::_handle(HttpRequest* req) {
     std::string timeout = req->param("timeout");
     if (name.empty()) {
         return Status::InternalError("Empty debug point name");
+    }
+    if (name == "flexible_fast_fail") {
+        LOG_WARNING("flexible_fast_fail");
+        CHECK(false) << "flexible partial update fast fail";
     }
     auto debug_point = std::make_shared<DebugPoint>();
     try {
