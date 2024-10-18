@@ -747,9 +747,10 @@ Status BlockAggregator::aggregate_rows(
     RowLocation loc;
     RowsetSharedPtr rowset;
     std::string previous_encoded_seq_value {};
-    Status st = _writer._tablet->lookup_row_key(
-            key, &_tablet_schema, false, specified_rowsets, &loc, _writer._mow_context->max_version,
-            segment_caches, &rowset, true, &previous_encoded_seq_value);
+    auto* tablet = static_cast<Tablet*>(_writer._tablet.get());
+    Status st = tablet->lookup_row_key(key, &_tablet_schema, false, specified_rowsets, &loc,
+                                       _writer._mow_context->max_version, segment_caches, &rowset,
+                                       true, true, &previous_encoded_seq_value);
     int64_t pos = start;
     DCHECK(st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
 
@@ -831,7 +832,7 @@ Status BlockAggregator::aggregate_for_sequence_column(
                               .column->assume_mutable()
                               .get())
                       ->get_data());
-    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
+    const auto* delete_signs = Tablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filtered_block = _tablet_schema.create_block();
     vectorized::MutableBlock output_block =
@@ -913,7 +914,7 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
                               .column->assume_mutable()
                               .get())
                       ->get_data());
-    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
+    const auto* delete_signs = Tablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filter_column = vectorized::ColumnUInt8::create(num_rows, 1);
     auto* __restrict filter_map = filter_column->get_data().data();
@@ -943,9 +944,10 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
             ++duplicate_rows;
             RowLocation loc;
             RowsetSharedPtr rowset;
-            Status st = _writer._tablet->lookup_row_key(
-                    key, &_tablet_schema, false, specified_rowsets, &loc,
-                    _writer._mow_context->max_version, segment_caches, &rowset, true);
+            auto* tablet = static_cast<Tablet*>(_writer._tablet.get());
+            Status st = tablet->lookup_row_key(key, &_tablet_schema, false, specified_rowsets, &loc,
+                                               _writer._mow_context->max_version, segment_caches,
+                                               &rowset, true);
             DCHECK(st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
 
             Slice previous_seq_slice {};
