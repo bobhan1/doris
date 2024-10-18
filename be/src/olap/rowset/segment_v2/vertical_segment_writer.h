@@ -33,6 +33,7 @@
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
@@ -56,7 +57,6 @@ struct RowsetWriterContext;
 namespace io {
 class FileWriter;
 } // namespace io
-
 namespace segment_v2 {
 class InvertedIndexFileWriter;
 
@@ -169,23 +169,17 @@ private:
             bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
             std::vector<BitmapValue>* skip_bitmaps,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column,
-            const signed char* delete_sign_column_data,
+            vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
             bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
             PartialUpdateStats& stats);
-    Status _merge_rows_for_sequence_column(
-            RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column,
-            const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
 
     bool _is_mow();
 
 private:
+    friend class ::doris::BlockAggregator;
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
@@ -239,6 +233,8 @@ private:
 
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;
+
+    BlockAggregator _block_aggregator;
 };
 
 } // namespace segment_v2
