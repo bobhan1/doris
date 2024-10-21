@@ -202,13 +202,14 @@ public:
 
 private:
     // for vectorized
+    template <bool has_skip_bitmap_col>
     void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
 
 private:
     int64_t _tablet_id;
     bool _enable_unique_key_mow = false;
-    bool _is_partial_update = false;
+    UniqueKeyUpdateModePB _partial_update_mode {UniqueKeyUpdateModePB::UPSERT};
     const KeysType _keys_type;
     std::shared_ptr<TabletSchema> _tablet_schema;
 
@@ -248,11 +249,25 @@ private:
     Status _sort_by_cluster_keys();
     void _sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                           std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
-    template <bool is_final>
+    template <bool is_final, bool clear_arena = true>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);
-    template <bool is_final>
+    void _init_row_for_agg(RowInBlock* row, vectorized::MutableBlock& mutable_block);
+    void _clear_row_agg(RowInBlock* row);
+
+    template <bool is_final, bool has_skip_bitmap_col = false>
     void _aggregate();
+
+    template <bool is_final>
+    void _aggregate_for_flexible_partial_update_without_seq_col(
+            const vectorized::ColumnsWithTypeAndName& block_data,
+            vectorized::MutableBlock& mutable_block, std::vector<RowInBlock*>& temp_row_in_blocks);
+
+    template <bool is_final>
+    void _aggregate_for_flexible_partial_update_with_seq_col(
+            const vectorized::ColumnsWithTypeAndName& block_data,
+            vectorized::MutableBlock& mutable_block, std::vector<RowInBlock*>& temp_row_in_blocks);
+
     Status _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
 
@@ -265,7 +280,11 @@ private:
     size_t _mem_usage;
 
     size_t _num_columns;
-    int32_t _seq_col_idx_in_block = -1;
+    int32_t _seq_col_idx_in_block {-1};
+    int32_t _skip_bitmap_col_idx {-1};
+    int32_t _delete_sign_col_idx {-1};
+    int32_t _delete_sign_col_unique_id {-1};
+    int32_t _seq_col_unique_id {-1};
 
     bool _is_partial_update_and_auto_inc = false;
 }; // class MemTable
