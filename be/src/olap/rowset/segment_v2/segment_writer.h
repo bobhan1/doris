@@ -96,8 +96,18 @@ public:
     Status append_row(const RowType& row);
 
     Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
+                             bool have_delete_sign,
+                             const std::vector<RowsetSharedPtr>& specified_rowsets,
+                             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                             bool& has_default_or_nullable,
+                             std::vector<bool>& use_default_or_null_flag,
+                             const std::function<void(const RowLocation& loc)>& found_cb,
+                             const std::function<Status()>& not_found_cb,
+                             PartialUpdateStats& stats);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
+    Status append_block_with_variant_subcolumns(vectorized::Block& data);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
@@ -133,10 +143,6 @@ public:
     void clear();
 
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
-    Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos,
-                                const vectorized::Block* block);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -180,6 +186,8 @@ private:
             vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+
+    bool _is_mow();
 
 private:
     uint32_t _segment_id;
@@ -235,7 +243,6 @@ private:
 
     std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
-    PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 };
 
