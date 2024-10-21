@@ -782,6 +782,9 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos, skip_bitmap);
+            VLOG_DEBUG << fmt::format(
+                    "block_pos={}, have_delete_sign={}, row_has_sequence_col={}, skip_bitmap={}",
+                    block_pos, have_delete_sign, row_has_sequence_col, skip_bitmap.to_string());
         };
 
         RETURN_IF_ERROR(_probe_key_for_mow(std::move(key), segment_pos, row_has_sequence_col,

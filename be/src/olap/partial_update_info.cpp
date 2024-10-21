@@ -433,12 +433,21 @@ Status FlexibleReadPlan::read_columns_by_plan(
                 auto rowset_iter = rsid_to_rowset.find(rowset_id);
                 CHECK(rowset_iter != rsid_to_rowset.end());
                 auto cid = tablet_schema.field_index(col_uid);
+                VLOG_DEBUG << fmt::format(
+                        "FlexibleReadPlan::read_columns_by_plan, cid={}, col_uid={}, col_name={}",
+                        cid, col_uid, tablet_schema.column(cid).name());
                 DCHECK_NE(cid, -1);
                 DCHECK_GE(cid, tablet_schema.num_key_columns());
                 std::vector<uint32_t> rids;
                 for (auto [rid, pos] : mappings) {
                     rids.emplace_back(rid);
                     (*read_index)[cid][pos] = next_read_idx[cid]++;
+                    if (cid == tablet_schema.delete_sign_idx()) {
+                        VLOG_DEBUG << fmt::format(
+                                "FlexibleReadPlan::read_columns_by_plan, delete_sign_idx={}, "
+                                "pos={},  (*read_index)[cid][pos]={}",
+                                cid, pos, (*read_index)[cid][pos]);
+                    }
                 }
 
                 TabletColumn tablet_column = tablet_schema.column(cid);
@@ -500,11 +509,13 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
     CHECK_EQ(non_sort_key_cids.size(), old_value_block.columns());
 
     if (!use_row_store) {
+        VLOG_DEBUG << fmt::format("fill_non_primary_key_columns_for_column_store");
         RETURN_IF_ERROR(fill_non_primary_key_columns_for_column_store(
                 rowset_ctx, rsid_to_rowset, tablet_schema, non_sort_key_cids, old_value_block,
                 mutable_full_columns, use_default_or_null_flag, has_default_or_nullable,
                 segment_start_pos, block_start_pos, block, skip_bitmaps));
     } else {
+        VLOG_DEBUG << fmt::format("fill_non_primary_key_columns_for_row_store");
         RETURN_IF_ERROR(fill_non_primary_key_columns_for_row_store(
                 rowset_ctx, rsid_to_rowset, tablet_schema, non_sort_key_cids, old_value_block,
                 mutable_full_columns, use_default_or_null_flag, has_default_or_nullable,
@@ -549,9 +560,16 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
             DCHECK(cid != tablet_schema.version_col_idx());
             DCHECK(!tablet_column.is_row_store_column());
 
-            auto delete_sign_pos = read_index[tablet_schema.delete_sign_idx()][segment_pos];
-            if (use_default || (delete_sign_column_data != nullptr &&
-                                delete_sign_column_data[delete_sign_pos] != 0)) {
+            bool should_use_default = use_default;
+            if (!should_use_default && delete_sign_column_data != nullptr) {
+                auto it = read_index[tablet_schema.delete_sign_idx()].find(segment_pos);
+                if (it != read_index[tablet_schema.delete_sign_idx()].end()) {
+                    should_use_default = (delete_sign_column_data[it->second] != 0);
+                }
+            }
+            if (should_use_default) {
+                VLOG_DEBUG << fmt::format("segment_pos={}, should use default, use_default={},",
+                                          segment_pos, use_default);
                 if (tablet_column.has_default_value()) {
                     new_col->insert_from(default_value_col, 0);
                 } else if (tablet_column.is_nullable()) {
@@ -564,6 +582,9 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
             } else {
                 auto pos_in_old_block = read_index.at(cid).at(segment_pos);
                 new_col->insert_from(old_value_col, pos_in_old_block);
+                VLOG_DEBUG << fmt::format(
+                        "segment_pos={}, use historical data, use_default={}, pos_in_old_block={}",
+                        segment_pos, use_default, pos_in_old_block);
             }
         } else {
             new_col->insert_from(cur_col, block_pos);
@@ -578,7 +599,11 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
         for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
             auto segment_pos = segment_start_pos + idx;
             auto block_pos = block_start_pos + idx;
-
+            VLOG_DEBUG << fmt::format(
+                    "outer, segment_pos={}, block_pos={}, cid={} ,col_uid={}, "
+                    "skip_bitmaps->at(block_pos).contains(col_uid)={}",
+                    segment_pos, block_pos, cid, col_uid,
+                    skip_bitmaps->at(block_pos).contains(col_uid));
             fill_one_cell(tablet_column, cid, mutable_full_columns[cid],
                           *default_value_block.get_by_position(i).column,
                           *old_value_block.get_by_position(i).column,
