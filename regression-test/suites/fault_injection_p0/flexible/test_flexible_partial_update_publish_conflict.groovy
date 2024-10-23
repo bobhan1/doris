@@ -150,6 +150,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
         enable_block_in_publish("token1")
         t3.join()
         t4.join()
+        Thread.sleep(1000)
         qt_sql1 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
 
         // let t5 publish
