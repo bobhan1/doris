@@ -49,6 +49,8 @@ protected:
 private:
     Version _last_delete_version {-1, -1};
 
+    void _process_old_version_delete_bitmap();
+
     DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
 };
 
