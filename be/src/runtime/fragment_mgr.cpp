@@ -289,6 +289,11 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 Status FragmentMgr::trigger_pipeline_context_report(
         const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
     return _async_report_thread_pool->submit_func([this, req, ctx]() {
+        if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                CHECK(rs != nullptr);
+            }
+        }
         coordinator_callback(req);
         if (!req.done) {
             ctx->refresh_next_report_time();

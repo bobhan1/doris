@@ -1513,6 +1513,7 @@ Status PipelineXFragmentContext::send_report(bool done) {
     std::vector<RuntimeState*> runtime_states;
 
     for (auto& task_state : _task_runtime_states) {
+        CHECK(task_state);
         runtime_states.push_back(task_state.get());
     }
     return _report_status_cb(
