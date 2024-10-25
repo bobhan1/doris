@@ -2186,6 +2186,11 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     }
     context.data_dir = data_dir();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    if (context.partial_update_info && context.partial_update_info->is_flexible_partial_update()) {
+        // can't do segcompaction for flexible partial update load, otherwise the result is incorrect
+        // because it use MOR to read data
+        context.enable_segcompaction = false;
+    }
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {
