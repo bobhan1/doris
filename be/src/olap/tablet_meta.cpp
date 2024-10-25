@@ -1048,7 +1048,6 @@ bool DeleteBitmap::empty() const {
 }
 
 uint64_t DeleteBitmap::cardinality() const {
-    std::shared_lock l(lock);
     uint64_t res = 0;
     for (auto entry : delete_bitmap) {
         res += entry.second.cardinality();
@@ -1121,44 +1120,6 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
         auto [j, succ] = this->delete_bitmap.insert(i);
         if (!succ) j->second |= i.second;
     }
-}
-
-size_t DeleteBitmap::get_size() const {
-    std::shared_lock l(lock);
-    size_t charge = 0;
-    for (auto& [k, v] : delete_bitmap) {
-        charge += v.getSizeInBytes();
-    }
-    return charge;
-}
-
-void DeleteBitmap::add_to_remove_queue(
-        const std::string& version_str,
-        const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
-                vector) {
-    std::shared_lock l(stale_delete_bitmap_lock);
-    _stale_delete_bitmap.emplace(version_str, vector);
-}
-
-void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector) {
-    std::shared_lock l(stale_delete_bitmap_lock);
-    for (auto& version_str : vector) {
-        auto it = _stale_delete_bitmap.find(version_str);
-        if (it != _stale_delete_bitmap.end()) {
-            auto delete_bitmap_vector = it->second;
-            for (auto& delete_bitmap_tuple : it->second) {
-                auto start_bmk = std::get<1>(delete_bitmap_tuple);
-                auto end_bmk = std::get<2>(delete_bitmap_tuple);
-                remove(start_bmk, end_bmk);
-            }
-            _stale_delete_bitmap.erase(version_str);
-        }
-    }
-}
-
-uint64_t DeleteBitmap::get_delete_bitmap_count() {
-    std::shared_lock l(lock);
-    return delete_bitmap.size();
 }
 
 // We cannot just copy the underlying memory to construct a string
