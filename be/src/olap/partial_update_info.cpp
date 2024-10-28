@@ -555,6 +555,12 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*>(new_col.get())
                             ->insert_null_elements(1);
+                } else if (tablet_column.is_auto_increment()) {
+                    // In flexible partial update, the skip bitmap indicates whether a cell
+                    // is specified in the original load, so the generated auto-increment value is filled
+                    // in current block in place if needed rather than using a seperate column to
+                    // store the generated auto-increment value in fixed partial update
+                    new_col->insert_from(cur_col, block_pos);
                 } else {
                     new_col->insert_default();
                 }
@@ -628,6 +634,12 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*>(new_col.get())
                             ->insert_null_elements(1);
+                } else if (tablet_column.is_auto_increment()) {
+                    // In flexible partial update, the skip bitmap indicates whether a cell
+                    // is specified in the original load, so the generated auto-increment value is filled
+                    // in current block in place if needed rather than using a seperate column to
+                    // store the generated auto-increment value in fixed partial update
+                    new_col->insert_from(cur_col, block_pos);
                 } else {
                     new_col->insert_default();
                 }
