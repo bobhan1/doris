@@ -82,6 +82,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
+#include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowid_conversion.h"
 #include "olap/rowset/beta_rowset.h"
@@ -3522,6 +3523,47 @@ Status Tablet::generate_new_block_for_flexible_partial_update(
     return Status::OK();
 }
 
+Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
+        RowsetSharedPtr rowset, const TabletSchema& rowset_schema,
+        const MergeRowsInSegmentsReadPlan& read_plan, vectorized::Block* output_block) {
+    CHECK(output_block);
+
+    std::vector<uint32_t> all_cids(rowset_schema.num_columns());
+    std::iota(all_cids.begin(), all_cids.end(), 0);
+    auto tmp_block = rowset_schema.create_block_by_cids(all_cids);
+
+    // rowid in the tmp_block(start from 0, increase continuously) -> rowid to read in tmp_block
+    std::map<uint32_t, uint32_t> read_index_mapping;
+
+    RETURN_IF_ERROR(read_plan.read_columns_by_plan(rowset, rowset_schema, all_cids, tmp_block,
+                                                   &read_index_mapping));
+    size_t num_rows = read_index_mapping.size();
+
+    const auto* __restrict delete_signs = get_delete_sign_column_data(tmp_block, num_rows);
+    DCHECK(delete_signs != nullptr);
+
+    // 4. build the final block
+    auto full_mutable_columns = output_block->mutate_columns();
+    DCHECK(rowset_schema.has_skip_bitmap_col());
+    auto skip_bitmap_col_idx = rowset_schema.skip_bitmap_col_idx();
+    const std::vector<BitmapValue>* skip_bitmaps =
+            &(assert_cast<const vectorized::ColumnBitmap*>(
+                      tmp_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
+                      ->get_data());
+
+    auto rows = read_plan.get_rows_in_segments();
+    std::sort(rows.begin(), rows.end());
+
+    if (rowset_schema.has_sequence_col()) {
+        // TODO(bobhan1): handle for sequence column
+    } else {
+    }
+
+    output_block->set_columns(std::move(full_mutable_columns));
+    VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
+    return Status::OK();
+}
+
 void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
                                     const RowsetIdUnorderedSet& pre, RowsetIdUnorderedSet* to_add,
                                     RowsetIdUnorderedSet* to_del) {
@@ -4147,7 +4189,7 @@ void Tablet::clear_cache() {
 
 Status Tablet::calc_delete_bitmap_between_segments(
         RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
-        DeleteBitmapPtr delete_bitmap) {
+        DeleteBitmapPtr delete_bitmap, bool is_flexible_partial_update, TabletSchema* schema) {
     size_t const num_segments = segments.size();
     if (num_segments < 2) {
         return Status::OK();
@@ -4166,9 +4208,17 @@ Status Tablet::calc_delete_bitmap_between_segments(
     }
 
     MergeIndexDeleteBitmapCalculator calculator;
-    RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length, rowid_length));
+    RETURN_IF_ERROR(calculator.init(is_flexible_partial_update, rowset_id, segments, seq_col_length,
+                                    rowid_length));
 
-    RETURN_IF_ERROR(calculator.calculate_all(delete_bitmap));
+    DeleteBitmap delta_delete_bitmap(tablet_id());
+    RETURN_IF_ERROR(calculator.calculate_all(&delta_delete_bitmap));
+    if (is_flexible_partial_update) {
+        DCHECK(schema);
+        merge_rows_between_segments_for_flexible_partial_update(rowset, *schema, );
+    } else {
+        delete_bitmap->merge(delta_delete_bitmap);
+    }
 
     LOG(INFO) << fmt::format(
             "construct delete bitmap between segments, "

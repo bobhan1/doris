@@ -1176,4 +1176,56 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
     return Status::OK();
 }
 
+void MergeRowsInSegmentsReadPlan::prepare_to_read(uint32_t segment_id, uint32_t segment_row_id,
+                                                  uint32_t read_idx, int64_t key_group_id) {
+    plan[segment_id].emplace_back(segment_id, segment_row_id, read_idx, key_group_id);
+}
+
+Status MergeRowsInSegmentsReadPlan::read_columns_by_plan(
+        RowsetSharedPtr rowset, const TabletSchema& tablet_schema,
+        const std::vector<uint32_t>& cids_to_read, vectorized::Block& block,
+        std::map<uint32_t, uint32_t>* read_index) const {
+    bool has_row_column = tablet_schema.store_row_column();
+    auto mutable_columns = block.mutate_columns();
+    size_t read_idx = 0;
+    std::vector<uint32_t> rids;
+    for (const auto& [segment_id, mappings] : plan) {
+        for (const auto& row_entry : mappings) {
+            rids.emplace_back(row_entry.segment_row_id);
+            (*read_index)[row_entry.read_idx] = read_idx++;
+        }
+        if (has_row_column) {
+            auto st = doris::Tablet::fetch_value_through_row_column(
+                    rowset, tablet_schema, segment_id, rids, cids_to_read, block);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to fetch value through row column";
+                return st;
+            }
+            continue;
+        }
+        for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
+            TabletColumn tablet_column = tablet_schema.column(cids_to_read[cid]);
+            auto st = Tablet::fetch_value_by_rowids(rowset, segment_id, rids, tablet_column,
+                                                    mutable_columns[cid]);
+            // set read value to output block
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to fetch value";
+                return st;
+            }
+        }
+    }
+    block.set_columns(std::move(mutable_columns));
+    return Status::OK();
+}
+
+std::vector<RowInSegment> MergeRowsInSegmentsReadPlan::get_rows_in_segments() const {
+    std::vector<RowInSegment> ret;
+    for (const auto& [_, rows] : plan) {
+        for (const auto& row : rows) {
+            ret.push_back(row);
+        }
+    }
+    return ret;
+}
+
 } // namespace doris

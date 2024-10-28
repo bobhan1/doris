@@ -265,4 +265,36 @@ struct PartialUpdateStats {
     int64_t num_rows_deleted {0};
     int64_t num_rows_filtered {0};
 };
+
+struct RowInSegment {
+    uint32_t segment_id;
+    uint32_t segment_row_id;
+
+    uint32_t read_idx;
+    uint32_t key_group_id;
+
+    bool operator<(const RowInSegment& other) const {
+        if (key_group_id != other.key_group_id) {
+            return key_group_id < other.key_group_id;
+        }
+        if (segment_id != other.segment_id) {
+            return segment_id < other.segment_id;
+        }
+        DCHECK(false) << fmt::format("there must no duplicate rows in one segment!");
+        return segment_row_id < other.segment_row_id;
+    }
+};
+
+class MergeRowsInSegmentsReadPlan {
+public:
+    void prepare_to_read(uint32_t segment_id, uint32_t segment_row_id, uint32_t read_idx,
+                         int64_t key_group_id);
+    Status read_columns_by_plan(RowsetSharedPtr rowset, const TabletSchema& tablet_schema,
+                                const std::vector<uint32_t>& cids_to_read, vectorized::Block& block,
+                                std::map<uint32_t, uint32_t>* read_index) const;
+    std::vector<RowInSegment> get_rows_in_segments() const;
+
+private:
+    std::map<uint32_t /* segment_id */, std::vector<RowInSegment>> plan;
+};
 } // namespace doris

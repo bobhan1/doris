@@ -31,6 +31,7 @@
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -92,12 +93,13 @@ class MergeIndexDeleteBitmapCalculator {
 public:
     MergeIndexDeleteBitmapCalculator() = default;
 
-    Status init(RowsetId rowset_id, std::vector<SegmentSharedPtr> const& segments,
-                size_t seq_col_length = 0, size_t rowid_length = 0, size_t max_batch_size = 1024);
+    Status init(bool require_plan, RowsetId rowset_id,
+                std::vector<SegmentSharedPtr> const& segments, size_t seq_col_length = 0,
+                size_t rowid_length = 0, size_t max_batch_size = 1024);
 
     Status calculate_one(RowLocation& loc);
 
-    Status calculate_all(DeleteBitmapPtr delete_bitmap);
+    Status calculate_all(DeleteBitmap* delete_bitmap);
 
 private:
     using Heap = std::priority_queue<MergeIndexDeleteBitmapCalculatorContext*,
@@ -111,6 +113,14 @@ private:
     size_t _seq_col_length;
     size_t _rowid_length;
     const KeyCoder* _rowid_coder = nullptr;
+
+    bool _require_plan {false};
+    MergeRowsInSegmentsReadPlan _plan;
+    uint32_t _next_read_idx {0};
+    int64_t _key_group_id {-1};
+    bool _is_last_key_unique {true};
+    uint32_t _last_segment_id {0};
+    uint32_t _last_row_id {0};
 };
 
 } // namespace doris

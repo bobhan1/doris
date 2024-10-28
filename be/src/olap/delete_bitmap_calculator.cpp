@@ -131,10 +131,11 @@ bool MergeIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice cons
     return lhs_without_seq.compare(rhs_without_seq) == 0;
 }
 
-Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
+Status MergeIndexDeleteBitmapCalculator::init(bool require_plan, RowsetId rowset_id,
                                               std::vector<SegmentSharedPtr> const& segments,
                                               size_t seq_col_length, size_t rowdid_length,
                                               size_t max_batch_size) {
+    _require_plan = require_plan;
     _rowset_id = rowset_id;
     _seq_col_length = seq_col_length;
     _rowid_length = rowdid_length;
@@ -168,8 +169,18 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
         Slice cur_key;
         RETURN_IF_ERROR(cur_ctx->get_current_key(cur_key));
         if (!_last_key.empty() && _comparator.is_key_same(cur_key, _last_key)) {
+            _is_last_key_unique = false;
             loc.segment_id = cur_ctx->segment_id();
             loc.row_id = cur_ctx->row_id();
+            if (_require_plan) {
+                if (_is_last_key_unique) {
+                    _is_last_key_unique = false;
+                    ++_key_group_id;
+                    _plan.prepare_to_read(_last_segment_id, _last_row_id, _next_read_idx++,
+                                          _key_group_id);
+                }
+                _plan.prepare_to_read(loc.segment_id, loc.row_id, _next_read_idx++, _key_group_id);
+            }
             if (_rowid_length > 0) {
                 Slice key_without_seq = Slice(cur_key.get_data(),
                                               cur_key.get_size() - _seq_col_length - _rowid_length);
@@ -191,6 +202,10 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
             break;
         }
         _last_key = cur_key.to_string();
+        _last_segment_id = cur_ctx->segment_id();
+        _last_row_id = cur_ctx->row_id();
+        _is_last_key_unique = true;
+
         auto nxt_ctx = _heap->top();
         Slice nxt_key;
         RETURN_IF_ERROR(nxt_ctx->get_current_key(nxt_key));
@@ -208,7 +223,7 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
     return Status::EndOfFile("Reach end of file");
 }
 
-Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bitmap) {
+Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmap* delete_bitmap) {
     RowLocation loc;
     while (true) {
         auto st = calculate_one(loc);
@@ -216,8 +231,10 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bi
             break;
         }
         RETURN_IF_ERROR(st);
-        delete_bitmap->add({_rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                           loc.row_id);
+        if (!_require_plan) {
+            delete_bitmap->add({_rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                               loc.row_id);
+        }
     }
     return Status::OK();
 }
