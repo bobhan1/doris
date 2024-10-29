@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "common/logging.h"
 #include "olap/base_tablet.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -764,29 +765,31 @@ Status BlockAggregator::aggregate_rows(
                                        _writer._mow_context->max_version, segment_caches, &rowset,
                                        true, true, &previous_encoded_seq_value);
     int64_t pos = start;
-    DCHECK(st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
+    bool is_expected_st = (st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
+    DCHECK(is_expected_st || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
+            << "[BlockAggregator::aggregate_rows] unexpected error status while lookup_row_key:"
+            << st;
+    if (!is_expected_st) {
+        return st;
+    }
 
     std::string cur_seq_val;
     if (st.ok()) {
-        for (int64_t i {start}; i < end; i++) {
-            auto& skip_bitmap = skip_bitmaps->at(i);
+        for (pos = start; pos < end; pos++) {
+            auto& skip_bitmap = skip_bitmaps->at(pos);
             bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
-            // Find the first row that has larger sequence value than the existing row's
-            // or the first row that doesn't specify the sequence column.
-            // Discard all the rows before and begin to do aggregation from that row
-            if (!row_has_sequence_col) {
-                cur_seq_val = std::move(previous_encoded_seq_value);
-                pos = i;
-                break;
-            } else {
+            // Discard all the rows whose seq value is smaller than previous_encoded_seq_value.
+            if (row_has_sequence_col) {
                 std::string seq_val {};
-                _writer._encode_seq_column(seq_column, i, &seq_val);
-                if (Slice {seq_val}.compare(Slice {previous_encoded_seq_value}) >= 0) {
-                    cur_seq_val = std::move(seq_val);
-                    pos = i;
-                    break;
+                _writer._encode_seq_column(seq_column, pos, &seq_val);
+                if (Slice {seq_val}.compare(Slice {previous_encoded_seq_value}) < 0) {
+                    continue;
                 }
+                cur_seq_val = std::move(seq_val);
+                break;
             }
+            cur_seq_val = std::move(previous_encoded_seq_value);
+            break;
         }
     } else {
         pos = start;
@@ -960,7 +963,14 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
             Status st = tablet->lookup_row_key(key, &_tablet_schema, false, specified_rowsets, &loc,
                                                _writer._mow_context->max_version, segment_caches,
                                                &rowset, true);
-            DCHECK(st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
+            bool is_expected_st = (st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
+            DCHECK(is_expected_st || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
+                    << "[BlockAggregator::aggregate_for_insert_after_delete] unexpected error "
+                       "status while lookup_row_key:"
+                    << st;
+            if (!is_expected_st) {
+                return st;
+            }
 
             Slice previous_seq_slice {};
             if (st.ok()) {

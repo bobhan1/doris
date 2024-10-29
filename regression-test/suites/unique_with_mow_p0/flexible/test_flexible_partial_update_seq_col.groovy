@@ -17,7 +17,7 @@
 
 suite('test_flexible_partial_update_seq_col') {
 
-    for (def use_row_store : [false]) {
+    for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
         // 1.1. sequence map col(without default value)
@@ -342,5 +342,64 @@ suite('test_flexible_partial_update_seq_col') {
         qt_seq2 "select k,c1,c2,c3,__DORIS_SEQUENCE_COL__ from ${tableName} order by k,c1,c2,c3,__DORIS_SEQUENCE_COL__;"
         sql "set skip_delete_bitmap=false;"
         sql "sync;"
+
+        // =========
+        // 4.1 
+        tableName = "test_flexible_partial_update_seq_map_col4_${use_row_store}"
+        sql """ DROP TABLE IF EXISTS ${tableName} force;"""
+        sql """ CREATE TABLE ${tableName} (
+        `k` int(11) NULL, 
+        `v1` BIGINT NULL,
+        `v2` BIGINT NULL DEFAULT "9876",
+        `v3` BIGINT NOT NULL,
+        `v4` BIGINT NOT NULL DEFAULT "1234",
+        `v5` BIGINT NULL,
+        ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES(
+        "replication_num" = "1",
+        "enable_unique_key_merge_on_write" = "true",
+        "light_schema_change" = "true",
+        "enable_unique_key_skip_bitmap_column" = "true",
+        "function_column.sequence_type" = "int",
+        "store_row_column" = "${use_row_store}"); """
+        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, number * 10 from numbers("number" = "8"); """
+        qt_seq_type_4_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
+
+        // row(1): seq val smaller than existing value
+        // row(2): some of seq val smaller than existing value
+        // row(3): seq val greater than existing value
+        // row(4): first valid row(without seq col) is the first
+        // row(5): first valid row(without seq col) is in the middle
+        // row(6): first valid row(without seq col) is the last
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "seq2.json"
+            time 20000 // limit inflight 10s
+        }
+        qt_seq_type_4_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
+        sql "truncate table ${tableName};"
+        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, number * 10 from numbers("number" = "8"); """
+        qt_seq_type_4_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
+        // row(1): seq val smaller than existing value
+        // row(2): some of seq val smaller than existing value
+        // row(3): seq val greater than existing value
+        // row(4): first valid row(without seq col) is the first
+        // row(5): first valid row(without seq col) is in the middle
+        // row(6): first valid row(without seq col) is the last
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "seq3.json"
+            time 20000 // limit inflight 10s
+        }
+        qt_seq_type_4_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
     }
 }
