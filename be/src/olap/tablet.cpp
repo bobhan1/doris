@@ -2862,7 +2862,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_sch
                               RowLocation* row_location, uint32_t version,
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                               RowsetSharedPtr* rowset, bool with_rowid, bool is_partial_update,
-                              std::string* encoded_seq_value) {
+                              bool is_point_query, std::string* encoded_seq_value) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     // use the latest tablet schema to decide if the tablet has sequence column currently
@@ -2879,7 +2879,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_sch
             Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length - rowid_length);
     RowLocation loc;
 
-    bool need_to_check_delete_bitmap = is_partial_update || with_seq_col;
+    bool need_to_check_delete_bitmap = is_partial_update || with_seq_col || is_point_query;
 
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
         auto& rs = specified_rowsets[i];
