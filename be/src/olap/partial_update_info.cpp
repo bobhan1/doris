@@ -967,7 +967,7 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
             auto* tablet = static_cast<Tablet*>(_writer._tablet.get());
             Status st = tablet->lookup_row_key(key, &_tablet_schema, false, specified_rowsets, &loc,
                                                _writer._mow_context->max_version, segment_caches,
-                                               &rowset, true);
+                                               &rowset, true, true, false);
             bool is_expected_st = (st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
             DCHECK(is_expected_st || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
                     << "[BlockAggregator::aggregate_for_insert_after_delete] unexpected error "
