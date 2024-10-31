@@ -17,24 +17,47 @@
 
 suite('test_flexible_partial_update_downgrade', 'p0,restart_fe') {
     String db = context.config.getDbNameByFile(context.file)
-    for (def use_row_store : [false, true]) {
-        logger.info("current params: use_row_store: ${use_row_store}")
-        def tableName = "test_f_downgrade_${use_row_store}"
-        qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
 
-        sql "set enable_unique_key_partial_update=true;"
-        sql "set enable_insert_strict=false;"
-        sql "sync;"
-        sql "insert into ${tableName}(k,v1,v3,v5) values(1,999,999,999),(2,888,888,888),(5,777,777,777),(20,555,555,555);"
-        sql "set enable_unique_key_partial_update=false;"
-        sql "set enable_insert_strict=true;"
-        sql "sync;"
-        qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+    def testTbl = "f_down_test"
+    sql """ DROP TABLE IF EXISTS ${testTbl} force;"""
+    def ok = true
+    try {
+        sql """ CREATE TABLE ${testTbl} (
+            `k` int(11) NULL, 
+            `v1` BIGINT NULL
+            ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true"); """
+    } catch (Throwable t) {
+        logger.info("${t}");
+        ok = false
+    }
 
-        sql "delete from ${tableName} where k>=3 and k<=6;"
-        qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+    if (ok) {
+        logger.info("skip to execute downgrade test case because we are in high version")
+    } else {
+        for (def use_row_store : [false, true]) {
+            logger.info("current params: use_row_store: ${use_row_store}")
+            def tableName = "test_f_downgrade_${use_row_store}"
+            qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
 
-        sql "insert into ${tableName} values(3,10,10,10,10,10),(30,11,11,11,11,11),(4,12,12,12,12,12);"
-        qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+            sql "set enable_unique_key_partial_update=true;"
+            sql "set enable_insert_strict=false;"
+            sql "sync;"
+            sql "insert into ${tableName}(k,v1,v3,v5) values(1,999,999,999),(2,888,888,888),(5,777,777,777),(20,555,555,555);"
+            sql "set enable_unique_key_partial_update=false;"
+            sql "set enable_insert_strict=true;"
+            sql "sync;"
+            qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+
+            sql "delete from ${tableName} where k>=3 and k<=6;"
+            qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+
+            sql "insert into ${tableName} values(3,10,10,10,10,10),(30,11,11,11,11,11),(4,12,12,12,12,12);"
+            qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+        }
     }
 }
