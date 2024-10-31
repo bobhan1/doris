@@ -495,6 +495,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.block));
+    VLOG_DEBUG << fmt::format("[FixedReadPlan::fill_missing_columns] after: full_block:\n{}",
+                              full_block.dump_data());
 
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
@@ -687,6 +689,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // 9. build primary key index
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         std::string key = _full_encode_keys(key_columns, block_pos - data.row_pos);
+        _maybe_invalid_row_cache(key);
         if (_tablet_schema->has_sequence_col()) {
             _encode_seq_column(seq_column, block_pos - data.row_pos, &key);
         }
