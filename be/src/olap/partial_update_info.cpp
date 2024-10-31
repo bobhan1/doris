@@ -505,6 +505,9 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
                 segment_start_pos, block_start_pos, block, skip_bitmaps));
     }
     full_block.set_columns(std::move(mutable_full_columns));
+    VLOG_DEBUG << fmt::format(
+            "[FlexibleReadPlan::fill_non_primary_key_columns] after: full_block:\n{}",
+            full_block.dump_data());
     return Status::OK();
 }
 
@@ -549,6 +552,9 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                 if (it != read_index[tablet_schema.delete_sign_idx()].end()) {
                     should_use_default = (delete_sign_column_data[it->second] != 0);
                 }
+            }
+            if (!should_use_default && tablet_column.is_on_update_current_timestamp()) {
+                should_use_default = true;
             }
             if (should_use_default) {
                 if (tablet_column.has_default_value()) {
@@ -627,7 +633,9 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
             DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
             DCHECK(cid != tablet_schema.version_col_idx());
             DCHECK(!tablet_column.is_row_store_column());
-
+            if (!use_default && tablet_column.is_on_update_current_timestamp()) {
+                use_default = true;
+            }
             if (use_default || (delete_sign_column_data != nullptr &&
                                 delete_sign_column_data[pos_in_old_block] != 0)) {
                 if (tablet_column.has_default_value()) {
@@ -962,7 +970,7 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
             auto* tablet = static_cast<Tablet*>(_writer._tablet.get());
             Status st = tablet->lookup_row_key(key, &_tablet_schema, false, specified_rowsets, &loc,
                                                _writer._mow_context->max_version, segment_caches,
-                                               &rowset, true);
+                                               &rowset, true, true, false);
             bool is_expected_st = (st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
             DCHECK(is_expected_st || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
                     << "[BlockAggregator::aggregate_for_insert_after_delete] unexpected error "
