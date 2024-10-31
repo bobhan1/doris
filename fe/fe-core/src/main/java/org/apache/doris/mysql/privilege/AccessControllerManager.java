@@ -151,14 +151,19 @@ public class AccessControllerManager {
     }
 
     private String getPluginIdentifierForAccessController(String acClassName) {
+        LOG.info("try to get plugin identifier for access controller: {}", acClassName);
         String pluginIdentifier = null;
         if (accessControllerClassNameMapping.containsKey(acClassName)) {
             pluginIdentifier = accessControllerClassNameMapping.get(acClassName);
+            LOG.info("plugin identifier found for access controller: {}", pluginIdentifier);
         }
         if (accessControllerFactoriesCache.containsKey(acClassName)) {
             pluginIdentifier = acClassName;
+            LOG.info("plugin identifier found for access controller: {}", pluginIdentifier);
         }
         if (null == pluginIdentifier || !accessControllerFactoriesCache.containsKey(pluginIdentifier)) {
+            LOG.warn("Access Controller Plugin Factory not found for " + acClassName + ". We look for "
+                    + accessControllerFactoriesCache.keys().toString());
             throw new RuntimeException("Access Controller Plugin Factory not found for " + acClassName);
         }
         return pluginIdentifier;
