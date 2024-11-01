@@ -276,6 +276,21 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                         std::make_pair(to_lower(tcolumn_desc.column_name),
                                        thrift_to_type(tcolumn_desc.column_type.type)));
                 if (it == slots_map.end()) {
+                    std::stringstream ss;
+                    ss << tschema;
+                    std::string partial_columns = "[";
+                    for (const auto& name : _partial_update_input_columns) {
+                        partial_columns += fmt::format("{},", name);
+                    }
+                    partial_columns += "]";
+                    LOG_WARNING(
+                            "[OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema)] "
+                            "_unique_key_update_mode:{}, _partial_update_input_columns.size()={}, "
+                            "_partial_update_input_columns={}, "
+                            "t_index.columns_desc.size()={}, tschema={}",
+                            static_cast<int>(_unique_key_update_mode),
+                            _partial_update_input_columns.size(), partial_columns,
+                            t_index.columns_desc.size(), ss.str());
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  tcolumn_desc.column_name,
                                                  tcolumn_desc.column_type.type);
