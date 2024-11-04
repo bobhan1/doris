@@ -331,6 +331,14 @@ Status FixedReadPlan::fill_missing_columns(
     auto mutable_full_columns = full_block.mutate_columns();
     // create old value columns
     const auto& missing_cids = rowset_ctx->partial_update_info->missing_cids;
+    bool have_input_seq_column = false;
+    if (tablet_schema.has_sequence_col()) {
+        const std::vector<uint32_t>& including_cids = rowset_ctx->partial_update_info->update_cids;
+        have_input_seq_column =
+                (std::find(including_cids.cbegin(), including_cids.cend(),
+                           tablet_schema.sequence_col_idx()) != including_cids.cend());
+    }
+
     auto old_value_block = tablet_schema.create_block_by_cids(missing_cids);
     CHECK_EQ(missing_cids.size(), old_value_block.columns());
 
@@ -360,8 +368,19 @@ Status FixedReadPlan::fill_missing_columns(
         // to check if a row REALLY exists in the table.
         auto segment_pos = idx + segment_start_pos;
         auto pos_in_old_block = read_index[segment_pos];
-        if (use_default_or_null_flag[idx] || (delete_sign_column_data != nullptr &&
-                                              delete_sign_column_data[pos_in_old_block] != 0)) {
+
+        bool should_use_default = use_default_or_null_flag[idx];
+        if (!should_use_default) {
+            if ((delete_sign_column_data != nullptr &&
+                 delete_sign_column_data[pos_in_old_block] != 0) &&
+                !(tablet_schema.has_sequence_col() && !have_input_seq_column)) {
+                // we should read values from old rows even if it's deleted when the input don't dpecify the sequence column
+                // to keep the sequence column value increasing, otherwise it may cause the merge-on-read based compaction
+                // to produce incorrect results
+                should_use_default = true;
+            }
+        }
+        if (should_use_default) {
             for (auto i = 0; i < missing_cids.size(); ++i) {
                 // if the column has default value, fill it with default value
                 // otherwise, if the column is nullable, fill it with null value
@@ -393,8 +412,14 @@ Status FixedReadPlan::fill_missing_columns(
             continue;
         }
         for (auto i = 0; i < missing_cids.size(); ++i) {
-            mutable_full_columns[missing_cids[i]]->insert_from(
-                    *old_value_block.get_by_position(i).column, pos_in_old_block);
+            auto cid = missing_cids[i];
+            if (cid == tablet_schema.delete_sign_idx()) {
+                // delete sign column should always be 0 when it's not specified in load
+                mutable_full_columns[cid]->insert_default();
+            } else {
+                mutable_full_columns[cid]->insert_from(*old_value_block.get_by_position(i).column,
+                                                       pos_in_old_block);
+            }
         }
     }
     full_block.set_columns(std::move(mutable_full_columns));
