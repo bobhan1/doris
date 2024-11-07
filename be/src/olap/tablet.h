@@ -439,7 +439,6 @@ public:
                           RowLocation* row_location, uint32_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
-                          bool is_partial_update = false, bool is_point_query = false,
                           std::string* encoded_seq_value = nullptr);
 
     // Lookup a row with TupleDescriptor and fill Block

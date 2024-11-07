@@ -401,5 +401,55 @@ suite('test_flexible_partial_update_seq_col') {
             time 20000 // limit inflight 10s
         }
         qt_seq_type_4_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
+
+        // 5. to test lookup_row_key
+        tableName = "test_flexible_partial_update_seq_map_col7_${use_row_store}"
+        sql """ DROP TABLE IF EXISTS ${tableName} force;"""
+        sql """ CREATE TABLE ${tableName} (
+            `k` BIGINT NOT NULL,
+            `c1` int,
+            `c2` int,
+            `c3` int
+            ) UNIQUE KEY(`k`)
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
+            "function_column.sequence_col" = "c1");
+            """
+        sql "insert into ${tableName} values(1,999,1,1);"
+        qt_sql "select k,c1,c2,c3,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
+
+        String text1 = """{"k":1,"c1":20,"c2":123} """;
+        def load1 = new ByteArrayInputStream(text1.getBytes())
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            inputStream load1
+            time 20000 // limit inflight 10s
+        }
+        qt_sql "select k,c1,c2,c3,__DORIS_SEQUENCE_COL__ from ${tableName} order by k,c1,c2,c3,__DORIS_SEQUENCE_COL__;"
+        
+        String text2 = """{"k":1, "c3":5678} """;
+        def load2 = new ByteArrayInputStream(text2.getBytes())
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            inputStream load2
+            time 20000 // limit inflight 10s
+        }
+        qt_sql "select k,c1,c2,c3,__DORIS_SEQUENCE_COL__ from ${tableName} order by k,c1,c2,c3,__DORIS_SEQUENCE_COL__;"
+        
+        sql "set skip_delete_bitmap=true;"
+        sql "sync;"
+        qt_seq2 "select k,c1,c2,c3,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k,__DORIS_VERSION_COL__;"
+        sql "set skip_delete_bitmap=false;"
+        sql "sync;"
     }
 }
