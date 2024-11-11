@@ -193,6 +193,9 @@ public class AccessControllerManager {
     }
 
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("check catalog priv. user: {}, catalog: {}, wanted: {}", currentUser, ctl, wanted);
+        }
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
         // for checking catalog priv, always use InternalAccessController.
         // because catalog priv is only saved in InternalAccessController.
@@ -206,7 +209,13 @@ public class AccessControllerManager {
 
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
-        return getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, db, wanted);
+        CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("check database priv. hasGlobal:{}, catalog: {}, db: {}, wanted: {},"
+                            + " access controller class name is {}",
+                    hasGlobal, ctl, db, wanted, accessController.getClass().getName());
+        }
+        return accessController.checkDbPriv(hasGlobal, currentUser, ctl, db, wanted);
     }
 
     // ==== Table ====
@@ -216,8 +225,12 @@ public class AccessControllerManager {
     }
 
     public boolean checkTblPriv(ConnectContext ctx, String qualifiedCtl,
-            String qualifiedDb, String tbl, PrivPredicate wanted) {
+                                String qualifiedDb, String tbl, PrivPredicate wanted) {
         if (ctx.isSkipAuth()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("skip auth check. user: {}, catalog: {}, db: {}, table: {}, wanted: {}",
+                        ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
+            }
             return true;
         }
         return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
@@ -225,15 +238,27 @@ public class AccessControllerManager {
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
-        return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
+        CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("check table priv. hasGlobal: {}, catalog: {}, db: {}, table: {}, wanted: {},"
+                            + " access controller class name is {}",
+                    hasGlobal, ctl, db, tbl, wanted, accessController.getClass().getName());
+
+        }
+        return accessController.checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
     }
 
     // ==== Column ====
     public void checkColumnsPriv(UserIdentity currentUser, String
             ctl, String qualifiedDb, String tbl, Set<String> cols,
-            PrivPredicate wanted) throws UserException {
+                                 PrivPredicate wanted) throws UserException {
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("check columns priv. hasGlobal {}, catalog: {}, db: {}, table: {}, cols: {}, wanted: {}, "
+                            + "access controller class name is {}",
+                    hasGlobal, ctl, qualifiedDb, tbl, cols, wanted, accessController.getClass().getName());
+        }
         accessController.checkColsPriv(hasGlobal, currentUser, ctl, qualifiedDb,
                 tbl, cols, wanted);
 
