@@ -3451,7 +3451,10 @@ Status Tablet::generate_new_block_for_flexible_partial_update(
                                  const vectorized::IColumn& cur_col, bool skipped,
                                  bool row_has_sequence_col,
                                  const signed char* delete_sign_column_data) {
-        if (skipped) {
+        // For auto-increment column, its default value(generated value) is filled in current block in flush phase
+        // if the load doesn't specify the auto-increment column, so we should read its value from current block
+        // regardless of the value of skip bitmap
+        if (skipped && !tablet_column.is_auto_increment()) {
             bool use_default = false;
             bool old_row_delete_sign = (delete_sign_column_data != nullptr &&
                                         delete_sign_column_data[read_index_old[idx]] != 0);

@@ -44,7 +44,8 @@ suite("test_f_auto_inc_compaction", "nonConcurrent") {
     sql "delete from ${tableName} where k=1;"
     sql "delete from ${tableName} where k=3;"
     sql "delete from ${tableName} where k=6;"
-    qt_sql "select k,v1,v2,id from ${tableName} order by k;"
+    qt_sql "select k,v1,v2 from ${tableName} order by k;"
+    qt_check_auto_inc_dup "select count(*) from ${tableName} group by id having count(*) > 1;"
 
     def beNodes = sql_return_maparray("show backends;")
     def tabletStat = sql_return_maparray("show tablets from ${tableName};").get(0)
@@ -69,6 +70,7 @@ suite("test_f_auto_inc_compaction", "nonConcurrent") {
         Assert.assertEquals(code, 0)
         def jsonMeta = parseJson(out.trim())
 
+        logger.info("jsonMeta.rs_metas.size(): ${jsonMeta.rs_metas.size()}, expected_rs_meta_size: ${expected_rs_meta_size}")
         Assert.assertEquals(jsonMeta.rs_metas.size(), expected_rs_meta_size)
         for (def meta : jsonMeta.rs_metas) {
             int startVersion = meta.start_version
@@ -167,6 +169,7 @@ suite("test_f_auto_inc_compaction", "nonConcurrent") {
         // let load1 publish
         enable_block_in_publish("t1")
         t1.join()
+        Thread.sleep(2000)
 
 
         // trigger full compaction on tablet
@@ -191,26 +194,24 @@ suite("test_f_auto_inc_compaction", "nonConcurrent") {
 
         check_rs_metas(1, {int startVersion, int endVersion, int numSegments, int numRows, String overlapPb ->
             // check the rowset produced by full compaction
-            // [0-5]
+            // [0-6]
             Assert.assertEquals(startVersion, 0)
             Assert.assertEquals(endVersion, 6)
             Assert.assertEquals(numRows, 7)
             Assert.assertEquals(overlapPb, "NONOVERLAPPING")
         })
 
-        qt_after_compaction "select k,v1,v2,id from ${tableName} order by k;"
-
+        qt_after_compaction "select k,v1,v2 from ${tableName} order by k;"
+        qt_check_auto_inc_dup "select count(*) from ${tableName} group by id having count(*) > 1;"
 
         disable_publish_spin_wait()
         disable_block_in_publish()
         Thread.sleep(1000)
         t1.join()
 
-        qt_sql "select k,v1,v2,id from ${tableName} order by k;"
-        sql "set skip_delete_bitmap=true;"
-        sql "set skip_delete_sign=true;"
-        qt_sql "select k,v1,v2,id,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k,__DORIS_VERSION_COL__;"
-
+        qt_sql "select k,v1,v2 from ${tableName} order by k;"
+        qt_check_auto_inc_dup "select count(*) from ${tableName} group by id having count(*) > 1;"
+        qt_check_auto_inc_val "select count(*) from ${tableName} where id=0;"
     } catch(Exception e) {
         logger.info(e.getMessage())
         throw e
