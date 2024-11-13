@@ -3474,6 +3474,13 @@ Status Tablet::generate_new_block_for_flexible_partial_update(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*>(new_col.get())
                             ->insert_null_elements(1);
+                } else if (tablet_column.is_auto_increment()) {
+                    // For auto-increment column, its default value(generated value) is filled in current block in flush phase
+                    // when the load doesn't specify the auto-increment column
+                    //     - if the previous conflicting row is deleted, we should use the value in current block as its final value
+                    //     - if the previous conflicting row is an insert, we should use the value in old block as its final value to
+                    //       keep consistency between replicas
+                    new_col->insert_from(cur_col, read_index_update[idx]);
                 } else {
                     new_col->insert_default();
                 }
