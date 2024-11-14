@@ -1201,16 +1201,16 @@ Status MergeRowsInSegmentsReadPlan::read_columns_by_plan(
                 LOG(WARNING) << "failed to fetch value through row column";
                 return st;
             }
-            continue;
-        }
-        for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
-            TabletColumn tablet_column = tablet_schema.column(cids_to_read[cid]);
-            auto st = Tablet::fetch_value_by_rowids(rowset, segment_id, rids, tablet_column,
-                                                    mutable_columns[cid]);
-            // set read value to output block
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to fetch value";
-                return st;
+        } else {
+            for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
+                TabletColumn tablet_column = tablet_schema.column(cids_to_read[cid]);
+                auto st = Tablet::fetch_value_by_rowids(rowset, segment_id, rids, tablet_column,
+                                                        mutable_columns[cid]);
+                // set read value to output block
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to fetch value";
+                    return st;
+                }
             }
         }
     }
