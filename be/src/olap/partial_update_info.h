@@ -267,13 +267,15 @@ struct PartialUpdateStats {
 };
 
 struct RowInSegment {
-    uint32_t segment_id;
-    uint32_t segment_row_id;
+    int32_t segment_id;
+    int32_t segment_row_id;
 
-    uint32_t read_idx;
-    uint32_t key_group_id;
+    int32_t idx;
+    int32_t key_group_id;
 
     bool operator<(const RowInSegment& other) const {
+        // since rows with smaller keys will be popped before rows with larger keys
+        // in `MergeIndexDeleteBitmapCalculator`, smaller key_group_id means smaller keys
         if (key_group_id != other.key_group_id) {
             return key_group_id < other.key_group_id;
         }
@@ -287,14 +289,21 @@ struct RowInSegment {
 
 class MergeRowsInSegmentsReadPlan {
 public:
-    void prepare_to_read(uint32_t segment_id, uint32_t segment_row_id, uint32_t read_idx,
-                         int64_t key_group_id);
+    MergeRowsInSegmentsReadPlan() = default;
+    ~MergeRowsInSegmentsReadPlan() = default;
+    MergeRowsInSegmentsReadPlan(const MergeRowsInSegmentsReadPlan&) = default;
+    MergeRowsInSegmentsReadPlan(MergeRowsInSegmentsReadPlan&&) = default;
+    MergeRowsInSegmentsReadPlan& operator=(const MergeRowsInSegmentsReadPlan&) = default;
+    MergeRowsInSegmentsReadPlan& operator=(MergeRowsInSegmentsReadPlan&&) = default;
+
+    void prepare_to_read(int32_t segment_id, int32_t segment_row_id, int32_t read_idx,
+                         int32_t key_group_id);
     Status read_columns_by_plan(RowsetSharedPtr rowset, const TabletSchema& tablet_schema,
                                 const std::vector<uint32_t>& cids_to_read, vectorized::Block& block,
                                 std::map<uint32_t, uint32_t>* read_index) const;
     std::vector<RowInSegment> get_rows_in_segments() const;
 
 private:
-    std::map<uint32_t /* segment_id */, std::vector<RowInSegment>> plan;
+    std::map<int32_t /* segment_id */, std::vector<RowInSegment>> plan;
 };
 } // namespace doris

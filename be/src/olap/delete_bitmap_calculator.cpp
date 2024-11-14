@@ -143,6 +143,9 @@ Status MergeIndexDeleteBitmapCalculator::init(bool require_plan, RowsetId rowset
             MergeIndexDeleteBitmapCalculatorContext::Comparator(seq_col_length, _rowid_length);
     _contexts.reserve(segments.size());
     _heap = std::make_unique<Heap>(_comparator);
+    if (_require_plan) {
+        _plan = std::make_unique<MergeRowsInSegmentsReadPlan>();
+    }
 
     for (auto& segment : segments) {
         RETURN_IF_ERROR(segment->load_index());
@@ -174,6 +177,7 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
             loc.row_id = cur_ctx->row_id();
             if (_require_plan) {
                 if (_is_last_key_unique) {
+                    // encounters a new key that rows in different segments have
                     _is_last_key_unique = false;
                     ++_key_group_id;
                     _plan.prepare_to_read(_last_segment_id, _last_row_id, _next_read_idx++,
@@ -223,7 +227,8 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
     return Status::EndOfFile("Reach end of file");
 }
 
-Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmap* delete_bitmap) {
+Status MergeIndexDeleteBitmapCalculator::calculate_all(
+        DeleteBitmap* delete_bitmap, std::unique_ptr<MergeRowsInSegmentsReadPlan>* read_plan) {
     RowLocation loc;
     while (true) {
         auto st = calculate_one(loc);
@@ -235,6 +240,9 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmap* delete_bitm
             delete_bitmap->add({_rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                                loc.row_id);
         }
+    }
+    if (_require_plan && read_plan) {
+        (*read_plan) = std::move(_plan);
     }
     return Status::OK();
 }

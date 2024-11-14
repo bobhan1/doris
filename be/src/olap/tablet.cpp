@@ -3557,6 +3557,8 @@ Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
     if (rowset_schema.has_sequence_col()) {
         // TODO(bobhan1): handle for sequence column
     } else {
+        for (auto row : rows) {
+        }
     }
 
     output_block->set_columns(std::move(full_mutable_columns));
@@ -4212,11 +4214,40 @@ Status Tablet::calc_delete_bitmap_between_segments(
                                     rowid_length));
 
     DeleteBitmap delta_delete_bitmap(tablet_id());
-    RETURN_IF_ERROR(calculator.calculate_all(&delta_delete_bitmap));
+
     if (is_flexible_partial_update) {
         DCHECK(schema);
-        merge_rows_between_segments_for_flexible_partial_update(rowset, *schema, );
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        // just flush a block, no need to set partial update info
+        RETURN_IF_ERROR(create_transient_rowset_writer(rowset, &rowset_writer, nullptr));
+
+        std::unique_ptr<MergeRowsInSegmentsReadPlan> read_plan;
+        RETURN_IF_ERROR(calculator.calculate_all(&delta_delete_bitmap, &read_plan));
+
+        vectorized::Block block = schema->create_block();
+        vectorized::Block ordered_block = block.clone_empty();
+
+        RETURN_IF_ERROR(merge_rows_between_segments_for_flexible_partial_update(
+                rowset, *schema, *read_plan, &block));
+        // TODO(bobhan1): no need to sort here?
+        RETURN_IF_ERROR(sort_block(block, ordered_block));
+        RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
+        // TODO(bobhan1): check rows consistency
+
+        // TODO(bobhan1): update delete bitmap, mark original rows as deleted
+
+        // build rowset writer and merge transient rowset to the base rowset
+        RETURN_IF_ERROR(rowset_writer->flush());
+        RowsetSharedPtr transient_rowset;
+        RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
+        auto old_segments = rowset->num_segments();
+        rowset->merge_rowset_meta(transient_rowset->rowset_meta());
+        auto new_segments = rowset->num_segments();
+        // erase segment cache cause we will add a segment to rowset
+        SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
+
     } else {
+        RETURN_IF_ERROR(calculator.calculate_all(&delta_delete_bitmap));
         delete_bitmap->merge(delta_delete_bitmap);
     }
 

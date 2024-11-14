@@ -1176,8 +1176,8 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
     return Status::OK();
 }
 
-void MergeRowsInSegmentsReadPlan::prepare_to_read(uint32_t segment_id, uint32_t segment_row_id,
-                                                  uint32_t read_idx, int64_t key_group_id) {
+void MergeRowsInSegmentsReadPlan::prepare_to_read(int32_t segment_id, int32_t segment_row_id,
+                                                  int32_t read_idx, int32_t key_group_id) {
     plan[segment_id].emplace_back(segment_id, segment_row_id, read_idx, key_group_id);
 }
 
@@ -1187,12 +1187,12 @@ Status MergeRowsInSegmentsReadPlan::read_columns_by_plan(
         std::map<uint32_t, uint32_t>* read_index) const {
     bool has_row_column = tablet_schema.store_row_column();
     auto mutable_columns = block.mutate_columns();
-    size_t read_idx = 0;
+    size_t next_idx = 0;
     std::vector<uint32_t> rids;
     for (const auto& [segment_id, mappings] : plan) {
         for (const auto& row_entry : mappings) {
             rids.emplace_back(row_entry.segment_row_id);
-            (*read_index)[row_entry.read_idx] = read_idx++;
+            (*read_index)[row_entry.idx] = next_idx++;
         }
         if (has_row_column) {
             auto st = doris::Tablet::fetch_value_through_row_column(

@@ -93,13 +93,18 @@ class MergeIndexDeleteBitmapCalculator {
 public:
     MergeIndexDeleteBitmapCalculator() = default;
 
+    // In flexible partial update, we need to do aggregation for rows with same keys between segments,
+    // write the result into a new segment and mark the original rows for delete on delete bitmap.
+    // If `require_plan` is `true`, we will collect rows that need to be read.
     Status init(bool require_plan, RowsetId rowset_id,
                 std::vector<SegmentSharedPtr> const& segments, size_t seq_col_length = 0,
                 size_t rowid_length = 0, size_t max_batch_size = 1024);
 
     Status calculate_one(RowLocation& loc);
 
-    Status calculate_all(DeleteBitmap* delete_bitmap);
+    // will only produce delete_bitmap when `require_plan` is `false`
+    Status calculate_all(DeleteBitmap* delete_bitmap,
+                         std::unique_ptr<MergeRowsInSegmentsReadPlan>* read_plan = nullptr);
 
 private:
     using Heap = std::priority_queue<MergeIndexDeleteBitmapCalculatorContext*,
@@ -115,7 +120,7 @@ private:
     const KeyCoder* _rowid_coder = nullptr;
 
     bool _require_plan {false};
-    MergeRowsInSegmentsReadPlan _plan;
+    std::unique_ptr<MergeRowsInSegmentsReadPlan> _plan;
     uint32_t _next_read_idx {0};
     int64_t _key_group_id {-1};
     bool _is_last_key_unique {true};
