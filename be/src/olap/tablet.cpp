@@ -3528,6 +3528,8 @@ Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
         const MergeRowsInSegmentsReadPlan& read_plan, vectorized::Block* output_block) {
     CHECK(output_block);
 
+    vectorized::MutableBlock dst_block =
+            vectorized::MutableBlock::build_mutable_block(output_block);
     std::vector<uint32_t> all_cids(rowset_schema.num_columns());
     std::iota(all_cids.begin(), all_cids.end(), 0);
     auto tmp_block = rowset_schema.create_block_by_cids(all_cids);
@@ -3543,12 +3545,11 @@ Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
     DCHECK(delete_signs != nullptr);
 
     // 4. build the final block
-    auto full_mutable_columns = output_block->mutate_columns();
     DCHECK(rowset_schema.has_skip_bitmap_col());
     auto skip_bitmap_col_idx = rowset_schema.skip_bitmap_col_idx();
-    const std::vector<BitmapValue>* skip_bitmaps =
-            &(assert_cast<const vectorized::ColumnBitmap*>(
-                      tmp_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
+    std::vector<BitmapValue>* skip_bitmaps =
+            &(assert_cast<vectorized::ColumnBitmap*>(
+                      tmp_block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
                       ->get_data());
 
     auto rows = read_plan.get_rows_in_segments();
@@ -3557,12 +3558,56 @@ Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
     if (rowset_schema.has_sequence_col()) {
         // TODO(bobhan1): handle for sequence column
     } else {
-        for (auto row : rows) {
+        int64_t last_key_group_id {-1};
+        int64_t same_key_rows {0};
+
+        auto aggregate_rows = [&rows, &read_index_mapping, &skip_bitmaps, delete_signs, &tmp_block,
+                               &dst_block, &rowset_schema](size_t st, size_t end) {
+            bool has_delete_sign_row {false};
+            for (size_t i {st}; i < end; i++) {
+                const auto& row = rows[i];
+                auto rid = read_index_mapping[row.idx];
+                bool delete_sign = (delete_signs[rid] != 0);
+                auto& skip_bitmap = (*skip_bitmaps)[rid];
+                if (delete_sign || has_delete_sign_row) {
+                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                        DCHECK_GE(dst_block.mutable_columns()[cid]->size(), 1);
+                        dst_block.mutable_columns()[cid]->pop_back(1);
+                    }
+                    dst_block.add_row(&tmp_block, rid);
+                } else {
+                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                        if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
+                            dst_block.mutable_columns()[cid]->pop_back(1);
+                            dst_block.mutable_columns()[cid]->insert_from(
+                                    *tmp_block.get_by_position(cid).column, rid);
+                        }
+                    }
+                }
+                has_delete_sign_row = delete_sign;
+            }
+        };
+        size_t i {0};
+        for (; i < rows.size(); i++) {
+            const auto& row = rows[i];
+            if (i > 0 && last_key_group_id == row.key_group_id) {
+                ++same_key_rows;
+            } else {
+                if (same_key_rows > 0) {
+                    // aggregate row from tmp_block in range [i - same_key_rows, i) to output_block
+                    aggregate_rows(i - same_key_rows, i);
+                }
+                same_key_rows = 1;
+            }
+            last_key_group_id = row.key_group_id;
+        }
+        if (same_key_rows > 0) {
+            aggregate_rows(i - same_key_rows, i);
         }
     }
-
-    output_block->set_columns(std::move(full_mutable_columns));
-    VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
+    VLOG_DEBUG
+            << "[Tablet::merge_rows_between_segments_for_flexible_partial_update] output_block:\n"
+            << output_block->dump_data();
     return Status::OK();
 }
 
@@ -4237,6 +4282,7 @@ Status Tablet::calc_delete_bitmap_between_segments(
         // TODO(bobhan1): update delete bitmap, mark original rows as deleted
 
         // build rowset writer and merge transient rowset to the base rowset
+        // update rowset meta becase we add a new segment
         RETURN_IF_ERROR(rowset_writer->flush());
         RowsetSharedPtr transient_rowset;
         RETURN_IF_ERROR(rowset_writer->build(transient_rowset));

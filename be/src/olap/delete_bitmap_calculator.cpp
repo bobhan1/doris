@@ -180,10 +180,10 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
                     // encounters a new key that rows in different segments have
                     _is_last_key_unique = false;
                     ++_key_group_id;
-                    _plan.prepare_to_read(_last_segment_id, _last_row_id, _next_read_idx++,
-                                          _key_group_id);
+                    _plan->prepare_to_read(_last_segment_id, _last_row_id, _next_read_idx++,
+                                           _key_group_id);
                 }
-                _plan.prepare_to_read(loc.segment_id, loc.row_id, _next_read_idx++, _key_group_id);
+                _plan->prepare_to_read(loc.segment_id, loc.row_id, _next_read_idx++, _key_group_id);
             }
             if (_rowid_length > 0) {
                 Slice key_without_seq = Slice(cur_key.get_data(),
