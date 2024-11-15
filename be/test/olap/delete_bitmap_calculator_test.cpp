@@ -235,7 +235,7 @@ public:
 
         ASSERT_TRUE(calculator.init(rowset_id, segments, seq_col_len).ok());
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(0);
-        ASSERT_TRUE(calculator.calculate_all(delete_bitmap).ok());
+        ASSERT_TRUE(calculator.calculate_all(delete_bitmap.get()).ok());
 
         std::set<std::pair<size_t, size_t>> result1;
         for (auto [bitmap_key, row_ids] : delete_bitmap->delete_bitmap) {

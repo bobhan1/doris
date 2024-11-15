@@ -4255,8 +4255,8 @@ Status Tablet::calc_delete_bitmap_between_segments(
     }
 
     MergeIndexDeleteBitmapCalculator calculator;
-    RETURN_IF_ERROR(calculator.init(is_flexible_partial_update, rowset_id, segments, seq_col_length,
-                                    rowid_length));
+    RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length, rowid_length,
+                                    is_flexible_partial_update));
 
     DeleteBitmap delta_delete_bitmap(tablet_id());
 
@@ -4277,6 +4277,7 @@ Status Tablet::calc_delete_bitmap_between_segments(
         // TODO(bobhan1): no need to sort here?
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
+
         // TODO(bobhan1): check rows consistency
 
         // TODO(bobhan1): update delete bitmap, mark original rows as deleted
@@ -4292,10 +4293,18 @@ Status Tablet::calc_delete_bitmap_between_segments(
         // erase segment cache cause we will add a segment to rowset
         SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
 
-    } else {
-        RETURN_IF_ERROR(calculator.calculate_all(&delta_delete_bitmap));
-        delete_bitmap->merge(delta_delete_bitmap);
+        // TODO(bobhan1): add more logs here
+        LOG(INFO) << fmt::format(
+                "calc delete bitmap between segments for flexible partial update, "
+                "tablet: {}, rowset: {}, old segments num: {}, new segments num: {}, bitmap size: "
+                "{}, cost {} (us)",
+                tablet_id(), rowset_id.to_string(), old_segments, new_segments,
+                delete_bitmap->delete_bitmap.size(), watch.get_elapse_time_us());
+        return Status::OK();
     }
+
+    RETURN_IF_ERROR(calculator.calculate_all(&delta_delete_bitmap));
+    delete_bitmap->merge(delta_delete_bitmap);
 
     LOG(INFO) << fmt::format(
             "construct delete bitmap between segments, "

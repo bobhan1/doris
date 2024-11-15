@@ -131,10 +131,10 @@ bool MergeIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice cons
     return lhs_without_seq.compare(rhs_without_seq) == 0;
 }
 
-Status MergeIndexDeleteBitmapCalculator::init(bool require_plan, RowsetId rowset_id,
+Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
                                               std::vector<SegmentSharedPtr> const& segments,
                                               size_t seq_col_length, size_t rowdid_length,
-                                              size_t max_batch_size) {
+                                              size_t max_batch_size, bool require_plan) {
     _require_plan = require_plan;
     _rowset_id = rowset_id;
     _seq_col_length = seq_col_length;

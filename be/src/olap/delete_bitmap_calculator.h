@@ -96,9 +96,9 @@ public:
     // In flexible partial update, we need to do aggregation for rows with same keys between segments,
     // write the result into a new segment and mark the original rows for delete on delete bitmap.
     // If `require_plan` is `true`, we will collect rows that need to be read.
-    Status init(bool require_plan, RowsetId rowset_id,
-                std::vector<SegmentSharedPtr> const& segments, size_t seq_col_length = 0,
-                size_t rowid_length = 0, size_t max_batch_size = 1024);
+    Status init(RowsetId rowset_id, std::vector<SegmentSharedPtr> const& segments,
+                size_t seq_col_length = 0, size_t rowid_length = 0, size_t max_batch_size = 1024,
+                bool require_plan = false);
 
     Status calculate_one(RowLocation& loc);
 
