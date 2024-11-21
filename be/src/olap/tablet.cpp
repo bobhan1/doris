@@ -3576,49 +3576,57 @@ Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
                 auto rid = read_index_mapping[row.idx];
                 bool delete_sign = (delete_signs[rid] != 0);
                 auto& skip_bitmap = (*skip_bitmaps)[rid];
-                if (delete_sign) {
-                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
-                        DCHECK_GE(dst_block.mutable_columns()[cid]->size(), 1);
-                        dst_block.mutable_columns()[cid]->pop_back(1);
-                    }
+                if (i == st) {
+                    // first row in this batch
                     dst_block.add_row(&tmp_block, rid);
-                } else if (has_delete_sign_row) {
-                    // `VerticalSegmentWriter`s that belong to the same RowsetWriter share the same `mow_context`,
-                    // thus share the delete bitmap, and they will flush memtables to segments in parrallel. So
-                    // it's not guaranteed that the effect of a row with delete sign in segment with smaller segment_id
-                    // will be seen by rows with same key in later segments. So we should manually fill default or null
-                    // values for cells which are not specified in load for later rows in this situation.
-                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
-                        vectorized::MutableColumnPtr& new_col = dst_block.mutable_columns()[cid];
-                        if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
-                            new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
-                        } else {
-                            const auto& tablet_column = rowset_schema.column(cid);
-                            if (tablet_column.has_default_value()) {
-                                const vectorized::IColumn& default_value_col =
-                                        *default_value_block
-                                                 .get_by_position(cid -
-                                                                  rowset_schema.num_key_columns())
-                                                 .column;
-                                new_col->insert_from(default_value_col, 0);
-                            } else if (tablet_column.is_nullable()) {
-                                assert_cast<vectorized::ColumnNullable*>(new_col.get())
-                                        ->insert_null_elements(1);
-                            } else if (tablet_column.is_auto_increment()) {
-                                // For auto-increment column, its default value(generated value) is filled in current block in flush phase
-                                // when the load doesn't specify the auto-increment column
+                } else {
+                    if (delete_sign) {
+                        for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                            DCHECK_GE(dst_block.mutable_columns()[cid]->size(), 1);
+                            dst_block.mutable_columns()[cid]->pop_back(1);
+                        }
+                        dst_block.add_row(&tmp_block, rid);
+                    } else if (has_delete_sign_row) {
+                        // `VerticalSegmentWriter`s that belong to the same RowsetWriter share the same `mow_context`,
+                        // thus share the delete bitmap, and they will flush memtables to segments in parrallel. So
+                        // it's not guaranteed that the effect of a row with delete sign in segment with smaller segment_id
+                        // will be seen by rows with same key in later segments. So we should manually fill default or null
+                        // values for cells which are not specified in load for later rows in this situation.
+                        for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                            vectorized::MutableColumnPtr& new_col =
+                                    dst_block.mutable_columns()[cid];
+                            if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
                                 new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
                             } else {
-                                new_col->insert_default();
+                                const auto& tablet_column = rowset_schema.column(cid);
+                                if (tablet_column.has_default_value()) {
+                                    const vectorized::IColumn& default_value_col =
+                                            *default_value_block
+                                                     .get_by_position(
+                                                             cid - rowset_schema.num_key_columns())
+                                                     .column;
+                                    new_col->insert_from(default_value_col, 0);
+                                } else if (tablet_column.is_nullable()) {
+                                    assert_cast<vectorized::ColumnNullable*>(new_col.get())
+                                            ->insert_null_elements(1);
+                                } else if (tablet_column.is_auto_increment()) {
+                                    // For auto-increment column, its default value(generated value) is filled in current block in flush phase
+                                    // when the load doesn't specify the auto-increment column
+                                    new_col->insert_from(*tmp_block.get_by_position(cid).column,
+                                                         rid);
+                                } else {
+                                    new_col->insert_default();
+                                }
                             }
                         }
-                    }
-                } else {
-                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
-                        vectorized::MutableColumnPtr& new_col = dst_block.mutable_columns()[cid];
-                        if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
-                            new_col->pop_back(1);
-                            new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
+                    } else {
+                        for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                            vectorized::MutableColumnPtr& new_col =
+                                    dst_block.mutable_columns()[cid];
+                            if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
+                                new_col->pop_back(1);
+                                new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
+                            }
                         }
                     }
                 }

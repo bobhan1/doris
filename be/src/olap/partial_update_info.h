@@ -274,7 +274,7 @@ struct RowInSegment {
     int32_t key_group_id;
 
     std::string to_string() const {
-        return fmt::format("segment_id={}, segment_row_id={}, idx-{}, key_group_id={}", segment_id,
+        return fmt::format("segment_id={}, segment_row_id={}, idx={}, key_group_id={}", segment_id,
                            segment_row_id, idx, key_group_id);
     }
 
