@@ -381,6 +381,10 @@ Status VNodeChannel::init(RuntimeState* state) {
     // so the import performance is poor. Therefore, we set _batch_size to
     // a relatively large value to improve the import performance.
     _batch_size = std::max(_batch_size, 8192);
+    DBUG_EXECUTE_IF("VNodeChannel::init.set_batch_size", {
+        auto new_batch_size = dp->param<int>("batch_size", 8192);
+        _batch_size = new_batch_size;
+    });
 
     _inited = true;
     return Status::OK();
@@ -526,6 +530,9 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
         _cur_add_block_request->add_tablet_ids(tablet_id);
     }
 
+    LOG(INFO) << fmt::format(
+            "[xxx VNodeChannel::add_block] _cur_mutable_block->rows()={}, _batch_size={}",
+            _cur_mutable_block->rows(), _batch_size);
     if (_cur_mutable_block->rows() >= _batch_size ||
         _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
         {

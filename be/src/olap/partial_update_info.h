@@ -273,6 +273,11 @@ struct RowInSegment {
     int32_t idx;
     int32_t key_group_id;
 
+    std::string to_string() const {
+        return fmt::format("segment_id={}, segment_row_id={}, idx-{}, key_group_id={}", segment_id,
+                           segment_row_id, idx, key_group_id);
+    }
+
     bool operator<(const RowInSegment& other) const {
         // since rows with smaller keys will be popped before rows with larger keys
         // in `MergeIndexDeleteBitmapCalculator`, smaller key_group_id means smaller keys
@@ -282,7 +287,9 @@ struct RowInSegment {
         if (segment_id != other.segment_id) {
             return segment_id < other.segment_id;
         }
-        DCHECK(false) << fmt::format("there must no duplicate rows in one segment!");
+        DCHECK(false) << fmt::format(
+                "there must no duplicate rows in one segment!\nthis:[{}],\nother:[{}]", to_string(),
+                other.to_string());
         return segment_row_id < other.segment_row_id;
     }
 };
@@ -302,6 +309,16 @@ public:
                                 const std::vector<uint32_t>& cids_to_read, vectorized::Block& block,
                                 std::map<uint32_t, uint32_t>* read_index) const;
     std::vector<RowInSegment> get_rows_in_segments() const;
+
+    std::string detail_string() const {
+        std::string ret {fmt::format("[MergeRowsInSegmentsReadPlan]: size={}\n", plan.size())};
+        for (const auto& [_, v] : plan) {
+            for (const auto& row : v) {
+                ret += fmt::format("    {}\n", row.to_string());
+            }
+        }
+        return ret;
+    }
 
 private:
     std::map<int32_t /* segment_id */, std::vector<RowInSegment>> plan;

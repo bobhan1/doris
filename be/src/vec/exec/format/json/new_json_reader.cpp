@@ -50,6 +50,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
 #include "util/uid_util.h"
@@ -215,7 +216,11 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
-    const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+    int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+    DBUG_EXECUTE_IF("NewJsonReader::get_next_block.set_batch_size", {
+        auto new_batch_size = dp->param<int>("batch_size", static_cast<int>(_MIN_BATCH_SIZE));
+        batch_size = new_batch_size;
+    });
 
     while (block->rows() < batch_size && !_reader_eof) {
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
@@ -236,6 +241,8 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         }
         ++(*read_rows);
     }
+
+    LOG(INFO) << fmt::format("[xxx NewJsonReader::get_next_block] read_rows={}", *read_rows);
 
     return Status::OK();
 }
@@ -1243,7 +1250,6 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json_write_columns(
     if (_array_iter == _array.end()) { \
         break;                         \
     }
-
     simdjson::ondemand::object cur;
     size_t num_rows = block.rows();
     try {

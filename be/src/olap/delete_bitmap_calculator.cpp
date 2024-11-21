@@ -172,7 +172,6 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
         Slice cur_key;
         RETURN_IF_ERROR(cur_ctx->get_current_key(cur_key));
         if (!_last_key.empty() && _comparator.is_key_same(cur_key, _last_key)) {
-            _is_last_key_unique = false;
             loc.segment_id = cur_ctx->segment_id();
             loc.row_id = cur_ctx->row_id();
             if (_require_plan) {
@@ -243,6 +242,8 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(
     }
     if (_require_plan && read_plan) {
         (*read_plan) = std::move(_plan);
+        LOG(INFO) << fmt::format("[xxx MergeIndexDeleteBitmapCalculator::calculate_all] plan:\n{}",
+                                 (*read_plan)->detail_string());
     }
     return Status::OK();
 }
