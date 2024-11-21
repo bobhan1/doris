@@ -309,18 +309,11 @@ public:
                                 const std::vector<uint32_t>& cids_to_read, vectorized::Block& block,
                                 std::map<uint32_t, uint32_t>* read_index) const;
     std::vector<RowInSegment> get_rows_in_segments() const;
-
-    std::string detail_string() const {
-        std::string ret {fmt::format("[MergeRowsInSegmentsReadPlan]: size={}\n", plan.size())};
-        for (const auto& [_, v] : plan) {
-            for (const auto& row : v) {
-                ret += fmt::format("    {}\n", row.to_string());
-            }
-        }
-        return ret;
-    }
+    std::string detail_string() const;
+    int32_t get_max_key_group_id() const;
 
 private:
     std::map<int32_t /* segment_id */, std::vector<RowInSegment>> plan;
+    int32_t max_key_group_id {-1};
 };
 } // namespace doris

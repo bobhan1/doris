@@ -3587,6 +3587,10 @@ Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
                         }
                         dst_block.add_row(&tmp_block, rid);
                     } else if (has_delete_sign_row) {
+                        for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                            DCHECK_GE(dst_block.mutable_columns()[cid]->size(), 1);
+                            dst_block.mutable_columns()[cid]->pop_back(1);
+                        }
                         // `VerticalSegmentWriter`s that belong to the same RowsetWriter share the same `mow_context`,
                         // thus share the delete bitmap, and they will flush memtables to segments in parrallel. So
                         // it's not guaranteed that the effect of a row with delete sign in segment with smaller segment_id
@@ -4315,20 +4319,33 @@ Status Tablet::calc_delete_bitmap_between_segments(
         RETURN_IF_ERROR(create_transient_rowset_writer(rowset, &rowset_writer, nullptr));
 
         std::unique_ptr<MergeRowsInSegmentsReadPlan> read_plan;
-        RETURN_IF_ERROR(calculator.calculate_all(&delta_delete_bitmap, &read_plan));
+        RETURN_IF_ERROR(calculator.calculate_all(nullptr, &read_plan));
 
         vectorized::Block block = schema->create_block();
         vectorized::Block ordered_block = block.clone_empty();
 
         RETURN_IF_ERROR(merge_rows_between_segments_for_flexible_partial_update(
                 rowset, *schema, info, *read_plan, &block));
-        // TODO(bobhan1): no need to sort here?
+        LOG(INFO) << fmt::format("[xxx after merge rows] block:\n{}", block.dump_data());
+
+        // no need to sort here, just use sort_block to check there are no duplicate keys in block
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
 
-        // TODO(bobhan1): check rows consistency
+        // check rows consistency
+        if (rowset_writer->num_rows() != read_plan->get_max_key_group_id() + 1) {
+            return Status::InternalError<false>(
+                    "rows consistency check failed in calc_delete_bitmap_between_segments for "
+                    "flexible partial update, new_generated_rows={}, rows_with_different_keys={}, "
+                    "tablet_id={}",
+                    rowset_writer->num_rows(), read_plan->get_max_key_group_id() + 1, tablet_id());
+        }
 
-        // TODO(bobhan1): update delete bitmap, mark original rows as deleted
+        // update delete bitmap, mark original rows as deleted
+        for (const auto& row : read_plan->get_rows_in_segments()) {
+            delete_bitmap->add({rowset_id, row.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                               row.segment_row_id);
+        }
 
         // build rowset writer and merge transient rowset to the base rowset
         // update rowset meta becase we add a new segment
@@ -4348,17 +4365,16 @@ Status Tablet::calc_delete_bitmap_between_segments(
                 "{}, cost {} (us)",
                 tablet_id(), rowset_id.to_string(), old_segments, new_segments,
                 delete_bitmap->delete_bitmap.size(), watch.get_elapse_time_us());
-        return Status::OK();
+    } else {
+        RETURN_IF_ERROR(calculator.calculate_all(&delta_delete_bitmap));
+        delete_bitmap->merge(delta_delete_bitmap);
+
+        LOG(INFO) << fmt::format(
+                "construct delete bitmap between segments, "
+                "tablet: {}, rowset: {}, number of segments: {}, bitmap size: {}, cost {} (us)",
+                tablet_id(), rowset_id.to_string(), num_segments,
+                delete_bitmap->delete_bitmap.size(), watch.get_elapse_time_us());
     }
-
-    RETURN_IF_ERROR(calculator.calculate_all(&delta_delete_bitmap));
-    delete_bitmap->merge(delta_delete_bitmap);
-
-    LOG(INFO) << fmt::format(
-            "construct delete bitmap between segments, "
-            "tablet: {}, rowset: {}, number of segments: {}, bitmap size: {}, cost {} (us)",
-            tablet_id(), rowset_id.to_string(), num_segments, delete_bitmap->delete_bitmap.size(),
-            watch.get_elapse_time_us());
     return Status::OK();
 }
 

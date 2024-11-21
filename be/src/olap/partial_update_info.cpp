@@ -1179,6 +1179,21 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
 void MergeRowsInSegmentsReadPlan::prepare_to_read(int32_t segment_id, int32_t segment_row_id,
                                                   int32_t read_idx, int32_t key_group_id) {
     plan[segment_id].emplace_back(segment_id, segment_row_id, read_idx, key_group_id);
+    max_key_group_id = std::max(max_key_group_id, key_group_id);
+}
+
+std::string MergeRowsInSegmentsReadPlan::detail_string() const {
+    std::string ret {fmt::format("[MergeRowsInSegmentsReadPlan]: size={}\n", plan.size())};
+    for (const auto& [_, v] : plan) {
+        for (const auto& row : v) {
+            ret += fmt::format("    {}\n", row.to_string());
+        }
+    }
+    return ret;
+}
+
+int32_t MergeRowsInSegmentsReadPlan::get_max_key_group_id() const {
+    return max_key_group_id;
 }
 
 Status MergeRowsInSegmentsReadPlan::read_columns_by_plan(

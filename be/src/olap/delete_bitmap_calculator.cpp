@@ -235,7 +235,7 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(
             break;
         }
         RETURN_IF_ERROR(st);
-        if (!_require_plan) {
+        if (!_require_plan && delete_bitmap) {
             delete_bitmap->add({_rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                                loc.row_id);
         }
