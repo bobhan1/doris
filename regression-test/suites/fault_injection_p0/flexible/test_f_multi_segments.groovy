@@ -20,11 +20,11 @@ suite('test_f_multi_segments') {
     GetDebugPoint().clearDebugPointsForAllBEs()
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("NewJsonReader::get_next_block.set_batch_size", [batch_size: 10])
-        GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel::init.set_batch_size", [batch_size: 10])
+        GetDebugPoint().enableDebugPointForAllBEs("NewJsonReader::get_next_block.set_batch_size", [batch_size: 4])
+        GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel::init.set_batch_size", [batch_size: 4])
         GetDebugPoint().enableDebugPointForAllBEs("MemTable::need_flush.force_flush")
-        update_all_be_config("doris_scanner_row_num", 10)
-        update_all_be_config("doris_scanner_row_bytes", 100)
+        update_all_be_config("doris_scanner_row_num", 4)
+        update_all_be_config("doris_scanner_row_bytes", 10)
 
         def tableName = "test_f_multi_segments"
         sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -41,28 +41,33 @@ suite('test_f_multi_segments') {
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "enable_unique_key_skip_bitmap_column" = "true"); """
+        sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "11"); """
 
-        sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
-        qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
-
-        int n = 10
         String text1 = ""
-        (0..n-1).each { idx -> 
-            text1 += """{"k":${idx},"v1":20,"v2":123,"v3":45678}\n""";
-        }
-        (0..n-1).each { idx -> 
-            text1 += """{"k":${idx},"v3":40,"v4":9876}\n""";
-        }
-        def load1 = new ByteArrayInputStream(text1.getBytes())
+
+        // segment 1
+        text1 += """{"k":1,"v1":999,"v2":888,"v3":777}\n""";
+        text1 += """{"k":2,"__DORIS_DELETE_SIGN__":1}\n""";
+        text1 += """{"k":3,"v1":999,"v2":888,"v3":777}\n""";
+        text1 += """{"k":4,"v1":999,"v2":888,"v3":777}\n""";
+
+
+        // segment 2
+        text1 += """{"k":1,"v3":123,"v4":456,"v5":789}\n""";
+        text1 += """{"k":2,"v3":123,"v4":456,"v5":789}\n""";
+        text1 += """{"k":3,"__DORIS_DELETE_SIGN__":1}\n""";
+        text1 += """{"k":4,"v1":123,"v3":456,"v5":789}\n""";
+
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
             set 'read_json_by_line', 'true'
             set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-            inputStream load1
+            inputStream new ByteArrayInputStream(text1.getBytes())
             time 20000
         }
-        // qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        
+        qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
 
     } catch(Exception e) {
         logger.info(e.getMessage())
