@@ -248,16 +248,16 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
-    if (_partial_update_info && _partial_update_info->is_flexible_partial_update()) {
-        if (_rowset->num_segments() > 1) {
-            // in flexible partial update, when there are more one segment in one load,
-            // we need to do alignment process for same keys between segments, we haven't
-            // implemented it yet and just report an error when encouter
-            return Status::NotSupported(
-                    "too large input data in flexible partial update, Please "
-                    "reduce the amount of data imported in a single load.");
-        }
-    }
+    // if (_partial_update_info && _partial_update_info->is_flexible_partial_update()) {
+    //     if (_rowset->num_segments() > 1) {
+    //         // in flexible partial update, when there are more one segment in one load,
+    //         // we need to do alignment process for same keys between segments, we haven't
+    //         // implemented it yet and just report an error when encouter
+    //         return Status::NotSupported(
+    //                 "too large input data in flexible partial update, Please "
+    //                 "reduce the amount of data imported in a single load.");
+    //     }
+    // }
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (tablet()->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
@@ -271,8 +271,8 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(tablet()->calc_delete_bitmap_between_segments(
-                _rowset, segments, _delete_bitmap,
-                _partial_update_info->is_flexible_partial_update(), _tablet_schema.get()));
+                _rowset, segments, _delete_bitmap, _partial_update_info.get(),
+                _tablet_schema.get()));
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation

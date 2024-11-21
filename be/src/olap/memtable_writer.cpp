@@ -109,6 +109,7 @@ Status MemTableWriter::write(const vectorized::Block* block,
     }
 
     _total_received_rows += row_idxs.size();
+    LOG(INFO) << fmt::format("[xxx MemTableWriter::write] row_idxs.size()={}", row_idxs.size());
     RETURN_IF_ERROR(_mem_table->insert(block, row_idxs));
 
     if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {

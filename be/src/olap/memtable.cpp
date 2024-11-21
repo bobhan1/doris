@@ -654,6 +654,9 @@ bool MemTable::need_flush() const {
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > 1048576 ? max_size : 1048576;
     }
+    LOG(INFO) << fmt::format(
+            "[xxx MemTable::need_flush] memory_usage()={}, max_size={}, _stat.raw_rows={}",
+            memory_usage(), max_size, _stat.raw_rows);
     return memory_usage() >= max_size;
 }
 

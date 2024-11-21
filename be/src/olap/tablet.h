@@ -484,7 +484,7 @@ public:
 
     Status calc_delete_bitmap_between_segments(
             RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
-            DeleteBitmapPtr delete_bitmap, bool is_flexible_partial_update = false,
+            DeleteBitmapPtr delete_bitmap, const PartialUpdateInfo* info = nullptr,
             TabletSchema* schema = nullptr);
 
     static const signed char* get_delete_sign_column_data(const vectorized::Block& block,
@@ -510,7 +510,8 @@ public:
 
     static Status merge_rows_between_segments_for_flexible_partial_update(
             RowsetSharedPtr rowset, const TabletSchema& rowset_schema,
-            const MergeRowsInSegmentsReadPlan& read_plan, vectorized::Block* output_block);
+            const PartialUpdateInfo* info, const MergeRowsInSegmentsReadPlan& read_plan,
+            vectorized::Block* output_block);
 
     Status update_delete_bitmap_without_lock(
             const RowsetSharedPtr& rowset,

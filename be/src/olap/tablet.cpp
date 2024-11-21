@@ -3524,7 +3524,7 @@ Status Tablet::generate_new_block_for_flexible_partial_update(
 }
 
 Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
-        RowsetSharedPtr rowset, const TabletSchema& rowset_schema,
+        RowsetSharedPtr rowset, const TabletSchema& rowset_schema, const PartialUpdateInfo* info,
         const MergeRowsInSegmentsReadPlan& read_plan, vectorized::Block* output_block) {
     CHECK(output_block);
 
@@ -3561,26 +3561,64 @@ Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
         int64_t last_key_group_id {-1};
         int64_t same_key_rows {0};
 
+        const auto& non_pk_cids = info->missing_cids;
+        auto default_value_block = rowset_schema.create_block_by_cids(non_pk_cids);
+        RETURN_IF_ERROR(Tablet::generate_default_value_block(
+                rowset_schema, non_pk_cids, info->default_values, default_value_block,
+                default_value_block));
+
         auto aggregate_rows = [&rows, &read_index_mapping, &skip_bitmaps, delete_signs, &tmp_block,
-                               &dst_block, &rowset_schema](size_t st, size_t end) {
+                               &dst_block, &rowset_schema,
+                               &default_value_block](size_t st, size_t end) {
             bool has_delete_sign_row {false};
             for (size_t i {st}; i < end; i++) {
                 const auto& row = rows[i];
                 auto rid = read_index_mapping[row.idx];
                 bool delete_sign = (delete_signs[rid] != 0);
                 auto& skip_bitmap = (*skip_bitmaps)[rid];
-                if (delete_sign || has_delete_sign_row) {
+                if (delete_sign) {
                     for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
                         DCHECK_GE(dst_block.mutable_columns()[cid]->size(), 1);
                         dst_block.mutable_columns()[cid]->pop_back(1);
                     }
                     dst_block.add_row(&tmp_block, rid);
+                } else if (has_delete_sign_row) {
+                    // `VerticalSegmentWriter`s that belong to the same RowsetWriter share the same `mow_context`,
+                    // thus share the delete bitmap, and they will flush memtables to segments in parrallel. So
+                    // it's not guaranteed that the effect of a row with delete sign in segment with smaller segment_id
+                    // will be seen by rows with same key in later segments. So we should manually fill default or null
+                    // values for cells which are not specified in load for later rows in this situation.
+                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                        vectorized::MutableColumnPtr& new_col = dst_block.mutable_columns()[cid];
+                        if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
+                            new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
+                        } else {
+                            const auto& tablet_column = rowset_schema.column(cid);
+                            if (tablet_column.has_default_value()) {
+                                const vectorized::IColumn& default_value_col =
+                                        *default_value_block
+                                                 .get_by_position(cid -
+                                                                  rowset_schema.num_key_columns())
+                                                 .column;
+                                new_col->insert_from(default_value_col, 0);
+                            } else if (tablet_column.is_nullable()) {
+                                assert_cast<vectorized::ColumnNullable*>(new_col.get())
+                                        ->insert_null_elements(1);
+                            } else if (tablet_column.is_auto_increment()) {
+                                // For auto-increment column, its default value(generated value) is filled in current block in flush phase
+                                // when the load doesn't specify the auto-increment column
+                                new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
+                            } else {
+                                new_col->insert_default();
+                            }
+                        }
+                    }
                 } else {
                     for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                        vectorized::MutableColumnPtr& new_col = dst_block.mutable_columns()[cid];
                         if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
-                            dst_block.mutable_columns()[cid]->pop_back(1);
-                            dst_block.mutable_columns()[cid]->insert_from(
-                                    *tmp_block.get_by_position(cid).column, rid);
+                            new_col->pop_back(1);
+                            new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
                         }
                     }
                 }
@@ -4236,7 +4274,7 @@ void Tablet::clear_cache() {
 
 Status Tablet::calc_delete_bitmap_between_segments(
         RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
-        DeleteBitmapPtr delete_bitmap, bool is_flexible_partial_update, TabletSchema* schema) {
+        DeleteBitmapPtr delete_bitmap, const PartialUpdateInfo* info, TabletSchema* schema) {
     size_t const num_segments = segments.size();
     if (num_segments < 2) {
         return Status::OK();
@@ -4254,9 +4292,11 @@ Status Tablet::calc_delete_bitmap_between_segments(
         rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
 
+    bool is_flexible_partial_update = (info != nullptr && info->is_flexible_partial_update());
+
     MergeIndexDeleteBitmapCalculator calculator;
-    RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length, rowid_length,
-                                    is_flexible_partial_update));
+    RETURN_IF_ERROR(calculator.init(is_flexible_partial_update, rowset_id, segments, seq_col_length,
+                                    rowid_length));
 
     DeleteBitmap delta_delete_bitmap(tablet_id());
 
@@ -4273,7 +4313,7 @@ Status Tablet::calc_delete_bitmap_between_segments(
         vectorized::Block ordered_block = block.clone_empty();
 
         RETURN_IF_ERROR(merge_rows_between_segments_for_flexible_partial_update(
-                rowset, *schema, *read_plan, &block));
+                rowset, *schema, info, *read_plan, &block));
         // TODO(bobhan1): no need to sort here?
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));

@@ -618,6 +618,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     CHECK(block.rows() == request->tablet_ids_size())
             << "block rows: " << block.rows()
             << ", tablet_ids_size: " << request->tablet_ids_size();
+    LOG(INFO) << fmt::format("[xxx VNodeChannel::try_send_pending_block] block.rows()={}",
+                             block.rows());
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
@@ -1690,6 +1692,8 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     RETURN_IF_ERROR(_send_new_partition_batch());
 
     auto rows = input_block.rows();
+    LOG(INFO) << fmt::format("[xxx VTabletWriter::write] input_block.rows()={}",
+                             input_block.rows());
     auto bytes = input_block.bytes();
     if (UNLIKELY(rows == 0)) {
         return status;
