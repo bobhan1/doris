@@ -757,17 +757,17 @@ int InstanceChecker::do_inverted_check() {
 }
 
 int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& check_func) {
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to create txn";
-        return -1;
-    }
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_rowset_key({instance_id_, 0, 0});
     auto end = meta_rowset_key({instance_id_, std::numeric_limits<int64_t>::max(), 0});
     do {
-        TxnErrorCode err = txn->get(begin, end, &it, false, 1);
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it, false, 1);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get rowset kv, err=" << err;
             return -1;
@@ -817,19 +817,19 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
 int InstanceChecker::traverse_rowset_delete_bitmaps(
         int64_t tablet_id, std::string rowset_id,
         const std::function<int(int64_t, std::string_view, int64_t, int64_t)>& callback) {
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to create txn";
-        return -1;
-    }
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, 0, 0});
     auto end = meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id,
                                        std::numeric_limits<int64_t>::max(),
                                        std::numeric_limits<int64_t>::max()});
     do {
-        TxnErrorCode err = txn->get(begin, end, &it);
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get rowset kv, err=" << err;
             return -1;
@@ -929,18 +929,18 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
         std::unordered_set<std::string> rowsets {};
     } tablet_rowsets_cache {};
 
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to create txn";
-        return -1;
-    }
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_delete_bitmap_key({instance_id_, 0, "", 0, 0});
     auto end =
             meta_delete_bitmap_key({instance_id_, std::numeric_limits<int64_t>::max(), "", 0, 0});
     do {
-        TxnErrorCode err = txn->get(begin, end, &it);
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get rowset kv, err=" << err;
             return -1;
