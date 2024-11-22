@@ -3536,7 +3536,7 @@ Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
 
     // rowid in the tmp_block(start from 0, increase continuously) -> rowid to read in tmp_block
     std::map<uint32_t, uint32_t> read_index_mapping;
-
+    LOG(INFO) << fmt::format("[xxx before read_columns_by_plan]");
     RETURN_IF_ERROR(read_plan.read_columns_by_plan(rowset, rowset_schema, all_cids, tmp_block,
                                                    &read_index_mapping));
     size_t num_rows = read_index_mapping.size();
@@ -3555,106 +3555,133 @@ Status Tablet::merge_rows_between_segments_for_flexible_partial_update(
     auto rows = read_plan.get_rows_in_segments();
     std::sort(rows.begin(), rows.end());
 
-    if (rowset_schema.has_sequence_col()) {
-        // TODO(bobhan1): handle for sequence column
-    } else {
-        int64_t last_key_group_id {-1};
-        int64_t same_key_rows {0};
+    int64_t last_key_group_id {-1};
+    int64_t same_key_rows {0};
 
-        const auto& non_pk_cids = info->missing_cids;
-        auto default_value_block = rowset_schema.create_block_by_cids(non_pk_cids);
-        RETURN_IF_ERROR(Tablet::generate_default_value_block(
-                rowset_schema, non_pk_cids, info->default_values, default_value_block,
-                default_value_block));
+    const auto& non_pk_cids = info->missing_cids;
+    auto default_value_block = rowset_schema.create_block_by_cids(non_pk_cids);
+    RETURN_IF_ERROR(Tablet::generate_default_value_block(rowset_schema, non_pk_cids,
+                                                         info->default_values, default_value_block,
+                                                         default_value_block));
 
-        auto aggregate_rows = [&rows, &read_index_mapping, &skip_bitmaps, delete_signs, &tmp_block,
-                               &dst_block, &rowset_schema,
-                               &default_value_block](size_t st, size_t end) {
-            bool has_delete_sign_row {false};
-            for (size_t i {st}; i < end; i++) {
-                const auto& row = rows[i];
-                auto rid = read_index_mapping[row.idx];
-                bool delete_sign = (delete_signs[rid] != 0);
-                auto& skip_bitmap = (*skip_bitmaps)[rid];
-                if (i == st) {
-                    // first row in this batch
-                    dst_block.add_row(&tmp_block, rid);
+    int32_t seq_col_unique_id =
+            (rowset_schema.has_sequence_col()
+                     ? rowset_schema.column(rowset_schema.sequence_col_idx()).unique_id()
+                     : -1);
+    auto aggregate_rows = [&rows, &read_index_mapping, &skip_bitmaps, delete_signs, &tmp_block,
+                           &dst_block, &rowset_schema, &default_value_block,
+                           &seq_col_unique_id](size_t st, size_t end) {
+        LOG(INFO) << fmt::format("[xxx aggregate_rows] aggregate_rows for [{}-{})", st, end);
+        bool has_delete_sign_row {false};
+        size_t cur_idx = dst_block.rows();
+        for (size_t i {st}; i < end; i++) {
+            const auto& row = rows[i];
+            auto rid = read_index_mapping[row.idx];
+            bool delete_sign = (delete_signs[rid] != 0);
+            auto& skip_bitmap = (*skip_bitmaps)[rid];
+            bool row_has_sequence_col =
+                    (rowset_schema.has_sequence_col() && !skip_bitmap.contains(seq_col_unique_id));
+            if (i == st) {
+                // first row in this batch
+                dst_block.add_row(&tmp_block, rid);
+            } else {
+                if (row_has_sequence_col) {
+                    auto* dst_seq_col_ptr =
+                            dst_block.get_column_by_position(rowset_schema.sequence_col_idx())
+                                    .get();
+                    auto* cur_seq_col_ptr =
+                            tmp_block.get_by_position(rowset_schema.sequence_col_idx())
+                                    .column.get();
+                    int res = dst_seq_col_ptr->compare_at(cur_idx, rid, *cur_seq_col_ptr, -1);
+                    if (res > 0) {
+                        // discard row with smaller sequence column value
+                        continue;
+                    }
                 } else {
-                    if (delete_sign) {
-                        for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
-                            DCHECK_GE(dst_block.mutable_columns()[cid]->size(), 1);
-                            dst_block.mutable_columns()[cid]->pop_back(1);
-                        }
-                        dst_block.add_row(&tmp_block, rid);
-                    } else if (has_delete_sign_row) {
-                        for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
-                            DCHECK_GE(dst_block.mutable_columns()[cid]->size(), 1);
-                            dst_block.mutable_columns()[cid]->pop_back(1);
-                        }
-                        // `VerticalSegmentWriter`s that belong to the same RowsetWriter share the same `mow_context`,
-                        // thus share the delete bitmap, and they will flush memtables to segments in parrallel. So
-                        // it's not guaranteed that the effect of a row with delete sign in segment with smaller segment_id
-                        // will be seen by rows with same key in later segments. So we should manually fill default or null
-                        // values for cells which are not specified in load for later rows in this situation.
-                        for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
-                            vectorized::MutableColumnPtr& new_col =
-                                    dst_block.mutable_columns()[cid];
-                            if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
+                    auto* cur_seq_col_ptr =
+                            tmp_block.get_by_position(rowset_schema.sequence_col_idx())
+                                    .column->assume_mutable()
+                                    .get();
+                    auto* dst_seq_col_ptr =
+                            dst_block.get_column_by_position(rowset_schema.sequence_col_idx())
+                                    .get();
+                    cur_seq_col_ptr->insert_from(*dst_seq_col_ptr, cur_idx);
+                }
+
+                if (delete_sign) {
+                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                        DCHECK_GE(dst_block.mutable_columns()[cid]->size(), 1);
+                        dst_block.mutable_columns()[cid]->pop_back(1);
+                    }
+                    dst_block.add_row(&tmp_block, rid);
+                } else if (has_delete_sign_row) {
+                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                        DCHECK_GE(dst_block.mutable_columns()[cid]->size(), 1);
+                        dst_block.mutable_columns()[cid]->pop_back(1);
+                    }
+                    // `VerticalSegmentWriter`s that belong to the same RowsetWriter share the same `mow_context`,
+                    // thus share the delete bitmap, and they will flush memtables to segments in parrallel. So
+                    // it's not guaranteed that the effect of a row with delete sign in segment with smaller segment_id
+                    // will be seen by rows with same key in later segments. So we should manually fill default or null
+                    // values for cells which are not specified in load for later rows in this situation.
+                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                        vectorized::MutableColumnPtr& new_col = dst_block.mutable_columns()[cid];
+                        if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id()) ||
+                            (rowset_schema.has_skip_bitmap_col() &&
+                             cid == rowset_schema.sequence_col_idx())) {
+                            new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
+                        } else {
+                            const auto& tablet_column = rowset_schema.column(cid);
+                            if (tablet_column.has_default_value()) {
+                                const vectorized::IColumn& default_value_col =
+                                        *default_value_block
+                                                 .get_by_position(cid -
+                                                                  rowset_schema.num_key_columns())
+                                                 .column;
+                                new_col->insert_from(default_value_col, 0);
+                            } else if (tablet_column.is_nullable()) {
+                                assert_cast<vectorized::ColumnNullable*>(new_col.get())
+                                        ->insert_null_elements(1);
+                            } else if (tablet_column.is_auto_increment()) {
+                                // For auto-increment column, its default value(generated value) is filled in current block in flush phase
+                                // when the load doesn't specify the auto-increment column
                                 new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
                             } else {
-                                const auto& tablet_column = rowset_schema.column(cid);
-                                if (tablet_column.has_default_value()) {
-                                    const vectorized::IColumn& default_value_col =
-                                            *default_value_block
-                                                     .get_by_position(
-                                                             cid - rowset_schema.num_key_columns())
-                                                     .column;
-                                    new_col->insert_from(default_value_col, 0);
-                                } else if (tablet_column.is_nullable()) {
-                                    assert_cast<vectorized::ColumnNullable*>(new_col.get())
-                                            ->insert_null_elements(1);
-                                } else if (tablet_column.is_auto_increment()) {
-                                    // For auto-increment column, its default value(generated value) is filled in current block in flush phase
-                                    // when the load doesn't specify the auto-increment column
-                                    new_col->insert_from(*tmp_block.get_by_position(cid).column,
-                                                         rid);
-                                } else {
-                                    new_col->insert_default();
-                                }
-                            }
-                        }
-                    } else {
-                        for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
-                            vectorized::MutableColumnPtr& new_col =
-                                    dst_block.mutable_columns()[cid];
-                            if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
-                                new_col->pop_back(1);
-                                new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
+                                new_col->insert_default();
                             }
                         }
                     }
+                } else {
+                    for (size_t cid {0}; cid < rowset_schema.num_columns(); cid++) {
+                        vectorized::MutableColumnPtr& new_col = dst_block.mutable_columns()[cid];
+                        if (!skip_bitmap.contains(rowset_schema.column(cid).unique_id())) {
+                            new_col->pop_back(1);
+                            new_col->insert_from(*tmp_block.get_by_position(cid).column, rid);
+                        }
+                    }
                 }
-                has_delete_sign_row = delete_sign;
             }
-        };
-        size_t i {0};
-        for (; i < rows.size(); i++) {
-            const auto& row = rows[i];
-            if (i > 0 && last_key_group_id == row.key_group_id) {
-                ++same_key_rows;
-            } else {
-                if (same_key_rows > 0) {
-                    // aggregate row from tmp_block in range [i - same_key_rows, i) to output_block
-                    aggregate_rows(i - same_key_rows, i);
-                }
-                same_key_rows = 1;
+            has_delete_sign_row = delete_sign;
+        }
+    };
+    size_t i {0};
+    for (; i < rows.size(); i++) {
+        const auto& row = rows[i];
+        if (i > 0 && last_key_group_id == row.key_group_id) {
+            ++same_key_rows;
+        } else {
+            if (same_key_rows > 0) {
+                // aggregate row from tmp_block in range [i - same_key_rows, i) to output_block
+                aggregate_rows(i - same_key_rows, i);
             }
-            last_key_group_id = row.key_group_id;
+            same_key_rows = 1;
         }
-        if (same_key_rows > 0) {
-            aggregate_rows(i - same_key_rows, i);
-        }
+        last_key_group_id = row.key_group_id;
     }
+    if (same_key_rows > 0) {
+        aggregate_rows(i - same_key_rows, i);
+    }
+
     VLOG_DEBUG
             << "[Tablet::merge_rows_between_segments_for_flexible_partial_update] output_block:\n"
             << output_block->dump_data();

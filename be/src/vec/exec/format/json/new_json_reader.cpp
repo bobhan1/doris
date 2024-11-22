@@ -242,7 +242,8 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         ++(*read_rows);
     }
 
-    LOG(INFO) << fmt::format("[xxx NewJsonReader::get_next_block] read_rows={}", *read_rows);
+    LOG(INFO) << fmt::format("[xxx NewJsonReader::get_next_block] read_rows={}, block:\n{}",
+                             *read_rows, block->dump_data());
 
     return Status::OK();
 }

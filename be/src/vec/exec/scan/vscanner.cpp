@@ -150,8 +150,9 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             _num_rows_return += block->rows();
             LOG(INFO) << fmt::format(
                     "[xxx VScanner::get_block] _num_rows_read={}, rows_read_threshold={}, "
-                    "config::doris_scanner_row_num={}",
-                    _num_rows_read, rows_read_threshold, config::doris_scanner_row_num);
+                    "config::doris_scanner_row_num={}, block:\n{}",
+                    _num_rows_read, rows_read_threshold, config::doris_scanner_row_num,
+                    block->dump_data());
         } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
