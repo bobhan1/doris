@@ -4357,6 +4357,7 @@ Status Tablet::calc_delete_bitmap_between_segments(
 
         // no need to sort here, just use sort_block to check there are no duplicate keys in block
         RETURN_IF_ERROR(sort_block(block, ordered_block));
+
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
 
         // check rows consistency

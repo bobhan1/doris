@@ -32,6 +32,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -233,7 +234,7 @@ public:
             seq_col_len = tablet_schema->column(tablet_schema->sequence_col_idx()).length() + 1;
         }
 
-        ASSERT_TRUE(calculator.init(rowset_id, segments, seq_col_len).ok());
+        ASSERT_TRUE(calculator.init(false, rowset_id, segments, seq_col_len).ok());
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(0);
         ASSERT_TRUE(calculator.calculate_all(delete_bitmap.get()).ok());
 
@@ -275,6 +276,154 @@ public:
                                  result2.size());
         // if result1 is equal to result2,
         // we assume the result of `MergeIndexDeleteBitmapCalculator` is correct.
+        ASSERT_EQ(result1, result2);
+    }
+
+    void run_test_for_flexible_partial_update_multi_segments(size_t const num_segments,
+                                                             size_t const max_rows_per_segment,
+                                                             bool has_sequence_col,
+                                                             size_t const num_value_columns,
+                                                             int const random_seed, int const start,
+                                                             int const end, int const delta) {
+        SegmentWriterOptions opts;
+        opts.enable_unique_key_merge_on_write = true;
+
+        size_t const num_key_columns = 1;
+        size_t const num_columns = num_key_columns + has_sequence_col + num_value_columns;
+        size_t const seq_col_idx = has_sequence_col ? num_key_columns : -1;
+
+        std::vector<TabletColumnPtr> columns;
+
+        for (int i = 0; i < num_key_columns; ++i) {
+            columns.emplace_back(create_int_key(i));
+        }
+        if (has_sequence_col) {
+            columns.emplace_back(create_int_sequence_value(num_key_columns));
+        }
+        for (int i = 0; i < num_value_columns; ++i) {
+            columns.emplace_back(create_int_value(num_key_columns + has_sequence_col));
+        }
+
+        TabletSchemaSPtr tablet_schema = create_schema(columns, UNIQUE_KEYS);
+
+        std::vector<std::shared_ptr<segment_v2::Segment>> segments(num_segments);
+        // (segment_id, row_id) -> row data
+        std::map<std::pair<size_t, size_t>, std::vector<int>> data_map;
+        // each flat_data of data will be a tuple of (column1, column2, ..., segment_id, row_id)
+        struct RowData {
+            std::vector<int> row;
+            size_t segment_id;
+            size_t row_id;
+        };
+        std::vector<RowData> flat_data;
+        size_t seq_counter = 0;
+
+        // Generate random data, ensuring that there are no identical keys within each segment
+        // and the keys within each segment are ordered.
+        // Also, ensure that the sequence values are not equal.
+        for (size_t sid = 0; sid < num_segments; ++sid) {
+            auto& segment_data = datas[sid];
+            int key_start = start;
+            int key_end = end + sid * delta;
+            std::mt19937 rng(random_seed);
+            std::uniform_int_distribution<int> gen(key_start, key_end);
+            std::set<int> datas;
+            for (size_t i {0}; i < max_rows_per_segment; i++) {
+                datas.insert(gen(rng));
+            }
+            std::vector<int> key_datas(datas.begin(), datas.end());
+            for (size_t rid {0}; rid < key_datas.size(); rid++) {
+                std::vector<int> row;
+                for (size_t cid = 0; cid < num_columns; ++cid) {
+                    if (cid == seq_col_idx) {
+                        row.emplace_back(++seq_counter);
+                    } else {
+                        row.emplace_back(key_datas[rid]);
+                    }
+                }
+                segment_data.emplace_back(row);
+            }
+            for (size_t rid = 0; rid < segment_data.size(); ++rid) {
+                data_map[{sid, rid}] = segment_data[rid];
+                auto row = segment_data[rid];
+                flat_data.emplace_back(row, sid, rid);
+            }
+        }
+
+        // Construct segments using the data generated before.
+        for (size_t sid = 0; sid < num_segments; ++sid) {
+            auto& segment = segments[sid];
+            std::vector<int> row_data;
+            auto generator = [&](size_t rid, int cid, RowCursorCell& cell) {
+                cell.set_not_null();
+                *(int*)cell.mutable_cell_ptr() = data_map[{sid, rid}][cid];
+            };
+            build_segment(opts, tablet_schema, sid, tablet_schema, datas[sid].size(), generator,
+                          &segment);
+        }
+
+        // generate read plan using `MergeIndexDeleteBitmapCalculator`
+        MergeIndexDeleteBitmapCalculator calculator;
+        size_t seq_col_len = 0;
+        if (has_sequence_col) {
+            seq_col_len = tablet_schema->column(tablet_schema->sequence_col_idx()).length() + 1;
+        }
+
+        ASSERT_TRUE(calculator.init(true, rowset_id, segments, seq_col_len).ok());
+        std::unique_ptr<MergeRowsInSegmentsReadPlan> read_plan;
+        ASSERT_TRUE(calculator.calculate_all(nullptr, &read_plan).ok());
+
+        std::set<std::pair<size_t, size_t>> result1;
+        for (const auto& [segment_id, rows] : read_plan.plan_) {
+            for (const auto row : rows) {
+                result1.emplace(segment_id, row.segment_row_id);
+            }
+        }
+
+        // find the location of rows to be read using naive algorithm and the result is `result2`
+        std::set<std::pair<size_t, size_t>> result2;
+        std::sort(flat_data.begin(), flat_data.end(),
+                  [&](const RowData& lhs, const RowData& rhs) -> bool {
+                      for (size_t cid = 0; cid < num_key_columns; ++cid) {
+                          if (lhs.row[cid] != rhs.row[cid]) {
+                              return lhs.row[cid] < rhs.row[cid];
+                          }
+                      }
+                      return has_sequence_col ? lhs.row[seq_col_idx] > rhs.row[seq_col_idx]
+                                              : lhs.segment_id > rhs.segment_id;
+                  });
+
+        size_t i {0};
+        size_t same_key_rows {0};
+        for (; i < rows.size(); i++) {
+            auto same_with_prev = [&]() {
+                for (size_t cid = 0; cid < num_key_columns; ++cid) {
+                    if (flat_data[i][cid] != flat_data[i - 1][cid]) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            if (i > 0 && same_with_prev()) {
+                ++same_key_rows;
+            } else {
+                if (same_key_rows > 0) {
+                    for (size_t j = same_key_rows; j < i; j++) {
+                        result2.emplace(flat_data[j].segment_id, flat_data[j].row_id);
+                    }
+                }
+                same_key_rows = 1;
+            }
+        }
+        if (same_key_rows > 0) {
+            for (size_t j = same_key_rows; j < i; j++) {
+                result2.emplace(flat_data[j].segment_id, flat_data[j].row_id);
+            }
+        }
+
+        LOG(INFO) << fmt::format("result1.size(): {}, result2.size(): {}", result1.size(),
+                                 result2.size());
+        // if result1 is equal to result2, we assume the result of `MergeIndexDeleteBitmapCalculator` is correct.
         ASSERT_EQ(result1, result2);
     }
 };
