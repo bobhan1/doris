@@ -307,6 +307,7 @@ public:
         TabletSchemaSPtr tablet_schema = create_schema(columns, UNIQUE_KEYS);
 
         std::vector<std::shared_ptr<segment_v2::Segment>> segments(num_segments);
+        std::vector<std::size_t> segment_rows(num_segments);
         // (segment_id, row_id) -> row data
         std::map<std::pair<size_t, size_t>, std::vector<int>> data_map;
         // each flat_data of data will be a tuple of (column1, column2, ..., segment_id, row_id)
@@ -322,7 +323,6 @@ public:
         // and the keys within each segment are ordered.
         // Also, ensure that the sequence values are not equal.
         for (size_t sid = 0; sid < num_segments; ++sid) {
-            auto& segment_data = datas[sid];
             int key_start = start;
             int key_end = end + sid * delta;
             std::mt19937 rng(random_seed);
@@ -332,6 +332,7 @@ public:
                 datas.insert(gen(rng));
             }
             std::vector<int> key_datas(datas.begin(), datas.end());
+            segment_rows[sid] = key_datas.size();
             for (size_t rid {0}; rid < key_datas.size(); rid++) {
                 std::vector<int> row;
                 for (size_t cid = 0; cid < num_columns; ++cid) {
@@ -341,11 +342,7 @@ public:
                         row.emplace_back(key_datas[rid]);
                     }
                 }
-                segment_data.emplace_back(row);
-            }
-            for (size_t rid = 0; rid < segment_data.size(); ++rid) {
-                data_map[{sid, rid}] = segment_data[rid];
-                auto row = segment_data[rid];
+                data_map[{sid, rid}] = row;
                 flat_data.emplace_back(row, sid, rid);
             }
         }
@@ -358,7 +355,7 @@ public:
                 cell.set_not_null();
                 *(int*)cell.mutable_cell_ptr() = data_map[{sid, rid}][cid];
             };
-            build_segment(opts, tablet_schema, sid, tablet_schema, datas[sid].size(), generator,
+            build_segment(opts, tablet_schema, sid, tablet_schema, segment_rows[sid], generator,
                           &segment);
         }
 
@@ -374,7 +371,7 @@ public:
         ASSERT_TRUE(calculator.calculate_all(nullptr, &read_plan).ok());
 
         std::set<std::pair<size_t, size_t>> result1;
-        for (const auto& [segment_id, rows] : read_plan.plan_) {
+        for (const auto& [segment_id, rows] : read_plan->plan) {
             for (const auto row : rows) {
                 result1.emplace(segment_id, row.segment_row_id);
             }
@@ -395,10 +392,10 @@ public:
 
         size_t i {0};
         size_t same_key_rows {0};
-        for (; i < rows.size(); i++) {
+        for (; i < flat_data.size(); i++) {
             auto same_with_prev = [&]() {
                 for (size_t cid = 0; cid < num_key_columns; ++cid) {
-                    if (flat_data[i][cid] != flat_data[i - 1][cid]) {
+                    if (flat_data[i].row[cid] != flat_data[i - 1].row[cid]) {
                         return false;
                     }
                 }
