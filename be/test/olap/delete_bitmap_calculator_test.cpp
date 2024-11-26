@@ -332,6 +332,11 @@ public:
                 datas.insert(gen(rng));
             }
             std::vector<int> key_datas(datas.begin(), datas.end());
+            std::string keys;
+            for (auto k : key_datas) {
+                keys += fmt::format("{},", k);
+            }
+            LOG(INFO) << fmt::format("segment={}, keys=[{}]", sid, keys);
             segment_rows[sid] = key_datas.size();
             for (size_t rid {0}; rid < key_datas.size(); rid++) {
                 std::vector<int> row;
@@ -437,6 +442,11 @@ TEST_F(DeleteBitmapCalculatorTest, has_sequence_column) {
     run_test(4, 100, 2, true, 1, 4933, 1, 15);
     run_test(10, 1000, 2, true, 1, 4933, 1, 50);
     run_test(10, 8192, 2, true, 1, 4933, 1, 100);
+}
+
+TEST_F(DeleteBitmapCalculatorTest, flexible_update_multi_segments_no_seq) {
+    int seed {23984};
+    run_test_for_flexible_partial_update_multi_segments(2, 10, false, 5, seed, 1, 10, 0);
 }
 
 } // namespace doris
