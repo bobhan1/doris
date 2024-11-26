@@ -125,6 +125,21 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
         }
     }
 
+    /*
+    if (enable segments key bounds truncation) {
+        // refer to CloudMetaMgr::commit_rowset()
+        RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
+        RowsetMetaCloudPB rs_meta_cloud_pb;
+        doris_rowset_meta_to_cloud(&rs_meta_cloud_pb, std::move(rs_meta_pb));
+        if (rs_meta_cloud_pb.ByteSizeLong() > fdb value size limit) {
+            truncate segment key bounds
+            update rowset meta
+            // optional? re-check if the new rowset meta's serialization result
+            // is lower than fdb value size limit
+        }
+    }
+    */
+
     RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
                                                                 _rowset_meta, &rowset),
                                    "rowset init failed when build new rowset");
