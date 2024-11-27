@@ -2307,6 +2307,9 @@ public class OlapTable extends Table {
         if (tableProperty == null) {
             return false;
         }
+        if (getKeysType() != KeysType.UNIQUE_KEYS) {
+            return false;
+        }
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
