@@ -121,6 +121,9 @@ private:
     void check_table_size_correctness(const RowsetMeta& rs_meta);
     int64_t get_segment_file_size(const RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);
+
+    void do_segments_key_bounds_truncation(RowsetMetaCloudPB& rs_meta_cloud_pb,
+                                           std::size_t over_size);
 };
 
 } // namespace cloud
