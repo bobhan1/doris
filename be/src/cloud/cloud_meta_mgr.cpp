@@ -786,6 +786,10 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
         doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
     } else {
         RowsetMetaCloudPB rs_meta_cloud_pb = doris_rowset_meta_to_cloud(std::move(rs_meta_pb));
+        LOG(INFO) << fmt::format(
+                "CloudMetaMgr::commit_rowset, enable_segments_key_bounds_truncation, size={}, "
+                "config::fdb_value_size_limit={}",
+                rs_meta_cloud_pb.ByteSizeLong(), config::fdb_value_size_limit);
         if (rs_meta_cloud_pb.ByteSizeLong() > config::fdb_value_size_limit) {
             // do segments key bounds truncation
             auto prev_size = rs_meta_cloud_pb.ByteSizeLong();
@@ -796,7 +800,7 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
             LOG(INFO) << fmt::format(
                     "before commit_rowset, truncate segments key bounds for rowset_id={} from "
                     "size={}B to size={}B",
-                    rs_meta.rowset_id(), prev_size, cur_size);
+                    rs_meta.rowset_id().to_string(), prev_size, cur_size);
             DCHECK_LE(cur_size, config::fdb_value_size_limit);
         }
         *req.mutable_rowset_meta() = std::move(rs_meta_cloud_pb);
@@ -1309,20 +1313,31 @@ void CloudMetaMgr::do_segments_key_bounds_truncation(RowsetMetaCloudPB& rs_meta_
                                                      std::size_t over_size) {
     auto segments_num = rs_meta_cloud_pb.num_segments();
     int64_t cut_size_per_segment = (over_size - 1) / segments_num + 1;
-    int64_t cut_size_per_key_bound = (cut_size_per_segment / 2) + 1;
     LOG(INFO) << fmt::format(
             "CloudMetaMgr::do_segments_key_bounds_truncation, over_size={}, segments_num={}, "
-            "cut_size_per_segment={}, cut_size_per_key_bound={}",
-            over_size, segments_num, cut_size_per_segment, cut_size_per_key_bound);
+            "cut_size_per_segment={}",
+            over_size, segments_num, cut_size_per_segment);
     for (auto& segment_key_bounds : *rs_meta_cloud_pb.mutable_segments_key_bounds()) {
         auto* min_key = segment_key_bounds.mutable_min_key();
         auto* max_key = segment_key_bounds.mutable_max_key();
-        if (min_key->size() > cut_size_per_key_bound) {
-            min_key->resize(min_key->size() - cut_size_per_key_bound);
+
+        auto origin_size = min_key->size() + max_key->size();
+        auto new_size = (origin_size - cut_size_per_segment) / 2;
+        LOG(INFO) << fmt::format(
+                "CloudMetaMgr::do_segments_key_bounds_truncation, before, min_key.size={}, "
+                "max_key.size={}",
+                min_key->size(), max_key->size());
+        if (min_key->size() > new_size) {
+            min_key->resize(new_size);
         }
-        if (max_key->size() > cut_size_per_key_bound) {
-            max_key->resize(max_key->size() - cut_size_per_key_bound);
+        if (max_key->size() > new_size) {
+            max_key->resize(new_size);
         }
+        LOG(INFO) << fmt::format(
+                "CloudMetaMgr::do_segments_key_bounds_truncation, after, min_key.size={}, "
+                "max_key.size={}",
+                min_key->size(), max_key->size());
+        DCHECK_LE(min_key->size() + max_key->size() + cut_size_per_segment, origin_size);
     }
 }
 
