@@ -443,6 +443,27 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     }
     return Status::OK();
 }
+bool BaseTablet::key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
+                                       bool is_segments_key_bounds_truncated) {
+    if (is_segments_key_bounds_truncated) {
+        // suppose min_key is X, truncated min_key is X', max_key is Y, trucated max_key is Y'
+        // for min_key, since X' <= X, key < X' => key < X
+        // for max_key, 
+        if (key.compare(segment_key_bounds.min_key()) < 0) {
+            return true;
+        }
+
+        std::size_t truncated_size = std::min(key.get_size(), segment_key_bounds.max_key().size());
+        Slice truncated_key = Slice {key.get_data(), truncated_size};
+        return truncated_key.compare(segment_key_bounds.max_key()) > 0;
+    }
+
+    if (key.compare(segment_key_bounds.max_key()) > 0 ||
+        key.compare(segment_key_bounds.min_key()) < 0) {
+        return true;
+    }
+    return false;
+}
 
 Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
                                   bool with_seq_col,
@@ -472,13 +493,14 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             delete_bitmap == nullptr ? _tablet_meta->delete_bitmap_ptr() : delete_bitmap;
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
         const auto& rs = specified_rowsets[i];
-        const auto& segments_key_bounds = rs->rowset_meta()->get_segments_key_bounds();
+        std::vector<KeyBoundsPB> segments_key_bounds;
+        rs->rowset_meta()->get_segments_key_bounds(&segments_key_bounds);
         int num_segments = cast_set<int>(rs->num_segments());
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int i = num_segments - 1; i >= 0; i--) {
-            if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
-                key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
+            if (key_is_not_in_segment(key_without_seq, segments_key_bounds[i],
+                                      rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                 continue;
             }
             picked_segments.emplace_back(i);

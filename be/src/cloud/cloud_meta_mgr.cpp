@@ -1339,6 +1339,7 @@ void CloudMetaMgr::do_segments_key_bounds_truncation(RowsetMetaCloudPB& rs_meta_
                 min_key->size(), max_key->size());
         DCHECK_LE(min_key->size() + max_key->size() + cut_size_per_segment, origin_size);
     }
+    rs_meta_cloud_pb.set_segments_key_bounds_truncated(true);
 }
 
 } // namespace doris::cloud

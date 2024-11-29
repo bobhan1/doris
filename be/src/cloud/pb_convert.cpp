@@ -75,6 +75,8 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
+    out->set_compaction_level(in.compaction_level());
+    out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
     out->mutable_segments_file_size()->CopyFrom(in.segments_file_size());
     out->set_index_id(in.index_id());
     if (in.has_schema_version()) {
@@ -127,6 +129,8 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
+    out->set_compaction_level(in.compaction_level());
+    out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
     out->mutable_segments_file_size()->Swap(in.mutable_segments_file_size());
     out->set_index_id(in.index_id());
     if (in.has_schema_version()) {
@@ -226,6 +230,8 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
+    out->set_compaction_level(in.compaction_level());
+    out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
     out->mutable_segments_file_size()->CopyFrom(in.segments_file_size());
     out->set_index_id(in.index_id());
     if (in.has_schema_version()) {
@@ -279,6 +285,8 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
+    out->set_compaction_level(in.compaction_level());
+    out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
     out->mutable_segments_file_size()->Swap(in.mutable_segments_file_size());
     out->set_index_id(in.index_id());
     if (in.has_schema_version()) {

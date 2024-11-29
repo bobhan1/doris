@@ -299,6 +299,14 @@ public:
 
     auto& get_segments_key_bounds() const { return _rowset_meta_pb.segments_key_bounds(); }
 
+    bool is_segments_key_bounds_truncated() const {
+        return _rowset_meta_pb.segments_key_bounds_truncated();
+    }
+
+    void set_segments_key_bounds_truncated(bool truncated) {
+        _rowset_meta_pb.set_segments_key_bounds_truncated(truncated);
+    }
+
     bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
