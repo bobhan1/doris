@@ -23,7 +23,14 @@ suite("prepare_missing_version_load", "nonConcurrent") {
     def table1 = "test_mow_missing_version"
     
     int num = 5000
+
     (1..num).each { idx ->
-        sql """insert into ${table1} values(1,1); """
+        def threads = []
+        (1..10).each { j ->
+            threads << Thread.start {
+                sql """insert into ${table1} values(1,1); """
+            }
+        }
+        threads.each{ t -> t.join()}
     }
 }
