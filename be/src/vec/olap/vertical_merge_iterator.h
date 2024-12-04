@@ -168,6 +168,8 @@ public:
     bool compare(const VerticalMergeIteratorContext& rhs) const;
     Status copy_rows(Block* block, bool advanced = true);
     Status copy_rows(Block* block, size_t count);
+    std::string dump_batched_data();
+    std::string dump_row_data();
 
     Status advance();
 

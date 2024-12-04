@@ -342,6 +342,47 @@ Status VerticalMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     return Status::OK();
 }
 
+std::string VerticalMergeIteratorContext::dump_batched_data() {
+    size_t start = _index_in_block - _cur_batch_num;
+    std::string line = _block->dump_data(start, _cur_batch_num);
+    std::string ret;
+    if (_record_rowids) {
+        auto cur_loc = current_row_location();
+        ret = fmt::format(
+                "rowset_id={}, segment_id={}, rid={}, _ori_return_cols={}, _num_key_columns={}, "
+                "_index_in_block={}, _cur_batch_num={}, start={}, _block->rows()={}, data:\n{}",
+                cur_loc.rowset_id.to_string(), cur_loc.segment_id, cur_loc.row_id, _ori_return_cols,
+                _num_key_columns, _index_in_block, _cur_batch_num, start, _block->rows(), line);
+    } else {
+        ret = fmt::format(
+                "_record_rowids={} _ori_return_cols={}, _num_key_columns={}, "
+                "_index_in_block={}, _cur_batch_num={}, start={}, _block->rows()={}, data:\n{}",
+                _record_rowids, _ori_return_cols, _num_key_columns, _index_in_block, _cur_batch_num,
+                start, _block->rows(), line);
+    }
+    return ret;
+}
+
+std::string VerticalMergeIteratorContext::dump_row_data() {
+    std::string line = _block->dump_data(_index_in_block, 1);
+    std::string ret;
+    if (_record_rowids) {
+        auto cur_loc = current_row_location();
+        ret = fmt::format(
+                "rowset_id={}, segment_id={}, rid={}, _ori_return_cols={}, _num_key_columns={}, "
+                "_index_in_block={}, _cur_batch_num={}, _block->rows()={}, data:\n{}",
+                cur_loc.rowset_id.to_string(), cur_loc.segment_id, cur_loc.row_id, _ori_return_cols,
+                _num_key_columns, _index_in_block, _cur_batch_num, _block->rows(), line);
+    } else {
+        ret = fmt::format(
+                "_record_rowids={}, _ori_return_cols={}, _num_key_columns={}, "
+                "_index_in_block={}, _cur_batch_num={}, _block->rows()={}, data:\n{}",
+                _record_rowids, _ori_return_cols, _num_key_columns, _index_in_block, _cur_batch_num,
+                _block->rows(), line);
+    }
+    return ret;
+}
+
 Status VerticalMergeIteratorContext::init(const StorageReadOptions& opts,
                                           CompactionSampleInfo* sample_info) {
     if (LIKELY(_inited)) {
@@ -455,6 +496,21 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
              _keys_type == KeysType::AGG_KEYS)) {
             // skip cur row, copy pre ctx
             ++_merged_rows;
+            {
+                // print the duplicate row
+                if (pre_ctx) {
+                    LOG(INFO) << fmt::format(
+                            "[xxxx VerticalHeapMergeIterator::next_batch] after merged_rows++, "
+                            "merged_rows={}, pre_ctx:\n{}\nctx:\n{}",
+                            _merged_rows, pre_ctx->dump_batched_data(), ctx->dump_row_data());
+                } else {
+                    LOG(INFO) << fmt::format(
+                            "[xxxx VerticalHeapMergeIterator::next_batch] after merged_rows++, "
+                            "merged_rows={}, ctx:\n{}",
+                            _merged_rows, ctx->dump_row_data());
+                }
+            }
+
             if (pre_ctx) {
                 RETURN_IF_ERROR(pre_ctx->copy_rows(block));
                 pre_ctx = nullptr;
