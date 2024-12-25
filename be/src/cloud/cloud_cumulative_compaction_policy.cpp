@@ -54,6 +54,17 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
         size_t* compaction_score, bool allow_delete) {
+    if (1734944183621 == tablet->tablet_id()) {
+        auto start_version = 82;
+        auto end_version = 86;
+        for (auto& rowset : candidate_rowsets) {
+            if (rowset->start_version() >= start_version && rowset->end_version() <= end_version) {
+                input_rowsets->push_back(rowset);
+            }
+        }
+    }
+    return input_rowsets->size();
+
     size_t promotion_size = cloud_promotion_size(tablet);
     auto max_version = tablet->max_version().first;
     int transient_size = 0;
