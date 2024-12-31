@@ -35,6 +35,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
@@ -702,6 +703,15 @@ void Block::clear_column_data(int column_size) noexcept {
         (*std::move(d.column)).assume_mutable()->clear();
     }
     row_same_bit.clear();
+}
+
+void Block::erase_tmp_columns() noexcept {
+    auto all_column_names = get_names();
+    for (auto& name : all_column_names) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+            erase(name);
+        }
+    }
 }
 
 void Block::swap(Block& other) noexcept {
