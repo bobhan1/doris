@@ -31,12 +31,12 @@ build_version_prefix="selectdb-doris"
 build_version_major=2
 build_version_minor=0
 build_version_patch=11
-build_version_rc_version=""
+build_version_rc_version="1"
 
 if [[ -z "${build_version_rc_version}" ]]; then
     build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
 else
-    build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}-${build_version_rc_version}"
+    build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}.${build_version_rc_version}"
 fi
 
 unset LANG
