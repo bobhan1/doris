@@ -729,6 +729,11 @@ if (BUILD_META_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
+option(BUILD_MY_TOOL "Build my tool" ON)
+if (BUILD_MY_TOOL)
+    add_subdirectory(${SRC_DIR}/my-tools)
+endif()
+
 option(BUILD_INDEX_TOOL "Build index tool" OFF)
 if (BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/index-tools)
