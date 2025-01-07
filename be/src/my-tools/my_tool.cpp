@@ -40,6 +40,26 @@ std::string get_usage(const std::string& progname) {
     return ss.str();
 }
 
+void print_rowset_meta(std::vector<doris::RowsetMetaSharedPtr>& rs_metas, std::string prefix,
+                       std::map<doris::RowsetId, int64_t>& kvs) {
+    using namespace doris;
+    std::sort(rs_metas.begin(), rs_metas.end(),
+              [](const RowsetMetaSharedPtr& x, const RowsetMetaSharedPtr& y) {
+                  return x->start_version() < y->start_version();
+              });
+    std::cout << fmt::format("    {} rowsets:\n", prefix);
+    int64_t marks_sum {};
+    for (const auto& rs_meta : rs_metas) {
+        std::cout << fmt::format(
+                "        tablet_id={}, rowset_id={}, version={}, delete bitmap kvs={}\n",
+                rs_meta->tablet_id(), rs_meta->rowset_id().to_string(),
+                rs_meta->version().to_string(), kvs[rs_meta->rowset_id()]);
+        marks_sum += kvs[rs_meta->rowset_id()];
+    }
+    std::cout << fmt::format("    {} rowsets summary: count={}, kvs={}\n", prefix, rs_metas.size(),
+                             marks_sum);
+}
+
 void print_meta_detail(doris::OlapMeta& meta) {
     using namespace doris;
 
@@ -51,35 +71,41 @@ void print_meta_detail(doris::OlapMeta& meta) {
                                 const std::string& meta_str) -> bool {
         rowset_meta_size_sum += meta_str.size();
         rowset_meta_count++;
-        std::cout << fmt::format("collect rowset meta: rowset_id={}, size={}\n",
-                                 rowset_id.to_string(), meta_str.size());
         RowsetMetaPB rowset_meta_pb;
         if (!rowset_meta_pb.ParseFromString(meta_str)) {
-            std::cout << fmt::format("failed to parse rowset meta pb.");
+            std::cout << fmt::format("failed to parse rowset meta pb. rowset_id={}",
+                                     rowset_id.to_string());
             return true;
         }
 
-        if (rowset_meta_pb.has_rowset_state() &&
-            rowset_meta_pb.rowset_state() == RowsetStatePB::VISIBLE) {
-            int64_t tablet_id = rowset_meta_pb.tablet_id();
-            int64_t start_ver = rowset_meta_pb.start_version();
-            int64_t end_ver = rowset_meta_pb.end_version();
+        RowsetStatePB state = rowset_meta_pb.rowset_state();
+        int64_t tablet_id = rowset_meta_pb.tablet_id();
+        int64_t start_ver = rowset_meta_pb.start_version();
+        int64_t end_ver = rowset_meta_pb.end_version();
+
+        std::cout << fmt::format(
+                "collect rowset meta: tablet_id={}, rowset_id={}, size={}, state={}, "
+                "version=[{}-{}]\n",
+                tablet_id, rowset_id.to_string(), meta_str.size(), RowsetStatePB_Name(state),
+                start_ver, end_ver);
+
+        if (rowset_meta_pb.rowset_state() == RowsetStatePB::VISIBLE) {
             tablet_rowsets[tablet_id].emplace_back(start_ver, end_ver);
         }
 
         return true;
     };
 
-    for (auto& [tablet_id, versions] : tablet_rowsets) {
-        std::sort(versions.begin(), versions.end(), [](const Version& left, const Version& right) {
-            return left.first < right.first;
-        });
-        std::cout << fmt::format("xxx tablet_id={} visible rowsets count={}\n", tablet_id,
-                                 versions.size());
-        for (const auto ver : versions) {
-            std::cout << fmt::format("    {}\n", ver.to_string());
-        }
-    }
+    // for (auto& [tablet_id, versions] : tablet_rowsets) {
+    //     std::sort(versions.begin(), versions.end(), [](const Version& left, const Version& right) {
+    //         return left.first < right.first;
+    //     });
+    //     std::cout << fmt::format("xxx tablet_id={} visible rowsets count={}\n", tablet_id,
+    //                              versions.size());
+    //     for (const auto ver : versions) {
+    //         std::cout << fmt::format("    {}\n", ver.to_string());
+    //     }
+    // }
 
     Status res = RowsetMetaManager::traverse_rowset_metas(&meta, load_rowset_func);
     if (!res.ok()) {
@@ -106,6 +132,8 @@ void print_meta_detail(doris::OlapMeta& meta) {
         }
 
         if (tablet_meta_pb.has_delete_bitmap()) {
+            std::map<RowsetId, int64_t> kvs;
+
             int rst_ids_size = tablet_meta_pb.delete_bitmap().rowset_ids_size();
             int seg_ids_size = tablet_meta_pb.delete_bitmap().segment_ids_size();
             int versions_size = tablet_meta_pb.delete_bitmap().versions_size();
@@ -117,22 +145,56 @@ void print_meta_detail(doris::OlapMeta& meta) {
             for (size_t i = 0; i < rst_ids_size; ++i) {
                 RowsetId rst_id;
                 rst_id.init(tablet_meta_pb.delete_bitmap().rowset_ids(i));
-                // auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
+                auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
                 uint32_t ver = tablet_meta_pb.delete_bitmap().versions(i);
                 max_ver = std::max<int64_t>(max_ver, ver);
                 const auto& delete_bitmap =
                         tablet_meta_pb.delete_bitmap().segment_delete_bitmaps(i);
                 sz += delete_bitmap.size();
-                // std::cout << fmt::format(
-                //         "xx   collect delete bitmap: rowset_id={}, seg={}, ver={}, sz={}\n",
-                //         rst_id.to_string(), seg_id, ver, delete_bitmap.size());
+                ++kvs[rst_id];
+                std::cout << fmt::format(
+                        "xx   collect delete bitmap: rowset_id={}, seg={}, ver={}, sz={}\n",
+                        rst_id.to_string(), seg_id, ver, delete_bitmap.size());
             }
             delete_bitmap_size_sum += sz;
             delete_bitmap_kvs += seg_maps_size;
+            std::vector<Version> versions;
+            std::vector<RowsetMetaSharedPtr> rs_metas;
+            std::vector<RowsetMetaSharedPtr> stale_rs_metas;
+            for (auto& rs_meta : *tablet_meta_pb.mutable_rs_metas()) {
+                if (rs_meta.rowset_state() == RowsetStatePB::VISIBLE) {
+                    int64_t start_ver = rs_meta.start_version();
+                    int64_t end_ver = rs_meta.end_version();
+                    versions.emplace_back(start_ver, end_ver);
+
+                    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+                    rs_meta.clear_tablet_schema();
+                    bool parsed = rowset_meta->init_from_pb(rs_meta);
+                    if (!parsed) {
+                        std::cout << fmt::format("failed to init_from_pb for rowset_meta.");
+                        continue;
+                    }
+                    rs_metas.push_back(std::move(rowset_meta));
+                }
+            }
+            for (auto& stale_rs_meta : *tablet_meta_pb.mutable_stale_rs_metas()) {
+                RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+                stale_rs_meta.clear_tablet_schema();
+                bool parsed = rowset_meta->init_from_pb(stale_rs_meta);
+                if (!parsed) {
+                    std::cout << fmt::format("failed to init_from_pb for rowset_meta.");
+                    continue;
+                }
+                stale_rs_metas.push_back(std::move(rowset_meta));
+            }
+
             std::cout << fmt::format(
                     "tablet's delete bitmap: tablet_id={}, delete_bitmap_size={}, kvs={}, "
-                    "max_ver={}, cumu_point={}\n",
-                    tablet_id, sz, seg_maps_size, max_ver, tablet_meta_pb.cumulative_layer_point());
+                    "max_ver={}, cumu_point={}, visible rowset count={}, stale rowset count={}\n",
+                    tablet_id, sz, seg_maps_size, max_ver, tablet_meta_pb.cumulative_layer_point(),
+                    rs_metas.size(), stale_rs_metas.size());
+            print_rowset_meta(rs_metas, "visible", kvs);
+            print_rowset_meta(stale_rs_metas, "stale", kvs);
         }
 
         return true;
