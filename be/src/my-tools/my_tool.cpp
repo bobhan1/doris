@@ -119,6 +119,41 @@ void print_meta_detail(doris::OlapMeta& meta) {
     int64_t delete_bitmap_size_sum {};
     int64_t delete_bitmap_kvs {};
     int64_t tablet_meta_count {};
+
+    struct rowset_digest {
+        bool init {false};
+        int64_t count {};
+        int64_t max_seg_id {};
+        int64_t min_ver {};
+        int64_t max_ver {};
+        int64_t sz {};
+        std::set<int64_t> distinct_versions;
+
+        void update(uint32_t seg_id, uint32_t ver, int64_t size) {
+            ++count;
+            sz += size;
+            distinct_versions.insert(ver);
+            if (!init) {
+                init = true;
+                min_ver = ver;
+                max_ver = ver;
+                max_seg_id = seg_id;
+                return;
+            }
+            min_ver = std::min<int64_t>(min_ver, ver);
+            max_ver = std::max<int64_t>(max_ver, ver);
+            max_seg_id = std::max<int64_t>(max_seg_id, seg_id);
+        }
+
+        std::string str() const {
+            return fmt::format(
+                    "kvs={}, sz={}, max_seg_id={}, min_ver={}, max_ver={}, version_gap={}, "
+                    "version_distinct_count={}",
+                    count, sz, max_seg_id, min_ver, max_ver, max_ver - min_ver,
+                    distinct_versions.size());
+        }
+    };
+
     auto load_tablet_func = [&](int64_t tablet_id, int32_t schema_hash,
                                 const std::string& value) -> bool {
         tablet_meta_size_sum += value.size();
@@ -132,6 +167,7 @@ void print_meta_detail(doris::OlapMeta& meta) {
         }
 
         if (tablet_meta_pb.has_delete_bitmap()) {
+            std::map<RowsetId, rowset_digest> digest;
             std::map<RowsetId, int64_t> kvs;
 
             int rst_ids_size = tablet_meta_pb.delete_bitmap().rowset_ids_size();
@@ -152,9 +188,10 @@ void print_meta_detail(doris::OlapMeta& meta) {
                         tablet_meta_pb.delete_bitmap().segment_delete_bitmaps(i);
                 sz += delete_bitmap.size();
                 ++kvs[rst_id];
-                std::cout << fmt::format(
-                        "xx   collect delete bitmap: rowset_id={}, seg={}, ver={}, sz={}\n",
-                        rst_id.to_string(), seg_id, ver, delete_bitmap.size());
+                digest[rst_id].update(seg_id, ver, delete_bitmap.size());
+                // std::cout << fmt::format(
+                //         "xx   collect delete bitmap: rowset_id={}, seg={}, ver={}, sz={}\n",
+                //         rst_id.to_string(), seg_id, ver, delete_bitmap.size());
             }
             delete_bitmap_size_sum += sz;
             delete_bitmap_kvs += seg_maps_size;
@@ -195,6 +232,22 @@ void print_meta_detail(doris::OlapMeta& meta) {
                     rs_metas.size(), stale_rs_metas.size());
             print_rowset_meta(rs_metas, "visible", kvs);
             print_rowset_meta(stale_rs_metas, "stale", kvs);
+
+            std::vector<RowsetId> ids;
+            for (const auto& [rowset_id, _] : digest) {
+                ids.push_back(rowset_id);
+            }
+            std::sort(ids.begin(), ids.end(), [&](const RowsetId& x, const RowsetId& y) {
+                return digest[x].count > digest[y].count;
+            });
+            for (const auto& rowset_id : ids) {
+                std::cout << fmt::format("xx    collect dbm rowset digest: rowset_id={}, {}\n",
+                                         rowset_id.to_string(), digest[rowset_id].str());
+            }
+            // for (const auto& [rowset_id, stats] : digest) {
+            //     std::cout << fmt::format("xx    collect dbm rowset digest: rowset_id={}, {}\n",
+            //                              rowset_id.to_string(), stats.str());
+            // }
         }
 
         return true;
