@@ -19,6 +19,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gflags/gflags.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 
@@ -45,14 +46,40 @@ void print_meta_detail(doris::OlapMeta& meta) {
     // rowset meta
     int64_t rowset_meta_size_sum {};
     int64_t rowset_meta_count {};
+    std::map<int64_t, std::vector<Version>> tablet_rowsets;
     auto load_rowset_func = [&](TabletUid tablet_uid, RowsetId rowset_id,
                                 const std::string& meta_str) -> bool {
         rowset_meta_size_sum += meta_str.size();
         rowset_meta_count++;
         std::cout << fmt::format("collect rowset meta: rowset_id={}, size={}\n",
                                  rowset_id.to_string(), meta_str.size());
+        RowsetMetaPB rowset_meta_pb;
+        if (!rowset_meta_pb.ParseFromString(meta_str)) {
+            std::cout << fmt::format("failed to parse rowset meta pb.");
+            return true;
+        }
+
+        if (rowset_meta_pb.has_rowset_state() &&
+            rowset_meta_pb.rowset_state() == RowsetStatePB::VISIBLE) {
+            int64_t tablet_id = rowset_meta_pb.tablet_id();
+            int64_t start_ver = rowset_meta_pb.start_version();
+            int64_t end_ver = rowset_meta_pb.end_version();
+            tablet_rowsets[tablet_id].emplace_back(start_ver, end_ver);
+        }
+
         return true;
     };
+
+    for (auto& [tablet_id, versions] : tablet_rowsets) {
+        std::sort(versions.begin(), versions.end(), [](const Version& left, const Version& right) {
+            return left.first < right.first;
+        });
+        std::cout << fmt::format("xxx tablet_id={} visible rowsets count={}\n", tablet_id,
+                                 versions.size());
+        for (const auto ver : versions) {
+            std::cout << fmt::format("    {}\n", ver.to_string());
+        }
+    }
 
     Status res = RowsetMetaManager::traverse_rowset_metas(&meta, load_rowset_func);
     if (!res.ok()) {
@@ -64,6 +91,7 @@ void print_meta_detail(doris::OlapMeta& meta) {
     // tablet_meta
     int64_t tablet_meta_size_sum {};
     int64_t delete_bitmap_size_sum {};
+    int64_t delete_bitmap_kvs {};
     int64_t tablet_meta_count {};
     auto load_tablet_func = [&](int64_t tablet_id, int32_t schema_hash,
                                 const std::string& value) -> bool {
@@ -89,17 +117,18 @@ void print_meta_detail(doris::OlapMeta& meta) {
             for (size_t i = 0; i < rst_ids_size; ++i) {
                 RowsetId rst_id;
                 rst_id.init(tablet_meta_pb.delete_bitmap().rowset_ids(i));
-                auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
+                // auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
                 uint32_t ver = tablet_meta_pb.delete_bitmap().versions(i);
                 max_ver = std::max<int64_t>(max_ver, ver);
                 const auto& delete_bitmap =
                         tablet_meta_pb.delete_bitmap().segment_delete_bitmaps(i);
                 sz += delete_bitmap.size();
-                std::cout << fmt::format(
-                        "xx   collect delete bitmap: rowset_id={}, seg={}, ver={}, sz={}\n",
-                        rst_id.to_string(), seg_id, ver, delete_bitmap.size());
+                // std::cout << fmt::format(
+                //         "xx   collect delete bitmap: rowset_id={}, seg={}, ver={}, sz={}\n",
+                //         rst_id.to_string(), seg_id, ver, delete_bitmap.size());
             }
             delete_bitmap_size_sum += sz;
+            delete_bitmap_kvs += seg_maps_size;
             std::cout << fmt::format(
                     "tablet's delete bitmap: tablet_id={}, delete_bitmap_size={}, kvs={}, "
                     "max_ver={}, cumu_point={}\n",
@@ -137,12 +166,13 @@ void print_meta_detail(doris::OlapMeta& meta) {
     }
 
     std::cout << fmt::format(
-            " ======================== Summary: ======================== "
-            "\ntablet_meta.size={}, rowset_meta_count={}\nrowset_meta.size={} "
-            "B\ntablet_meta_size={} "
-            "B\ndelete_bitmap_size={} B\npending_delete_bitmap_size={} B\n",
-            tablet_meta_count, rowset_meta_count, rowset_meta_size_sum, tablet_meta_size_sum,
-            delete_bitmap_size_sum, pending_delete_bitmap_size_sum);
+            " ======================== Summary: ======================== \n"
+            "tablet_meta_count={}, tablet_meta_size={} B\n"
+            "rowset_meta_count={}, rowset_meta.size={} B\n"
+            "delete_bitmap_kvs={}, delete_bitmap_size={} B\n"
+            "pending_delete_bitmap_size={} B\n",
+            tablet_meta_count, tablet_meta_size_sum, rowset_meta_count, rowset_meta_size_sum,
+            delete_bitmap_kvs, delete_bitmap_size_sum, pending_delete_bitmap_size_sum);
 }
 
 int main(int argc, char** argv) {
