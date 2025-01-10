@@ -215,6 +215,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                                                        ? agent_task_req.alter_tablet_req_v2.job_id
                                                        : 0));
             status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
+            LOG_INFO("xxx status: {}", status.to_string());
         } catch (const Exception& e) {
             status = e.to_status();
         }

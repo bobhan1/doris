@@ -94,6 +94,7 @@ static void register_suites() {
     suite_map.emplace("commit_txn_immediately::before_commit", []() {
         auto* sp = SyncPoint::get_instance();
         sp->set_call_back("commit_txn_immediately::before_commit", [&](auto&& args) {
+            LOG_INFO("set injection suite: commit_txn_immediately::before_commit");
             TxnErrorCode* err = try_any_cast<TxnErrorCode*>(args[0]);
             *err = TxnErrorCode::TXN_BYTES_TOO_LARGE;
 

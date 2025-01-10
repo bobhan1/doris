@@ -422,8 +422,11 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         RETURN_IF_ERROR(_new_tablet->set_tablet_state(TABLET_RUNNING));
     }
     DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.leave.sleep", { sleep(5); });
-    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.injected_err",
-                    { return Status::InternalError("injected error"); });
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.injected_err", {
+        LOG_WARNING(
+                "injected error to CloudSchemaChangeJob::_convert_historical_rowsets.injected_err");
+        return Status::InternalError("injected error");
+    });
     return Status::OK();
 }
 

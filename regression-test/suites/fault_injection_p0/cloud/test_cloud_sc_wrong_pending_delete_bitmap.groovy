@@ -18,10 +18,10 @@
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 import org.apache.doris.regression.suite.ClusterOptions
+import org.apache.doris.regression.Config
 
 suite("test_cloud_sc_wrong_pending_delete_bitmap", "p0,docker") {
 
-    logger.info(" ==== test =====")
     def token = "greedisgood9999"
 
     def enable_ms_inject_api = { msHttpPort, check_func ->
@@ -65,7 +65,6 @@ suite("test_cloud_sc_wrong_pending_delete_bitmap", "p0,docker") {
     options.setBeNum(1)
     options.cloudMode = true
 
-    logger.info(" ==== test 2 =====")
     docker(options) {
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
@@ -90,6 +89,15 @@ suite("test_cloud_sc_wrong_pending_delete_bitmap", "p0,docker") {
         sql "sync;"
         order_qt_sql "select * from ${table1};"
 
+        def fe = cluster.getMasterFe()
+        def url = String.format(
+                    "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                    fe.host, fe.queryPort)
+        url = Config.buildUrlWithDb(url, context.dbName)
+        def user = context.config.jdbcUser
+        def password = context.config.jdbcPassword
+
+
         try {
             GetDebugPoint().clearDebugPointsForAllFEs()
             GetDebugPoint().clearDebugPointsForAllBEs()
@@ -101,6 +109,7 @@ suite("test_cloud_sc_wrong_pending_delete_bitmap", "p0,docker") {
             // and after the BE's tablet state has been changed to NORMAL
             GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.leave.sleep")
 
+            Thread.sleep(1000)
             sql "alter table ${table1} modify column c1 bigint;"
             Thread.sleep(600)
 
@@ -109,7 +118,7 @@ suite("test_cloud_sc_wrong_pending_delete_bitmap", "p0,docker") {
             // the first load failed to remove its pending delete bitmap when commit_txn on MS
             inject_suite_to_ms(msHttpPort, "commit_txn_immediately::before_commit") {
                 respCode, body ->
-                    log.info("inject resource_manager::set_safe_drop_time resp: ${body} ${respCode}".toString()) 
+                    log.info("inject commit_txn_immediately::before_commit resp: ${body} ${respCode}".toString()) 
             }
             enable_ms_inject_api(msHttpPort) {
                 respCode, body -> log.info("enable inject resp: ${body} ${respCode}".toString()) 
@@ -137,19 +146,30 @@ suite("test_cloud_sc_wrong_pending_delete_bitmap", "p0,docker") {
 
             Thread.sleep(600)
             def t1 = Thread.start {
-                // wait util the schema change failed, then let the second load publish
-                Awaitility.await().atMost(20, TimeUnit.SECONDS).pollDelay(1000, TimeUnit.MILLISECONDS).pollInterval(1000, TimeUnit.MILLISECONDS).until(() -> {
-                    def res = sql_return_maparray """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
-                    logger.info("state: ${res.State}")
+                connect(user, password, url) {
+                    sql "insert into ${table1} values(2,888,888);"
+                }
+            }
+
+            Thread.sleep(400)
+
+            // wait util the schema change failed, then let the second load publish
+            Awaitility.await().atMost(20, TimeUnit.SECONDS).pollDelay(1000, TimeUnit.MILLISECONDS).pollInterval(1000, TimeUnit.MILLISECONDS).until(() -> {
+                connect(user, password, url) {
+                    def result1 = sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
+                    logger.info("result1: ${result1}")
+                    def result = sql_return_maparray """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
+                    logger.info("result1: ${result}")
+                    assertEquals(result.size(), 1)
+                    def res = result[0]
+                    logger.info("res: ${res}\nstate: ${res.State}")
                     if (res.State.equals("CANCELLED")) {
                         return true;
                     }
                     return false;
-                });
-                GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-            }
-            
-            sql "insert into ${table1} values(2,888,888);"
+                }
+            });
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
             
             t1.join()        
 
