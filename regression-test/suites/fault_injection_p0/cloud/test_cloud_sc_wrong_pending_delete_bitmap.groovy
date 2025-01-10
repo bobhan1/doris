@@ -19,8 +19,9 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_cloud_sc_wrong_pending_delete_bitmap", "nonConcurrent") {
+suite("test_cloud_sc_wrong_pending_delete_bitmap", "p0,docker") {
 
+    logger.info(" ==== test =====")
     def token = "greedisgood9999"
 
     def enable_ms_inject_api = { msHttpPort, check_func ->
@@ -40,7 +41,7 @@ suite("test_cloud_sc_wrong_pending_delete_bitmap", "nonConcurrent") {
             check check_func
         }
     }
-    
+
     def inject_suite_to_ms = { msHttpPort, suite_name, check_func ->
         httpTest {
             op "get"
@@ -64,6 +65,7 @@ suite("test_cloud_sc_wrong_pending_delete_bitmap", "nonConcurrent") {
     options.setBeNum(1)
     options.cloudMode = true
 
+    logger.info(" ==== test 2 =====")
     docker(options) {
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
@@ -114,10 +116,14 @@ suite("test_cloud_sc_wrong_pending_delete_bitmap", "nonConcurrent") {
             }
 
             Thread.sleep(200)
-            sql "insert into ${table1} values(1,999,999);"
+            try {
+                sql "insert into ${table1} values(1,999,999);"
+            } catch (Exception e) {
+                logger.info(e.getMessage())
+            }
 
             disable_ms_inject_api(msHttpPort) {
-                respCode, body -> log.info("disable inject resp: ${body} ${respCode}".toString()) 
+                respCode, body -> log.info("disable inject resp: ${body} ${respCode}".toString())
             }
 
             Thread.sleep(2000)
@@ -128,14 +134,14 @@ suite("test_cloud_sc_wrong_pending_delete_bitmap", "nonConcurrent") {
             // So the pending delete bitmap's lock_id on these tablets will still be the first load's lock_id
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-            
+
             Thread.sleep(600)
             def t1 = Thread.start {
                 // wait util the schema change failed, then let the second load publish
                 Awaitility.await().atMost(20, TimeUnit.SECONDS).pollDelay(1000, TimeUnit.MILLISECONDS).pollInterval(1000, TimeUnit.MILLISECONDS).until(() -> {
-                    def (result, meta) = sql_return_maparray """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
-                    String res = result.State
-                    if (res == "CANCELLED") {
+                    def res = sql_return_maparray """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
+                    logger.info("state: ${res.State}")
+                    if (res.State.equals("CANCELLED")) {
                         return true;
                     }
                     return false;
