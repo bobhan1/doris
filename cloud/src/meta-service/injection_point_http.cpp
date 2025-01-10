@@ -91,6 +91,16 @@ static void register_suites() {
             }
         });
     });
+    suite_map.emplace("commit_txn_immediately::before_commit", []() {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("commit_txn_immediately::before_commit", [&](auto&& args) {
+            TxnErrorCode* err = try_any_cast<TxnErrorCode*>(args[0]);
+            *err = TxnErrorCode::TXN_BYTES_TOO_LARGE;
+
+            MetaServiceCode* code = try_any_cast<MetaServiceCode*>(args[1]);
+            *code = cast_as<ErrCategory::COMMIT>(*err);
+        });
+    });
 }
 
 bool url_decode(const std::string& in, std::string* out) {
