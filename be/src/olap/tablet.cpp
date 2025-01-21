@@ -3319,11 +3319,11 @@ Status Tablet::generate_new_block_for_partial_update(
 
     std::map<uint32_t, uint32_t> read_index_old;
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,
-                                         old_block, &read_index_old));
+                                         old_block, &read_index_old, true));
 
     std::map<uint32_t, uint32_t> read_index_update;
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, update_cids, read_plan_update,
-                                         rsid_to_rowset, update_block, &read_index_update));
+                                         rsid_to_rowset, update_block, &read_index_update, false));
 
     const vectorized::Int8* delete_sign_column_data = nullptr;
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
@@ -3395,11 +3395,22 @@ Status Tablet::generate_new_block_for_partial_update(
 // read columns by read plan
 // read_index: ori_pos-> block_idx
 Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
-                                    const std::vector<uint32_t> cids_to_read,
+                                    std::vector<uint32_t> cids_to_read,
                                     const PartialUpdateReadPlan& read_plan,
                                     const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                     vectorized::Block& block,
-                                    std::map<uint32_t, uint32_t>* read_index) {
+                                    std::map<uint32_t, uint32_t>* read_index,
+                                    bool force_read_old_delete_signs) {
+    if (force_read_old_delete_signs) {
+        // always read delete sign column from historical data
+        if (const vectorized::ColumnWithTypeAndName* old_delete_sign_column =
+                    block.try_get_by_name(DELETE_SIGN);
+            old_delete_sign_column == nullptr) {
+            auto del_col_cid = tablet_schema->field_index(DELETE_SIGN);
+            cids_to_read.emplace_back(del_col_cid);
+            block.swap(tablet_schema->create_block_by_cids(cids_to_read));
+        }
+    }
     bool has_row_column = tablet_schema->store_row_column();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;
