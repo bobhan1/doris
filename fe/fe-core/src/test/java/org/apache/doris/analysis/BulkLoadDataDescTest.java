@@ -588,6 +588,81 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 .parseMultiple(loadTemplate.replace("PATTERN", path4)).isEmpty());
     }
 
+    private boolean parseAndGetIsPartialUpdate(String sql) throws Exception {
+        List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser().parseMultiple(sql);
+        Assertions.assertFalse(statements.isEmpty());
+        Assertions.assertTrue(statements.get(0).first instanceof LoadCommand);
+        List<LogicalPlan> plans = ((LoadCommand) statements.get(0).first).parseToInsertIntoPlan(connectContext);
+        Assertions.assertTrue(plans.get(0) instanceof UnboundTableSink);
+        return ((UnboundTableSink<?>) plans.get(0)).isPartialUpdate();
+    }
+
+    @Test
+    public void testParseLoadStmtIsPartialUpdate() throws Exception {
+        // full columns, no 'partial_update' property
+        String loadSql1 = "LOAD LABEL customer_label2( "
+                + "     DATA INFILE(\"s3://bucket/customer\") "
+                + "     INTO TABLE customer"
+                + "     COLUMNS TERMINATED BY \"|\""
+                + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment) "
+                + "  ) "
+                + "  WITH S3(  "
+                + "     \"s3.access_key\" = \"AK\", "
+                + "     \"s3.secret_key\" = \"SK\", "
+                + "     \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\",   "
+                + "     \"s3.region\" = \"ap-beijing\") "
+                + "PROPERTIES( \"exec_mem_limit\" = \"8589934592\") COMMENT \"test\";";
+        Assertions.assertEquals(false, parseAndGetIsPartialUpdate(loadSql1));
+
+
+        // part columns, no 'partial_update' property
+        String loadSql2 = "LOAD LABEL customer_label2( "
+                + "     DATA INFILE(\"s3://bucket/customer\") "
+                + "     INTO TABLE customer"
+                + "     COLUMNS TERMINATED BY \"|\""
+                + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_mktsegment, c_comment) "
+                + "  ) "
+                + "  WITH S3(  "
+                + "     \"s3.access_key\" = \"AK\", "
+                + "     \"s3.secret_key\" = \"SK\", "
+                + "     \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\",   "
+                + "     \"s3.region\" = \"ap-beijing\") "
+                + "PROPERTIES( \"exec_mem_limit\" = \"8589934592\") COMMENT \"test\";";
+        Assertions.assertEquals(false, parseAndGetIsPartialUpdate(loadSql1));
+
+
+        // part columns, set 'partial_update' property to false
+        String loadSql3 = "LOAD LABEL customer_label2( "
+                + "     DATA INFILE(\"s3://bucket/customer\") "
+                + "     INTO TABLE customer"
+                + "     COLUMNS TERMINATED BY \"|\""
+                + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_mktsegment, c_comment) "
+                + "  ) "
+                + "  WITH S3(  "
+                + "     \"s3.access_key\" = \"AK\", "
+                + "     \"s3.secret_key\" = \"SK\", "
+                + "     \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\",   "
+                + "     \"s3.region\" = \"ap-beijing\") "
+                + "PROPERTIES( \"exec_mem_limit\" = \"8589934592\", \"partial_columns\" = \"false\") COMMENT \"test\";";
+        Assertions.assertEquals(false, parseAndGetIsPartialUpdate(loadSql1));
+
+
+        // part columns, set 'partial_update' property to true
+        String loadSql4 = "LOAD LABEL customer_label2( "
+                + "     DATA INFILE(\"s3://bucket/customer\") "
+                + "     INTO TABLE customer"
+                + "     COLUMNS TERMINATED BY \"|\""
+                + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_mktsegment, c_comment) "
+                + "  ) "
+                + "  WITH S3(  "
+                + "     \"s3.access_key\" = \"AK\", "
+                + "     \"s3.secret_key\" = \"SK\", "
+                + "     \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\",   "
+                + "     \"s3.region\" = \"ap-beijing\") "
+                + "PROPERTIES( \"exec_mem_limit\" = \"8589934592\", \"partial_columns\" = \"true\") COMMENT \"test\";";
+        Assertions.assertEquals(true, parseAndGetIsPartialUpdate(loadSql1));
+    }
+
     @Test
     public void testParseLoadStmtMultiLocations() throws Exception {
         String loadMultiLocations = "LOAD LABEL customer_j23( "
