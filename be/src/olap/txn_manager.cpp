@@ -873,6 +873,34 @@ void TxnManager::get_partition_ids(const TTransactionId transaction_id,
     }
 }
 
+void TxnManager::check_txn_finish(TTransactionId transaction_id,
+                                  std::vector<TTransactionId> req_partition_ids) {
+    std::vector<TTransactionId> partition_ids;
+    get_partition_ids(transaction_id, &partition_ids);
+    if (std::set<TTransactionId> {req_partition_ids.begin(), req_partition_ids.end()} !=
+        std::set<TTransactionId> {partition_ids.begin(), partition_ids.end()}) {
+        LOG_WARNING(
+                "[xxx check fail] txn={}, req_partition_ids != partition_ids, "
+                "req_partition_ids={}, partition_ids={}",
+                transaction_id, fmt::join(req_partition_ids, ","), fmt::join(partition_ids, ","));
+    }
+
+    for (auto partition_id : req_partition_ids) {
+        std::map<TabletInfo, RowsetSharedPtr> tablet_infos;
+        get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
+        if (!tablet_infos.empty()) {
+            std::vector<int64_t> tablet_ids;
+            for (const auto& [_, rs] : tablet_infos) {
+                tablet_ids.emplace_back(rs->rowset_meta()->tablet_id());
+            }
+            LOG_WARNING(
+                    "[xxx check fail] txn={}, partition_id={}, txn_tablet_map not empty, "
+                    "remain={}, tablet_ids=[{}]",
+                    transaction_id, partition_id, tablet_infos.size(), fmt::join(tablet_ids, ","));
+        }
+    }
+}
+
 void TxnManager::_insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id) {
     txn_partition_map_t& txn_partition_map = _get_txn_partition_map(transaction_id);
     auto find = txn_partition_map.find(transaction_id);
