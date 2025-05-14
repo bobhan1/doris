@@ -111,7 +111,7 @@ public class OlapTableSink extends DataSink {
     // partial update input columns
     private TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
     private HashSet<String> partialUpdateInputColumns;
-    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     // set after init called
     protected TDataSink tDataSink;

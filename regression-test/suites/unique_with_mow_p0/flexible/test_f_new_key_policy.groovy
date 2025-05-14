@@ -82,7 +82,7 @@ suite("test_f_new_key_policy", "p0") {
                       {"k":4,"c2":888}
                       {"k":20,"c1":888,"c3":7777}
                       {"k":22,"c2":888,"c3":7777}"""
-    // 2.2 partial_update_new_key_policy will not take effect when enable_unique_key_partial_update is false
+    // 2.2 partial_update_new_key_policy will not take effect when it's not a partial update
     streamLoad {
         table "${tableName}"
         set 'format', 'json'
@@ -90,11 +90,6 @@ suite("test_f_new_key_policy", "p0") {
         set 'partial_update_new_key_policy', 'error'
         inputStream new ByteArrayInputStream(load3.getBytes())
         time 10000
-        check {result, exception, startTime, endTime ->
-            assertTrue(exception == null)
-            def json = parseJson(result)
-            assertEquals("Fail", json.Status)
-            assertTrue(json.Message.toString().contains("[INVALID_ARGUMENT]partial_update_new_key_policy can only be set when the load is (flexible) partial update."))
-        }
     }
+    qt_stream_ignore_property """select * from ${tableName} order by k;"""
 }
