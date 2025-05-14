@@ -191,7 +191,7 @@ suite("test_partial_update_new_key_policy", "p0") {
         "partial_update_new_key_policy" = "ERROR"
     );
     """
-    waitForBrokerLoadDone(label)
+    waitForBrokerLoadDone(label, 600)
     res = sql_return_maparray """show load where label="$label";"""
     assert res[0].State == "CANCELLED" && res[0].ErrorMsg.contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_policy is ERROR. Row with key=[13] is not in table.")
     qt_broker_load_error """select * from ${tableName} order by k;"""
@@ -249,7 +249,7 @@ suite("test_partial_update_new_key_policy", "p0") {
     sql """insert into ${tableName} select number,number,number,number from numbers("number"="5");"""
     sql " insert into ${tableName}(k,c1) values(0,20),(1,20),(10,20),(11,20);"
     sql "insert into ${tableName}(k,c2) values(0,30),(2,30),(10,30),(12,30);"
-    qt_sql """select * from ${tableName} order by k;"""
+    qt_sql """select * from ${tableName} order by k,c1,c2,c3;"""
 
     tableName = "test_partial_update_new_key_policy4"
     sql """ DROP TABLE IF EXISTS ${tableName} force"""
