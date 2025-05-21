@@ -142,10 +142,10 @@ struct VOlapTablePartition {
 class VOlapTablePartKeyComparator {
 public:
     VOlapTablePartKeyComparator(const std::vector<uint16_t>& slot_locs) : _slot_locs(slot_locs) {}
-
+    virtual ~VOlapTablePartKeyComparator() = default;
     // return true if lhs < rhs
     // 'row' is -1 mean
-    bool operator()(const BlockRow* lhs, const BlockRow* rhs) const {
+    virtual bool operator()(const BlockRow* lhs, const BlockRow* rhs) const {
         if (lhs->second == -1) {
             return false;
         } else if (rhs->second == -1) {
@@ -165,6 +165,50 @@ public:
 
 private:
     const std::vector<uint16_t>& _slot_locs;
+};
+
+static inline std::string dump(const BlockRow& block_row) {
+    return block_row.first->dump_one_line(block_row.second, block_row.first->columns());
+}
+
+class MyVOlapTablePartKeyComparator : public VOlapTablePartKeyComparator {
+public:
+    MyVOlapTablePartKeyComparator(const std::vector<uint16_t>& slot_locs,
+                                  const std::vector<uint16_t>& slot_locs_left,
+                                  const std::vector<uint16_t>& slot_locs_right)
+            : VOlapTablePartKeyComparator(slot_locs),
+              _slot_locs_left(slot_locs_left),
+              _slot_locs_right(slot_locs_right) {}
+
+    // return true if lhs < rhs
+    // 'row' is -1 mean
+    virtual bool operator()(const BlockRow* lhs, const BlockRow* rhs) const override {
+        LOG_INFO("[xxx] MyVOlapTablePartKeyComparator, left:\n{}, right:\n{}", dump(*lhs),
+                 dump(*rhs));
+        if (lhs->second == -1) {
+            return false;
+        } else if (rhs->second == -1) {
+            return true;
+        }
+
+        for (size_t i = 0; i < _slot_locs_left.size(); i++) {
+            auto res =
+                    lhs->first->get_by_position(_slot_locs_left[i])
+                            .column->compare_at(
+                                    lhs->second, rhs->second,
+                                    *rhs->first->get_by_position(_slot_locs_right[i]).column, -1);
+            if (res != 0) {
+                return res < 0;
+            }
+        }
+
+        // equal, return false
+        return false;
+    }
+
+private:
+    std::vector<uint16_t> _slot_locs_left;
+    std::vector<uint16_t> _slot_locs_right;
 };
 
 // store an olap table's tablet information

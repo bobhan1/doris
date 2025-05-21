@@ -94,6 +94,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/simple_function_factory.h"
 
 namespace doris {
 class TExpr;
@@ -961,6 +962,9 @@ VOlapTableSink::~VOlapTableSink() {
 Status VOlapTableSink::init(const TDataSink& t_sink) {
     DCHECK(t_sink.__isset.olap_table_sink);
     auto& table_sink = t_sink.olap_table_sink;
+    if (table_sink.__isset.flag) {
+        test_flag = true;
+    }
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
     _txn_id = table_sink.txn_id;
@@ -1223,6 +1227,9 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
         ss << "num_buckets must be greater than 0, num_buckets=" << (*partition)->num_buckets;
         return Status::InternalError(ss.str());
     }
+    LOG_INFO("[xxx] block row: {}, in partition: start_key:{}, end_key: {}\n", dump(block_row),
+             dump((*partition)->start_key), dump((*partition)->end_key));
+
     _partition_ids.emplace((*partition)->id);
     if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
         if (_partition_to_tablet_map.find((*partition)->id) == _partition_to_tablet_map.end()) {
@@ -1311,6 +1318,49 @@ Status VOlapTableSink::_single_partition_generate(RuntimeState* state, vectorize
     return Status::OK();
 }
 
+static void calc_partition_expr(vectorized::Block& inblock, size_t rows) {
+    LOG_INFO("[xxx before calc_partition_expr] inblock:\n{}\n", inblock.dump_data());
+    using namespace vectorized;
+    vectorized::Block block;
+    block.insert(inblock.get_by_position(0));
+
+    LOG_INFO("[xxx before calc_partition_expr] block:\n{}\n", block.dump_data());
+
+    auto return_type = make_nullable(std::make_shared<DataTypeString>());
+    auto func = SimpleFunctionFactory::instance().get_function(
+            "from_unixtime", block.get_columns_with_type_and_name(), return_type);
+    DCHECK(func != nullptr);
+
+    auto arg_type = std::make_shared<DataTypeInt64>();
+
+    doris::TypeDescriptor fn_ctx_return;
+    fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
+
+    ColumnNumbers arguments;
+    std::vector<doris::TypeDescriptor> arg_types;
+    arguments.push_back(0);
+    arg_types.push_back(doris::TypeDescriptor(PrimitiveType::TYPE_BIGINT));
+    RuntimeState* state = RuntimeState::create_unique().release();
+    std::unique_ptr<doris::FunctionContext> fn_ctx =
+            FunctionContext::create_context(state, fn_ctx_return, arg_types);
+
+    func->open(fn_ctx.get(), FunctionContext::FRAGMENT_LOCAL);
+    func->open(fn_ctx.get(), FunctionContext::THREAD_LOCAL);
+
+    block.insert({nullptr, return_type, "result"});
+
+    auto result = block.columns() - 1;
+    auto st = func->execute(fn_ctx.get(), block, arguments, result, rows);
+
+    func->close(fn_ctx.get(), FunctionContext::THREAD_LOCAL);
+    func->close(fn_ctx.get(), FunctionContext::FRAGMENT_LOCAL);
+
+    LOG_INFO("[xxx after calc_partition_expr] block:\n{}\n", block.dump_data());
+
+    inblock.insert(block.get_by_position(1));
+    LOG_INFO("[xxx after calc_partition_expr] inblock:\n{}\n", inblock.dump_data());
+}
+
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
@@ -1373,6 +1423,9 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         RETURN_IF_ERROR(_single_partition_generate(state, &block, channel_to_payload, num_rows,
                                                    filtered_rows));
     } else {
+        if (test_flag) {
+            calc_partition_expr(block, rows);
+        }
         for (int i = 0; i < num_rows; ++i) {
             if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap[i]) {
                 continue;
@@ -1388,6 +1441,10 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
             }
             // each row
             _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
+        }
+        if (test_flag) {
+            block.erase(block.columns() - 1);
+            LOG_INFO("[xxx] after erase result block:\n{}\n", block.dump_data());
         }
     }
     _row_distribution_watch.stop();

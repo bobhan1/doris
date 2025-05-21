@@ -199,6 +199,9 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setWriteSingleReplica(singleReplicaLoad);
         tSink.setNodesInfo(createPaloNodesInfo());
+        if (dstTable.getName().equals("test1")) {
+            tSink.setFlag(true);
+        }
     }
 
     @Override
@@ -312,6 +315,9 @@ public class OlapTableSink extends DataSink {
         partitionParam.setDbId(dbId);
         partitionParam.setTableId(table.getId());
         partitionParam.setVersion(0);
+        if (table.getName().equals("test1")) {
+            partitionParam.setFlag(true);
+        }
 
         PartitionType partType = table.getPartitionInfo().getType();
         switch (partType) {

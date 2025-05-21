@@ -275,6 +275,16 @@ Status VOlapTablePartitionParam::init() {
     _partitions_map.reset(
             new std::map<BlockRow*, VOlapTablePartition*, VOlapTablePartKeyComparator>(
                     VOlapTablePartKeyComparator(_partition_slot_locs)));
+    if (_t_param.__isset.flag) {
+        LOG_INFO("[xxx] _t_param.__isset.flag");
+        _partitions_map.reset(
+                new std::map<BlockRow*, VOlapTablePartition*, VOlapTablePartKeyComparator>(
+                        MyVOlapTablePartKeyComparator(
+                                _partition_slot_locs, std::vector<uint16_t> {0},
+                                std::vector<uint16_t> {
+                                        static_cast<uint16_t>(slot_column_names.size())})));
+    }
+
     if (_t_param.__isset.distributed_columns) {
         for (auto& col : _t_param.distributed_columns) {
             RETURN_IF_ERROR(find_slot_locs(col, _distributed_slot_locs, "distributed"));
@@ -375,6 +385,10 @@ Status VOlapTablePartitionParam::init() {
         } else {
             _partitions_map->emplace(&part->end_key, part);
         }
+    }
+    if (_t_param.__isset.flag) {
+        _partition_slot_locs =
+                std::vector<uint16_t> {static_cast<uint16_t>(slot_column_names.size())};
     }
 
     _mem_usage = _partition_block.allocated_bytes();

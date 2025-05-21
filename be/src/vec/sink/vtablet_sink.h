@@ -675,6 +675,8 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     RuntimeState* _state = nullptr;
+
+    bool test_flag = false;
 };
 
 } // namespace stream_load
