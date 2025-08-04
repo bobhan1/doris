@@ -70,6 +70,17 @@ bvar::LatencyRecorder g_base_compaction_get_delete_bitmap_lock_time_ms(
 bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
 bvar::Adder<int64_t> g_unused_rowsets_bytes("unused_rowsets_bytes");
 
+bvar::Adder<int64_t> g_capture_with_freshness_tolerance_count(
+        "capture_with_freshness_tolerance_count");
+bvar::Adder<int64_t> g_capture_with_freshness_tolerance_fallback_count(
+        "capture_with_freshness_tolerance_fallback_count");
+bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_count_window(
+        "capture_with_freshness_tolerance_count_window", &g_capture_with_freshness_tolerance_count,
+        30);
+bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_fallback_count_window(
+        "capture_with_freshness_tolerance_fallback_count_window",
+        &g_capture_with_freshness_tolerance_fallback_count, 30);
+
 static constexpr int LOAD_INITIATOR_ID = -1;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
@@ -133,6 +144,7 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
 Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
         bool skip_missing_version, int64_t query_freshness_tolerance_ms) {
+    g_capture_with_freshness_tolerance_count << 1;
     using namespace std::chrono;
     auto freshness_limit_tp = system_clock::now() - milliseconds(query_freshness_tolerance_ms);
     auto startup_timepoint = _engine.startup_timepoint();
@@ -187,6 +199,7 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
                            std::ranges::any_of(_tablet_meta->all_stale_rs_metas(),
                                                should_be_visible_but_not_warmed_up);
     if (should_fallback) {
+        g_capture_with_freshness_tolerance_fallback_count << 1;
         // if there exists a rowset which satisfies freshness tolerance and has not been warmuped up
         // yet, fallback to capture rowsets as usual
         return capture_rs_readers(spec_version, rs_splits, skip_missing_version);
