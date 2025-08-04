@@ -426,6 +426,11 @@ public:
         return _query_options.query_freshness_tolerance_ms;
     }
 
+    bool enable_query_freshness_tolerance() const {
+        return _query_options.__isset.enable_query_freshness_tolerance &&
+               _query_options.enable_query_freshness_tolerance;
+    }
+
     std::vector<TTabletCommitInfo> tablet_commit_infos() const {
         std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         return _tablet_commit_infos;
