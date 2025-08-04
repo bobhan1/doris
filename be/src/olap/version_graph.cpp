@@ -25,6 +25,7 @@
 #include <chrono> // IWYU pragma: keep
 #include <list>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <utility>
 
@@ -710,7 +711,8 @@ Status VersionGraph::capture_newest_consistent_versions_with_validator(
                                             start);
     }
 
-    while (true) {
+    std::optional<int64_t> end_value;
+    while (!end_value.has_value() || _version_graph[cur_idx].value < end_value.value()) {
         int64_t next_idx = -1;
         for (const auto& it : _version_graph[cur_idx].edges) {
             // Only consider incremental versions.
@@ -719,7 +721,15 @@ Status VersionGraph::capture_newest_consistent_versions_with_validator(
             }
 
             if (!validator(_version_graph[cur_idx].value, _version_graph[it].value - 1)) {
-                break;
+                if (_version_graph[cur_idx].value + 1 == _version_graph[it].value) {
+                    break;
+                }
+                if (!end_value.has_value() || _version_graph[it].value < end_value.value()) {
+                    // when encounter a compaction's output rowset which is not valid, try to find a version path
+                    // with smaller max version
+                    end_value = _version_graph[it].value;
+                }
+                continue;
             }
 
             next_idx = it;

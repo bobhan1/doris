@@ -173,15 +173,19 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
                 0, version_path, rowset_is_warmed_up));
     }
     int64_t path_max_version = version_path.back().second;
-    bool should_fallback =
-            std::ranges::any_of(_tablet_meta->all_rs_metas(), [&](const auto& rs_meta) -> bool {
-                if (rs_meta->version() == Version {0, 1}) {
-                    // skip rowset[0-1]
-                    return false;
-                }
-                return rs_meta->start_version() > path_max_version &&
-                       rs_meta->visible_timestamp() < freshness_limit_tp;
-            });
+    auto should_be_visible_but_not_warmed_up = [&](const auto& rs_meta) -> bool {
+        if (rs_meta->version() == Version {0, 1}) {
+            // skip rowset[0-1]
+            return false;
+        }
+        return rs_meta->start_version() > path_max_version &&
+               rs_meta->visible_timestamp() < freshness_limit_tp;
+    };
+    // use std::views::concat after C++26
+    bool should_fallback = std::ranges::any_of(_tablet_meta->all_rs_metas(),
+                                               should_be_visible_but_not_warmed_up) ||
+                           std::ranges::any_of(_tablet_meta->all_stale_rs_metas(),
+                                               should_be_visible_but_not_warmed_up);
     if (should_fallback) {
         // if there exists a rowset which satisfies freshness tolerance and has not been warmuped up
         // yet, fallback to capture rowsets as usual
