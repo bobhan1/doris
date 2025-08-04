@@ -67,13 +67,6 @@ public:
             int64_t start, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
-    // Given a start, this method can find a version path which satisfy the following conditions:
-    // 1. all edges are not covered by another edges
-    // 2. all edges satisfy the conditions specified by `validator` in the graph.
-    // 3. the destination version is as far as possible.
-    // 4. the path is the shortest path.
-    // The version paths are added to version_path as return info.
-    // If this version not in main version, version_path can be included expired rowset.
     Status capture_newest_consistent_versions_with_validator(
             int64_t start, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
@@ -202,13 +195,6 @@ public:
             int64_t start, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
-    // Given a start, this method can find a version path which satisfy the following conditions:
-    // 1. all edges are not covered by another edges
-    // 2. all edges satisfy the conditions specified by `validator` in the graph.
-    // 3. the destination version is as far as possible.
-    // 4. the path is the shortest path.
-    // The version paths are added to version_path as return info.
-    // If this version not in main version, version_path can be included expired rowset.
     Status capture_newest_consistent_versions_with_validator(
             int64_t start, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;

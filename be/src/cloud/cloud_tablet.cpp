@@ -200,8 +200,8 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
                                                should_be_visible_but_not_warmed_up);
     if (should_fallback) {
         g_capture_with_freshness_tolerance_fallback_count << 1;
-        // if there exists a rowset which satisfies freshness tolerance and has not been warmuped up
-        // yet, fallback to capture rowsets as usual
+        // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
+        // but has not been warmuped up yet, fallback to capture rowsets as usual
         return capture_rs_readers(spec_version, rs_splits, skip_missing_version);
     }
 
