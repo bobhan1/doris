@@ -318,6 +318,8 @@ public:
 
     std::vector<std::string> get_index_file_names();
 
+    std::chrono::time_point<std::chrono::system_clock> visible_timestamp() const;
+
 protected:
     friend class RowsetFactory;
 
@@ -358,8 +360,6 @@ protected:
 
     // <column_uniq_id>, skip index compaction
     std::set<int32_t> skip_index_compaction;
-
-    bool _is_warmed_up {false};
 };
 
 // `rs_metas` MUST already be sorted by `RowsetMeta::comparator`

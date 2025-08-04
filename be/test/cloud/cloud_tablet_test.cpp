@@ -48,21 +48,29 @@ public:
     }
     void TearDown() override {}
 
-    RowsetSharedPtr create_rowset(Version version,
-                                  time_point<system_clock> visible_timestamp = system_clock::now() -
-                                                                               seconds(100)) {
+    RowsetSharedPtr create_rowset_without_visible_time(Version version) {
         auto rs_meta = std::make_shared<RowsetMeta>();
         rs_meta->set_rowset_type(BETA_ROWSET);
         rs_meta->set_version(version);
         rs_meta->set_rowset_id(_engine.next_rowset_id());
-        rs_meta->set_visible_time_ms(
-                duration_cast<milliseconds>(visible_timestamp.time_since_epoch()).count());
         RowsetSharedPtr rowset;
         Status st = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
         if (!st.ok()) {
             return nullptr;
         }
         return rowset;
+    }
+
+    RowsetSharedPtr create_rowset(Version version,
+                                  time_point<system_clock> visible_timestamp = system_clock::now() -
+                                                                               seconds(100)) {
+        auto rs = create_rowset_without_visible_time(version);
+        if (!rs) {
+            return nullptr;
+        }
+        rs->rowset_meta()->set_visible_time_ms(
+                duration_cast<milliseconds>(visible_timestamp.time_since_epoch()).count());
+        return rs;
     }
 
     CloudTabletSPtr create_tablet_with_initial_rowsets(int max_version, bool is_mow = false) {
@@ -152,7 +160,32 @@ private:
     CloudStorageEngine _engine;
 };
 
-TEST_F(TestFreshnessTolerance, testCaputure_1) {
+TEST_F(TestFreshnessTolerance, testVisibleTimestamp) {
+    {
+        // for historical rowset, visible time is not set, RowsetMeta::visible_timestamp() uses
+        // newest_write_timestamp
+        auto tp1 = system_clock::now() - seconds(100);
+        auto rs = create_rowset_without_visible_time({2, 2});
+        auto d = duration_cast<seconds>(tp1.time_since_epoch()).count();
+        rs->rowset_meta()->set_newest_write_timestamp(d);
+        ASSERT_EQ(rs->rowset_meta()->visible_timestamp(), system_clock::from_time_t(d));
+    }
+
+    {
+        // when visible_time_ms is set, RowsetMeta::visible_timestamp() uses visible_time_ms which is more precise
+        auto tp1 = system_clock::now() - seconds(100);
+        auto tp2 = system_clock::now() - seconds(50);
+        auto rs = create_rowset_without_visible_time({2, 2});
+        auto d1 = duration_cast<seconds>(tp1.time_since_epoch()).count();
+        auto d2 = duration_cast<milliseconds>(tp2.time_since_epoch()).count();
+        rs->rowset_meta()->set_newest_write_timestamp(d1);
+        rs->rowset_meta()->set_visible_time_ms(d2);
+        ASSERT_EQ(rs->rowset_meta()->visible_timestamp(),
+                  time_point<system_clock>(milliseconds(d2)));
+    }
+}
+
+TEST_F(TestFreshnessTolerance, testCapture_1_1) {
     /*
                                    now-10s                     now
                                                                   
@@ -169,6 +202,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_1) {
                                     │                           │ 
  return: [2-10],[11-15],[16-16]
 */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -185,7 +219,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_1) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputure_2) {
+TEST_F(TestFreshnessTolerance, testCapture_1_2) {
     /*
                                    now-10s                     now
                                                                   
@@ -205,6 +239,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_2) {
        However, since the data files of rowset[16-16] is not in the cache, there is no difference between
        capturing up to version 16 and capturing up to version 18
 */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -222,7 +257,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_2) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputure_3) {
+TEST_F(TestFreshnessTolerance, testCapture_1_3) {
     /*
                                    now-10s                     now
                                                                   
@@ -239,6 +274,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_3) {
                                     │                           │ 
  return: [2-10],[11-15],[16-16],[17-17]
 */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -255,7 +291,42 @@ TEST_F(TestFreshnessTolerance, testCaputure_3) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputure_4) {
+TEST_F(TestFreshnessTolerance, testCapture_1_4) {
+    // TODO: fix figure
+    /*
+                                   now-10s                     now
+                                                                  
+                                    │           10s             │ 
+                                    ◄───────────────────────────┤ 
+┌────────┐  ┌─────────┐  ┌─────────┐│  ┌────────┐   ┌───────┐   │ 
+│        │  │ in cache│  │in cache ││  │in cache│   │       │   │ 
+│        │  │         │  │         ││  │        │   │       │   │ 
+│ [2-10] │  │ [11-15] │  │ [16-16] ││  │ [17-17]│   │[18-18]│   │ 
+└────────┘  └─────────┘  └─────────┘│  └────────┘   └───────┘   │ 
+                                    │                           │ 
+ now-40s      now-20s      now-15s  │   now-7s        now-3s    │ 
+                                    │                           │ 
+                                    │                           │ 
+ return: [2-10],[11-15],[16-16],[17-17]
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(30));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, false, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 15}, {16, 16}, {17, 17}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCapture_2_1) {
     /*
                                         now-10s                    now     
                                            │          10s           │      
@@ -283,6 +354,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_4) {
                                                                            
  return: [2-10],[11-15],[16-16]                                                                     
  */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -300,7 +372,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_4) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputure_5) {
+TEST_F(TestFreshnessTolerance, testCapture_2_2) {
     /*
                                         now-10s                    now     
                                            │          10s           │      
@@ -328,6 +400,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_5) {
                                                                            
  return: [2-10],[11-15],[16-16],[17-17]                                                                 
  */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -345,7 +418,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_5) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputure_6) {
+TEST_F(TestFreshnessTolerance, testCapture_2_3) {
     /*
                                         now-10s                    now     
                                            │          10s           │      
@@ -354,7 +427,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_6) {
     ┌────────┐                             │┌────────┐    ┌────────┐│      
     │in cache│                             ││        │    │        ││      
     │        │                             ││        │    │in cache││      
-    │ [2-10] │                             ││ [17-17]│    │[18-18] ││      
+    │ [2-10] │                             ││ [11-17]│    │[18-18] ││      
     └────────┘                             │└────────┘    └────────┘│      
                                            │                        │      
      now-40s                               │ now-1s         now-3s  │      
@@ -372,6 +445,7 @@ TEST_F(TestFreshnessTolerance, testCaputure_6) {
                                            │                        │      
  return: [2-10],[11-15],[16-16],[17-17],[18-18]                                                                     
  */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -390,7 +464,29 @@ TEST_F(TestFreshnessTolerance, testCaputure_6) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputureMow_1) {
+TEST_F(TestFreshnessTolerance, testCapture_2_4) {
+    // TODO: fix figure
+    /**/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, true, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 2, 16, false, system_clock::now() - seconds(13));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCaptureMow_1_1) {
     /*
                                    now-10s                     now
                                                                   
@@ -407,6 +503,7 @@ TEST_F(TestFreshnessTolerance, testCaputureMow_1) {
                                     │                           │ 
  return: [2-10],[11-15],[16-16]
 */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15, true);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -423,7 +520,7 @@ TEST_F(TestFreshnessTolerance, testCaputureMow_1) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputureMow_2) {
+TEST_F(TestFreshnessTolerance, testCaptureMow_1_2) {
     /*
                                    now-10s                     now
                                                                   
@@ -443,6 +540,7 @@ TEST_F(TestFreshnessTolerance, testCaputureMow_2) {
        However, since the data files of rowset[16-16] is not in the cache, there is no difference between
        capturing up to version 16 and capturing up to version 18
 */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15, true);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -460,7 +558,7 @@ TEST_F(TestFreshnessTolerance, testCaputureMow_2) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputureMow_3) {
+TEST_F(TestFreshnessTolerance, testCaptureMow_1_3) {
     /*
                                    now-10s                     now
                                                                   
@@ -477,6 +575,7 @@ TEST_F(TestFreshnessTolerance, testCaputureMow_3) {
                                     │                           │ 
  return: [2-10],[11-15],[16-16],[17-17]
 */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15, true);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -493,7 +592,42 @@ TEST_F(TestFreshnessTolerance, testCaputureMow_3) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputureMow_4) {
+TEST_F(TestFreshnessTolerance, testCaptureMow_1_4) {
+    // TODO: fix figure
+    /*
+                                   now-10s                     now
+                                                                  
+                                    │           10s             │ 
+                                    ◄───────────────────────────┤ 
+┌────────┐  ┌─────────┐  ┌─────────┐│  ┌────────┐   ┌───────┐   │ 
+│        │  │ in cache│  │in cache ││  │in cache│   │       │   │ 
+│        │  │         │  │         ││  │        │   │       │   │ 
+│ [2-10] │  │ [11-15] │  │ [16-16] ││  │ [17-17]│   │[18-18]│   │ 
+└────────┘  └─────────┘  └─────────┘│  └────────┘   └───────┘   │ 
+                                    │                           │ 
+ now-40s      now-20s      now-15s  │   now-7s        now-3s    │ 
+                                    │                           │ 
+                                    │                           │ 
+ return: [2-10],[11-15],[16-16],[17-17]
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(30));
+    auto tablet = create_tablet_with_initial_rowsets(15, true);
+    do_cumu_compaction(tablet, 2, 10, false, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 15}, {16, 16}, {17, 17}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCaptureMow_2_1) {
     /*
                                         now-10s                    now     
                                            │          10s           │      
@@ -521,6 +655,7 @@ TEST_F(TestFreshnessTolerance, testCaputureMow_4) {
                                                                            
  return: [2-10],[11-15],[16-16]                                                                     
  */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15, true);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
@@ -538,7 +673,7 @@ TEST_F(TestFreshnessTolerance, testCaputureMow_4) {
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
 
-TEST_F(TestFreshnessTolerance, testCaputureMow_5) {
+TEST_F(TestFreshnessTolerance, testCaptureMow_2_2) {
     /*
                                         now-10s                    now     
                                            │          10s           │      
@@ -564,14 +699,60 @@ TEST_F(TestFreshnessTolerance, testCaputureMow_5) {
 └───────────────────────────────────────────────────────────────────────┘  
                                            │                        │      
                                                                            
- return: [2-10],[11-15],[16-16],[17-17]                                                                 
+ return: [2-10],[11-15],[16-16],[17-17]                                                             
  */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
     auto tablet = create_tablet_with_initial_rowsets(15, true);
     do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
     do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
     add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
     add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
     add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 11, 17, false, system_clock::now() - seconds(1));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 15}, {16, 16}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCaptureMow_2_3) {
+    /*
+                                        now-10s                    now     
+                                           │          10s           │      
+                                           ◄────────────────────────┼      
+                                           │                        │      
+    ┌────────┐                             │┌────────┐    ┌────────┐│      
+    │in cache│                             ││        │    │        ││      
+    │        │                             ││        │    │in cache││      
+    │ [2-10] │                             ││ [11-17]│    │[18-18] ││      
+    └────────┘                             │└────────┘    └────────┘│      
+                                           │                        │      
+     now-40s                               │ now-1s         now-3s  │      
+┌───────────────────────────────────────────────────────────────────────┐  
+│                                          │                        │   │  
+│  stale rowsets                           │                        │   │  
+│                 ┌─────────┐  ┌─────────┐ │┌────────┐              │   │  
+│                 │ in cache│  │in cache │ ││in cache│              │   │  
+│                 │         │  │         │ ││        │              │   │  
+│                 │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │  
+│                 └─────────┘  └─────────┘ │└────────┘              │   │  
+│                                          │                        │   │  
+│                   now-20s      now-15s   │ now-7s                 │   │  
+└───────────────────────────────────────────────────────────────────────┘  
+                                           │                        │      
+ return: [2-10],[11-15],[16-16],[17-17]                                                              
+ */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15, true);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, true, system_clock::now() - seconds(3));
     do_cumu_compaction(tablet, 11, 17, false, system_clock::now() - seconds(1));
 
     std::string compaction_status;
