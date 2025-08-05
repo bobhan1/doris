@@ -398,7 +398,6 @@ struct TQueryOptions {
   166: optional bool enable_strict_cast = false
 
   167: optional i64 query_freshness_tolerance_ms
-  168: optional bool enable_query_freshness_tolerance
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
