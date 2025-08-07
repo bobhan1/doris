@@ -132,7 +132,8 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
     init_profile(label);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
-    _rowid_conversion = std::make_unique<RowIdConversion>();
+    _rowid_conversion =
+            std::make_unique<RowIdConversion>(_tablet->tablet_id(), _tablet->tablet_path());
 }
 
 Compaction::~Compaction() {
