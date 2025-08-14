@@ -198,6 +198,26 @@ Status DeleteBitmapAction::_handle_show_ms_delete_bitmap_count(HttpRequest* req,
     return Status::OK();
 }
 
+Status DeleteBitmapAction::_handle_show_agg_cache_delete_bitmap_count(HttpRequest* req,
+                                                               std::string* json_result) {
+    uint64_t tablet_id = 0;
+    bool verbose = false;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &verbose), "check param failed");
+
+    BaseTabletSPtr tablet = nullptr;
+    if (config::is_cloud_mode()) {
+        tablet = DORIS_TRY(_engine.to_cloud().tablet_mgr().get_tablet(tablet_id));
+    } else {
+        tablet = _engine.to_local().tablet_manager()->get_tablet(tablet_id);
+    }
+    if (tablet == nullptr) {
+        return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
+    }
+    auto dm = tablet->tablet_meta()->delete_bitmap().snapshot();
+    _show_delete_bitmap(dm, verbose, json_result);
+    return Status::OK();
+}
+
 void DeleteBitmapAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
     if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_LOCAL) {
@@ -211,6 +231,14 @@ void DeleteBitmapAction::handle(HttpRequest* req) {
     } else if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_MS) {
         std::string json_result;
         Status st = _handle_show_ms_delete_bitmap_count(req, &json_result);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
+        } else {
+            HttpChannel::send_reply(req, HttpStatus::OK, json_result);
+        }
+    } else if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_AGG_CACHE) {
+        std::string json_result;
+        Status st = _handle_show_agg_cache_delete_bitmap_count(req, &json_result);
         if (!st.ok()) {
             HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
         } else {
