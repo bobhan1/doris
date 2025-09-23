@@ -177,6 +177,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 Long tableTotalReplicaDataSize = 0L;
                 Long tableTotalLocalIndexSize = 0L;
                 Long tableTotalLocalSegmentSize = 0L;
+                Long tableTotalLocalCommonIndexSize = 0L;
 
                 Long tableReplicaCount = 0L;
 
@@ -204,6 +205,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 long tabletRowCount = 0L;
                                 long tabletIndexSize = 0L;
                                 long tabletSegmentSize = 0L;
+                                long tabletCommonIndexSize = 0L;
 
                                 for (Replica replica : tablet.getReplicas()) {
                                     if (replica.getDataSize() > tabletDataSize) {
@@ -229,6 +231,9 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                     if (replica.getLocalSegmentSize() > tabletSegmentSize) {
                                         tabletSegmentSize = replica.getLocalSegmentSize();
                                     }
+                                    if (replica.getLocalCommonIndexSize() > tabletCommonIndexSize) {
+                                        tabletCommonIndexSize = replica.getLocalCommonIndexSize();
+                                    }
 
                                     tableReplicaCount++;
                                 }
@@ -249,6 +254,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 tableSegmentCount += tabletSegmentCount;
                                 tableTotalLocalIndexSize += tabletIndexSize;
                                 tableTotalLocalSegmentSize += tabletSegmentSize;
+                                tableTotalLocalCommonIndexSize += tabletCommonIndexSize;
                             } // end for tablets
                             index.setRowCountReported(true);
                             index.setRowCount(indexRowCount);
@@ -271,7 +277,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(),
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
                             tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount,
-                            tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L));
+                            tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L,
+                            tableTotalLocalCommonIndexSize, 0L));
                     LOG.debug("finished to set row num for table: {} in database: {}",
                              table.getName(), db.getFullName());
                 } finally {
@@ -280,7 +287,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 totalTableSize += tableDataSize;
                 newCloudTableStatsMap.put(Pair.of(dbId, table.getId()), new OlapTable.Statistics(db.getName(),
                         table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
-                        tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount, 0L, 0L, 0L, 0L));
+                        tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount,
+                        0L, 0L, 0L, 0L, 0L, 0L));
             }
         }
         this.cloudTableStatsMap = newCloudTableStatsMap;

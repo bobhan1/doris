@@ -3493,6 +3493,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         @Getter
         private Long remoteSegmentSize;        // single replica
 
+        @Getter
+        private Long localCommonIndexSize;     // multi replicas
+
+        @Getter
+        private Long remoteCommonIndexSize;    // single replica
+
         public Statistics() {
             this.dbName = null;
             this.tableName = null;
@@ -3511,6 +3517,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.localSegmentSize = 0L;
             this.remoteInvertedIndexSize = 0L;
             this.remoteSegmentSize = 0L;
+            this.localCommonIndexSize = 0L;
+            this.remoteCommonIndexSize = 0L;
         }
 
         public Statistics(String dbName, String tableName,
@@ -3518,7 +3526,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 Long remoteDataSize, Long replicaCount, Long rowCount,
                 Long rowsetCount, Long segmentCount,
                 Long localInvertedIndexSize, Long localSegmentSize,
-                Long remoteInvertedIndexSize, Long remoteSegmentSize) {
+                Long remoteInvertedIndexSize, Long remoteSegmentSize,
+                Long localCommonIndexSize, Long remoteCommonIndexSize) {
 
             this.dbName = dbName;
             this.tableName = tableName;
@@ -3538,6 +3547,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.localSegmentSize = localSegmentSize;
             this.remoteInvertedIndexSize = remoteInvertedIndexSize;
             this.remoteSegmentSize = remoteSegmentSize;
+            this.localCommonIndexSize = localCommonIndexSize;
+            this.remoteCommonIndexSize = remoteCommonIndexSize;
         }
     }
 
@@ -3575,6 +3586,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public long getRemoteSegmentSize() {
         return statistics.getRemoteSegmentSize();
+    }
+
+    public long getLocalCommonIndexSize() {
+        return statistics.getLocalCommonIndexSize();
+    }
+
+    public long getRemoteCommonIndexSize() {
+        return statistics.getRemoteCommonIndexSize();
     }
 
     public boolean isShadowIndex(long indexId) {

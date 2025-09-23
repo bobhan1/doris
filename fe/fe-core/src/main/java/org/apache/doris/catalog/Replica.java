@@ -138,6 +138,16 @@ public class Replica {
     @SerializedName(value = "rss", alternate = {"remoteSegmentSize"})
     private Long remoteSegmentSize = 0L;
 
+    @Setter
+    @Getter
+    @SerializedName(value = "lcis", alternate = {"localCommonIndexSize"})
+    private Long localCommonIndexSize = 0L;
+
+    @Setter
+    @Getter
+    @SerializedName(value = "rcis", alternate = {"remoteCommonIndexSize"})
+    private Long remoteCommonIndexSize = 0L;
+
     private volatile long totalVersionCount = -1;
     private volatile long visibleVersionCount = -1;
 

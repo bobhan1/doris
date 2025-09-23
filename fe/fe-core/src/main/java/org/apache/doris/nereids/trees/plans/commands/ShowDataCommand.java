@@ -117,9 +117,11 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("LocalTotalSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("LocalDataSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("LocalIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalCommonIndexSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteCommonIndexSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_DETAILED_INDEX_DATA_META_DATA =
@@ -131,9 +133,11 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("LocalTotalSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("LocalDataSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("LocalIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalCommonIndexSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteCommonIndexSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final String WAREHOUSE = "entire_warehouse";
@@ -157,6 +161,8 @@ public class ShowDataCommand extends ShowCommand {
     private long totalLocalSegmentSize = 0;
     private long totalRemoteInvertedSize = 0;
     private long totalRemoteSegmentSize = 0;
+    private long totalLocalCommonIndexSize = 0;
+    private long totalRemoteCommonIndexSize = 0;
 
     /**
      * constructor
@@ -275,14 +281,19 @@ public class ShowDataCommand extends ShowCommand {
             } else {
                 long localIndexSize = olapTable.getLocalIndexFileSize();
                 long localSegmentSize = olapTable.getLocalSegmentSize();
+                long localCommonIndexSize = olapTable.getLocalCommonIndexSize();
                 long remoteIndexSize = olapTable.getRemoteIndexFileSize();
                 long remoteSegmentSize = olapTable.getRemoteSegmentSize();
+                long remoteCommonIndexSize = olapTable.getRemoteCommonIndexSize();
                 totalRowsObject.add(Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize,
-                        localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize));
+                        localIndexSize, localSegmentSize, localCommonIndexSize, remoteIndexSize,
+                        remoteSegmentSize, remoteCommonIndexSize));
                 totalLocalInvertedSize += localIndexSize;
                 totalLocalSegmentSize += localSegmentSize;
+                totalLocalCommonIndexSize += localCommonIndexSize;
                 totalRemoteInvertedSize += remoteIndexSize;
                 totalRemoteSegmentSize += remoteSegmentSize;
+                totalRemoteCommonIndexSize += remoteCommonIndexSize;
             }
 
             totalSize += tableSize;
@@ -306,8 +317,10 @@ public class ShowDataCommand extends ShowCommand {
             long indexRemoteSize = 0;
             long localIndexSize = 0;
             long localSegmentSize = 0;
+            long localCommonIndexSize = 0;
             long remoteIndexSize = 0;
             long remoteSegmentSize = 0;
+            long remoteCommonIndexSize = 0;
             for (Partition partition : table.getAllPartitions()) {
                 MaterializedIndex mIndex = partition.getIndex(indexId);
                 indexSize += mIndex.getDataSize(false, false);
@@ -316,8 +329,10 @@ public class ShowDataCommand extends ShowCommand {
                 indexRemoteSize += mIndex.getRemoteDataSize();
                 localIndexSize += mIndex.getLocalIndexSize();
                 localSegmentSize += mIndex.getLocalSegmentSize();
+                localCommonIndexSize += mIndex.getLocalCommonIndexSize();
                 remoteIndexSize += mIndex.getRemoteIndexSize();
                 remoteSegmentSize += mIndex.getRemoteSegmentSize();
+                remoteCommonIndexSize += mIndex.getRemoteCommonIndexSize();
             }
 
             String indexName = table.getIndexNameById(indexId);
@@ -325,8 +340,9 @@ public class ShowDataCommand extends ShowCommand {
                 totalRowsObject.add(Arrays.asList(tableName, indexName, indexSize, indexReplicaCount,
                         indexRowCount, indexRemoteSize));
             } else {
-                totalRowsObject.add(Arrays.asList(tableName, indexName, indexSize, indexReplicaCount, indexRowCount,
-                        indexRemoteSize, localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize));
+                totalRowsObject.add(Arrays.asList(tableName, indexName, indexReplicaCount, indexRowCount,
+                        indexSize, localSegmentSize, localIndexSize, localCommonIndexSize, indexRemoteSize,
+                        remoteSegmentSize, remoteIndexSize, remoteCommonIndexSize));
             }
 
             totalSize += indexSize;
@@ -334,8 +350,10 @@ public class ShowDataCommand extends ShowCommand {
             totalRemoteSize += indexRemoteSize;
             totalLocalInvertedSize += localIndexSize;
             totalLocalSegmentSize += localSegmentSize;
+            totalLocalCommonIndexSize += localCommonIndexSize;
             totalRemoteInvertedSize += remoteIndexSize;
             totalRemoteSegmentSize += remoteSegmentSize;
+            totalRemoteCommonIndexSize += remoteCommonIndexSize;
         } // end for indices
     }
 
@@ -360,9 +378,10 @@ public class ShowDataCommand extends ShowCommand {
             } else {
                 totalRows.add(Arrays.asList(String.valueOf(row.get(0)), String.valueOf(row.get(2)),
                         DebugUtil.printByteWithUnit((long) row.get(1)), DebugUtil.printByteWithUnit((long) row.get(5)),
-                        DebugUtil.printByteWithUnit((long) row.get(4)), DebugUtil.printByteWithUnit((long) row.get(3)),
+                        DebugUtil.printByteWithUnit((long) row.get(4)), DebugUtil.printByteWithUnit((long) row.get(6)),
+                        DebugUtil.printByteWithUnit((long) row.get(3)), DebugUtil.printByteWithUnit((long) row.get(8)),
                         DebugUtil.printByteWithUnit((long) row.get(7)),
-                        DebugUtil.printByteWithUnit((long) row.get(6))));
+                        DebugUtil.printByteWithUnit((long) row.get(9))));
             }
         }
 
@@ -381,13 +400,15 @@ public class ShowDataCommand extends ShowCommand {
                     DebugUtil.printByteWithUnit(totalSize),
                     DebugUtil.printByteWithUnit(totalLocalSegmentSize),
                     DebugUtil.printByteWithUnit(totalLocalInvertedSize),
+                    DebugUtil.printByteWithUnit(totalLocalCommonIndexSize),
                     DebugUtil.printByteWithUnit(totalRemoteSize),
                     DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
-                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize)));
+                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
+                    DebugUtil.printByteWithUnit(totalRemoteCommonIndexSize)));
             totalRows.add(Arrays.asList("Quota", String.valueOf(replicaQuota),
-                    DebugUtil.printByteWithUnit(quota), "", "", "", "", ""));
+                    DebugUtil.printByteWithUnit(quota), "", "", "", "", "", "", ""));
             totalRows.add(Arrays.asList("Left", String.valueOf(replicaCountLeft),
-                    DebugUtil.printByteWithUnit(left), "", "", "", "", ""));
+                    DebugUtil.printByteWithUnit(left), "", "", "", "", "", "", ""));
         }
     }
 
@@ -401,11 +422,12 @@ public class ShowDataCommand extends ShowCommand {
                         String.valueOf(row.get(4)), DebugUtil.printByteWithUnit((long) row.get(5))));
             } else {
                 totalRows.add(Arrays.asList(indexName, String.valueOf(row.get(1)),
-                        String.valueOf(row.get(3)), String.valueOf(row.get(4)),
-                        DebugUtil.printByteWithUnit((long) row.get(2)), DebugUtil.printByteWithUnit((long) row.get(7)),
-                        DebugUtil.printByteWithUnit((long) row.get(6)), DebugUtil.printByteWithUnit((long) row.get(5)),
-                        DebugUtil.printByteWithUnit((long) row.get(9)),
-                        DebugUtil.printByteWithUnit((long) row.get(8))));
+                        String.valueOf(row.get(2)), String.valueOf(row.get(3)),
+                        DebugUtil.printByteWithUnit((long) row.get(4)), DebugUtil.printByteWithUnit((long) row.get(5)),
+                        DebugUtil.printByteWithUnit((long) row.get(6)), DebugUtil.printByteWithUnit((long) row.get(7)),
+                        DebugUtil.printByteWithUnit((long) row.get(8)), DebugUtil.printByteWithUnit((long) row.get(9)),
+                        DebugUtil.printByteWithUnit((long) row.get(10)),
+                        DebugUtil.printByteWithUnit((long) row.get(11))));
             }
         }
 
@@ -417,9 +439,11 @@ public class ShowDataCommand extends ShowCommand {
             totalRows.add(Arrays.asList("", "Total", String.valueOf(totalReplicaCount), "",
                     DebugUtil.printByteWithUnit(totalSize), DebugUtil.printByteWithUnit(totalLocalSegmentSize),
                     DebugUtil.printByteWithUnit(totalLocalInvertedSize),
+                    DebugUtil.printByteWithUnit(totalLocalCommonIndexSize),
                     DebugUtil.printByteWithUnit(totalRemoteSize),
                     DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
-                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize)));
+                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
+                    DebugUtil.printByteWithUnit(totalRemoteCommonIndexSize)));
         }
     }
 

@@ -1770,6 +1770,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_local_segment_size(_tablet_meta->tablet_local_segment_size());
     tablet_info->__set_remote_index_size(_tablet_meta->tablet_remote_index_size());
     tablet_info->__set_remote_segment_size(_tablet_meta->tablet_remote_segment_size());
+    tablet_info->__set_local_common_index_size(_tablet_meta->tablet_local_common_index_size());
+    tablet_info->__set_remote_common_index_size(_tablet_meta->tablet_remote_common_index_size());
 }
 
 void Tablet::report_error(const Status& st) {
