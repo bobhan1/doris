@@ -253,6 +253,7 @@ BaseBetaRowsetWriter::BaseBetaRowsetWriter()
           _num_rows_written(0),
           _total_data_size(0),
           _total_index_size(0),
+          _common_index_size(0),
           _segment_creator(_context, _seg_files, _idx_files) {}
 
 BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
@@ -695,6 +696,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     }
     _total_data_size += data_size;
     _total_index_size += index_size;
+    _common_index_size += rowset_meta->common_index_size();
     _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
@@ -921,7 +923,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size + total_index_size +
                                      _total_index_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
-    rowset_meta->set_common_index_size(total_common_index_size);
+    rowset_meta->set_common_index_size(total_common_index_size + _common_index_size);
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
     rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
     // TODO write zonemap to meta

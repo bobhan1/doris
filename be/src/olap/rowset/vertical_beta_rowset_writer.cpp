@@ -123,10 +123,11 @@ template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::_flush_columns(segment_v2::SegmentWriter* segment_writer,
                                                    bool is_key) {
-    uint64_t index_size = 0;
+    uint64_t common_index_size = 0;
     VLOG_NOTICE << "flush columns index: " << _cur_writer_idx;
     RETURN_IF_ERROR(segment_writer->finalize_columns_data());
-    RETURN_IF_ERROR(segment_writer->finalize_columns_index(&index_size));
+    RETURN_IF_ERROR(segment_writer->finalize_columns_index(&common_index_size));
+    this->_common_index_size += common_index_size;
     if (is_key) {
         _total_key_group_rows += segment_writer->row_count();
         // record segment key bound
