@@ -125,6 +125,8 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
                 std::shared_lock rowset_ldlock(tablet->get_header_lock());
                 tablet->acquire_version_and_rowsets(&all_rowsets);
             }
+            LOG_INFO("[verbose] tablet {}, all_rowsets size {}", tablet->tablet_id(),
+                     all_rowsets.size());
             std::vector<RowsetSharedPtr> rowsets;
             for (const auto& version_and_rowset : all_rowsets) {
                 rowsets.emplace_back(version_and_rowset.second);

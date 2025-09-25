@@ -234,7 +234,7 @@ public:
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
     // Get the total size of data pages for this column
-    uint64_t get_data_page_size() const override { return _data_size; }
+    uint64_t get_data_page_size() const override { return _data_page_size; }
 
     void register_flush_page_callback(FlushPageCallback* flush_page_callback) {
         _new_page_callback = flush_page_callback;
@@ -292,6 +292,8 @@ private:
     io::FileWriter* _file_writer = nullptr;
     // total size of data page list
     uint64_t _data_size;
+
+    uint64_t _data_page_size {0};
 
     // cached generated pages,
     std::vector<std::unique_ptr<Page>> _pages;
@@ -375,11 +377,7 @@ public:
 
     // Get the total size of data pages for this column
     uint64_t get_data_page_size() const override {
-        uint64_t total_size = _null_writer ? _null_writer->get_data_page_size() : 0;
-        for (const auto& writer : _sub_column_writers) {
-            total_size += writer->get_data_page_size();
-        }
-        return total_size;
+        return 0; // TODO
     }
 
 private:
@@ -435,8 +433,7 @@ public:
 
     // Get the total size of data pages for this column
     uint64_t get_data_page_size() const override {
-        return _offset_writer->get_data_page_size() + _null_writer->get_data_page_size() +
-               _item_writer->get_data_page_size();
+        return 0; // TODO
     }
 
 private:
@@ -499,11 +496,7 @@ public:
 
     // Get the total size of data pages for this column
     uint64_t get_data_page_size() const override {
-        uint64_t total_size = _offsets_writer->get_data_page_size() + _null_writer->get_data_page_size();
-        for (const auto& writer : _kv_writers) {
-            total_size += writer->get_data_page_size();
-        }
-        return total_size;
+        return 0; // TODO
     }
 
 private:
@@ -542,7 +535,7 @@ public:
 
     // Get the total size of data pages for this column
     uint64_t get_data_page_size() const override {
-        return _writer ? _writer->get_data_page_size() : 0;
+        return 0; // TODO
     }
 
     Status append_nulls(size_t num_rows) override {

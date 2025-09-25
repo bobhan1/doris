@@ -121,11 +121,36 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
 
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+void VerticalBetaRowsetWriter<T>::_collect_column_statistics(
+        segment_v2::SegmentWriter* segment_writer) {
+    // Collect and aggregate column data page statistics
+    auto column_stats = segment_writer->get_column_data_page_stats();
+    {
+        std::lock_guard<std::mutex> lock(this->_column_data_page_stats_mutex);
+        for (const auto& col_stat : column_stats) {
+            int32_t column_id = col_stat.column_unique_id();
+            auto it = this->_column_data_page_stats_map.find(column_id);
+            if (it == this->_column_data_page_stats_map.end()) {
+                // First time seeing this column
+                this->_column_data_page_stats_map[column_id] = col_stat;
+            } else {
+                // Aggregate the data page size
+                int64_t new_size = it->second.data_page_size() + col_stat.data_page_size();
+                it->second.set_data_page_size(new_size);
+            }
+        }
+    }
+}
+
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::_flush_columns(segment_v2::SegmentWriter* segment_writer,
                                                    bool is_key) {
     uint64_t common_index_size = 0;
     VLOG_NOTICE << "flush columns index: " << _cur_writer_idx;
     RETURN_IF_ERROR(segment_writer->finalize_columns_data());
+    // should be called before finalize_columns_index because finalize_columns_index will clear column_writers
+    _collect_column_statistics(segment_writer);
     RETURN_IF_ERROR(segment_writer->finalize_columns_index(&common_index_size));
     this->_common_index_size += common_index_size;
     if (is_key) {
@@ -211,25 +236,6 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
             return st;
         }
         this->_total_data_size += segment_size;
-
-        // Collect and aggregate column data page statistics
-        auto column_stats = segment_writer->get_column_data_page_stats();
-        {
-            std::lock_guard<std::mutex> lock(this->_column_data_page_stats_mutex);
-            for (const auto& col_stat : column_stats) {
-                int32_t column_id = col_stat.column_unique_id();
-                auto it = this->_column_data_page_stats_map.find(column_id);
-                if (it == this->_column_data_page_stats_map.end()) {
-                    // First time seeing this column
-                    this->_column_data_page_stats_map[column_id] = col_stat;
-                } else {
-                    // Aggregate the data page size
-                    int64_t new_size = it->second.data_page_size() + col_stat.data_page_size();
-                    it->second.set_data_page_size(new_size);
-                }
-            }
-        }
-
         segment_writer.reset();
     }
     return Status::OK();
