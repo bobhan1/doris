@@ -1252,7 +1252,7 @@ Status VariantColumnWriter::write_bloom_filter_index() {
 }
 
 uint64_t VariantColumnWriter::get_data_page_size() const {
-    return _impl->get_data_page_size();
+    return 0; // TODO
 }
 
 Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,

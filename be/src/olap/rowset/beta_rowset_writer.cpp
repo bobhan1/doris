@@ -895,7 +895,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     {
         std::lock_guard<std::mutex> lock(_column_data_page_stats_mutex);
         for (const auto& col_stat : _column_data_page_stats_map) {
-            rowset_meta->add_column_data_page_stats()->CopyFrom(col_stat.second);
+            rowset_meta->add_column_data_page_stats(col_stat.second);
         }
     }
     for (auto& key_bound : _segments_encoded_key_bounds) {
