@@ -181,6 +181,9 @@ public:
 
     virtual ordinal_t get_next_rowid() const = 0;
 
+    // Get the total size of data pages for this column
+    virtual uint64_t get_data_page_size() const = 0;
+
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
 
@@ -229,6 +232,9 @@ public:
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
+
+    // Get the total size of data pages for this column
+    uint64_t get_data_page_size() const override { return _data_size; }
 
     void register_flush_page_callback(FlushPageCallback* flush_page_callback) {
         _new_page_callback = flush_page_callback;
@@ -367,6 +373,15 @@ public:
 
     ordinal_t get_next_rowid() const override { return _sub_column_writers[0]->get_next_rowid(); }
 
+    // Get the total size of data pages for this column
+    uint64_t get_data_page_size() const override {
+        uint64_t total_size = _null_writer ? _null_writer->get_data_page_size() : 0;
+        for (const auto& writer : _sub_column_writers) {
+            total_size += writer->get_data_page_size();
+        }
+        return total_size;
+    }
+
 private:
     size_t _num_sub_column_writers;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
@@ -417,6 +432,12 @@ public:
         return Status::OK();
     }
     ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
+
+    // Get the total size of data pages for this column
+    uint64_t get_data_page_size() const override {
+        return _offset_writer->get_data_page_size() + _null_writer->get_data_page_size() +
+               _item_writer->get_data_page_size();
+    }
 
 private:
     Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
@@ -476,6 +497,15 @@ public:
     // according key writer to get next rowid
     ordinal_t get_next_rowid() const override { return _offsets_writer->get_next_rowid(); }
 
+    // Get the total size of data pages for this column
+    uint64_t get_data_page_size() const override {
+        uint64_t total_size = _offsets_writer->get_data_page_size() + _null_writer->get_data_page_size();
+        for (const auto& writer : _kv_writers) {
+            total_size += writer->get_data_page_size();
+        }
+        return total_size;
+    }
+
 private:
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not
@@ -509,6 +539,11 @@ public:
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
+
+    // Get the total size of data pages for this column
+    uint64_t get_data_page_size() const override {
+        return _writer ? _writer->get_data_page_size() : 0;
+    }
 
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");
@@ -558,6 +593,9 @@ public:
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
+
+    // Get the total size of data pages for this column
+    uint64_t get_data_page_size() const override;
 
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");

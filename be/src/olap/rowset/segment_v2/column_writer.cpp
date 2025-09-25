@@ -1250,6 +1250,11 @@ Status VariantColumnWriter::write_inverted_index() {
 Status VariantColumnWriter::write_bloom_filter_index() {
     return _impl->write_bloom_filter_index();
 }
+
+uint64_t VariantColumnWriter::get_data_page_size() const {
+    return _impl->get_data_page_size();
+}
+
 Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                             size_t num_rows) {
     return _impl->append_nullable(null_map, ptr, num_rows);

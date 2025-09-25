@@ -211,6 +211,25 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
             return st;
         }
         this->_total_data_size += segment_size;
+
+        // Collect and aggregate column data page statistics
+        auto column_stats = segment_writer->get_column_data_page_stats();
+        {
+            std::lock_guard<std::mutex> lock(this->_column_data_page_stats_mutex);
+            for (const auto& col_stat : column_stats) {
+                int32_t column_id = col_stat.column_unique_id();
+                auto it = this->_column_data_page_stats_map.find(column_id);
+                if (it == this->_column_data_page_stats_map.end()) {
+                    // First time seeing this column
+                    this->_column_data_page_stats_map[column_id] = col_stat;
+                } else {
+                    // Aggregate the data page size
+                    int64_t new_size = it->second.data_page_size() + col_stat.data_page_size();
+                    it->second.set_data_page_size(new_size);
+                }
+            }
+        }
+
         segment_writer.reset();
     }
     return Status::OK();
