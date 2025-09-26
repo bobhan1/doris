@@ -1172,7 +1172,8 @@ std::vector<ColumnDataPageStatsPB> SegmentWriter::get_column_data_page_stats() c
 
     for (uint32_t cid = 0; cid < _column_writers.size(); ++cid) {
         if (_column_writers[cid] != nullptr) {
-            const auto& column = _tablet_schema->column(cid);
+            // flush a column group, the actual column id is in _column_ids
+            const auto& column = _tablet_schema->column(_column_ids[cid]);
             ColumnDataPageStatsPB stats;
             stats.set_column_unique_id(column.unique_id());
             stats.set_column_name(column.name());
