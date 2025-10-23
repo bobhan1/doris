@@ -53,12 +53,14 @@ public:
 
     Status init() override { return reset(); }
 
+    size_t estimate_size() const { return _size_estimate + _buffer.length(); }
+
     bool is_page_full() override {
         bool ret = false;
         if (_options.is_dict_page) {
-            ret = _options.dict_page_size != 0 && _size_estimate > _options.dict_page_size;
+            ret = _options.dict_page_size != 0 && estimate_size() > _options.dict_page_size;
         } else {
-            ret = _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
+            ret = _options.data_page_size != 0 && estimate_size() > _options.data_page_size;
         }
         return ret;
     }
