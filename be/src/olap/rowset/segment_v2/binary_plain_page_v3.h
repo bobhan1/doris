@@ -46,9 +46,9 @@ namespace segment_v2 {
 #include "common/compile_check_begin.h"
 
 template <FieldType Type>
-class BinaryPlainPageV2Builder : public PageBuilderHelper<BinaryPlainPageV2Builder<Type>> {
+class BinaryPlainPageV3Builder : public PageBuilderHelper<BinaryPlainPageV3Builder<Type>> {
 public:
-    using Self = BinaryPlainPageV2Builder<Type>;
+    using Self = BinaryPlainPageV3Builder<Type>;
     friend class PageBuilderHelper<Self>;
 
     Status init() override { return reset(); }
@@ -114,6 +114,22 @@ public:
 
             // Encode lengths using ForEncoder
             if (!_lengths.empty()) {
+                // Calculate varuint encoding size and statistics
+                size_t varuint_size = 0;
+                uint32_t min_length = _lengths[0];
+                uint32_t max_length = _lengths[0];
+                uint64_t sum_length = 0;
+
+                for (uint32_t length : _lengths) {
+                    varuint_size += varint_length(length);
+                    min_length = std::min(min_length, length);
+                    max_length = std::max(max_length, length);
+                    sum_length += length;
+                }
+                double avg_length =
+                        static_cast<double>(sum_length) / static_cast<double>(_lengths.size());
+
+                // Encode with FOR
                 faststring lengths_buffer;
                 ForEncoder<uint32_t> encoder(&lengths_buffer);
                 encoder.put_batch(_lengths.data(), _lengths.size());
@@ -121,6 +137,18 @@ public:
 
                 // Append encoded lengths to buffer
                 _buffer.append(lengths_buffer.data(), lengths_buffer.size());
+
+                LOG_INFO(
+                        "[verbose][BinaryPlainPageV3Builder] col_name={}, count={}, "
+                        "[FOR buffer size={}, avg byte per val={:.3f}], "
+                        "[varuint buffer size={}, avg byte per val={:.3f}], "
+                        "[lengths min={}, max={}, avg={:.3f}]",
+                        _options.column_name, _lengths.size(), lengths_buffer.size(),
+                        static_cast<double>(lengths_buffer.size()) /
+                                static_cast<double>(_lengths.size()),
+                        varuint_size,
+                        static_cast<double>(varuint_size) / static_cast<double>(_lengths.size()),
+                        min_length, max_length, avg_length);
             }
 
             // Write trailer: lengths_offset and number of elements
@@ -188,7 +216,7 @@ public:
     }
 
 private:
-    BinaryPlainPageV2Builder(const PageBuilderOptions& options)
+    BinaryPlainPageV3Builder(const PageBuilderOptions& options)
             : _size_estimate(0), _options(options) {}
 
     void _copy_value_at(size_t idx, faststring* value) const {
@@ -212,11 +240,11 @@ private:
 };
 
 template <FieldType Type>
-class BinaryPlainPageV2Decoder : public PageDecoder {
+class BinaryPlainPageV3Decoder : public PageDecoder {
 public:
-    BinaryPlainPageV2Decoder(Slice data) : BinaryPlainPageV2Decoder(data, PageDecoderOptions()) {}
+    BinaryPlainPageV3Decoder(Slice data) : BinaryPlainPageV3Decoder(data, PageDecoderOptions()) {}
 
-    BinaryPlainPageV2Decoder(Slice data, const PageDecoderOptions& options)
+    BinaryPlainPageV3Decoder(Slice data, const PageDecoderOptions& options)
             : _data(data), _options(options), _parsed(false), _num_elems(0), _cur_idx(0) {}
 
     Status init() override {
@@ -224,7 +252,7 @@ public:
 
         if (_data.size < 2 * sizeof(uint32_t)) {
             return Status::Corruption(
-                    "file corruption: not enough bytes for trailer in BinaryPlainPageV2Decoder. "
+                    "file corruption: not enough bytes for trailer in BinaryPlainPageV3Decoder. "
                     "invalid data size:{}, trailer size:{}",
                     _data.size, 2 * sizeof(uint32_t));
         }
@@ -246,14 +274,14 @@ public:
             ForDecoder<uint32_t> decoder(lengths_data, lengths_size);
             if (!decoder.init()) {
                 return Status::Corruption(
-                        "file corruption: failed to init ForDecoder in BinaryPlainPageV2Decoder");
+                        "file corruption: failed to init ForDecoder in BinaryPlainPageV3Decoder");
             }
 
             // Decode all lengths
             std::vector<uint32_t> decoded_lengths(_num_elems);
             if (!decoder.get_batch(decoded_lengths.data(), _num_elems)) {
                 return Status::Corruption(
-                        "file corruption: failed to decode lengths in BinaryPlainPageV2Decoder");
+                        "file corruption: failed to decode lengths in BinaryPlainPageV3Decoder");
             }
 
             // Calculate positions based on lengths
@@ -268,7 +296,7 @@ public:
             if (current_pos != lengths_offset) {
                 return Status::Corruption(
                         "file corruption: calculated string data size {} does not match "
-                        "lengths_offset {} in BinaryPlainPageV2Decoder",
+                        "lengths_offset {} in BinaryPlainPageV3Decoder",
                         current_pos, lengths_offset);
             }
         }

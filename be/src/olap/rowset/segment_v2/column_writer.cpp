@@ -440,6 +440,7 @@ Status ScalarColumnWriter::init() {
     PageBuilderOptions opts;
     opts.data_page_size = _opts.data_page_size;
     opts.dict_page_size = _opts.dict_page_size;
+    opts.column_name = _opts.column_name;
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
         return Status::NotSupported("Failed to create page builder for type {} and encoding {}",
@@ -448,7 +449,7 @@ Status ScalarColumnWriter::init() {
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future
     DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
-    VLOG_DEBUG << fmt::format(
+    LOG_INFO(
             "[verbose] scalar column writer init, column_id={}, type={}, encoding={}, "
             "is_nullable={}",
             _opts.meta->column_id(), get_field()->type(),

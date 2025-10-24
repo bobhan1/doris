@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 
 namespace doris {
 namespace segment_v2 {
@@ -35,6 +36,8 @@ struct PageBuilderOptions {
     bool need_check_bitmap = true;
 
     bool is_dict_page = false; // page used for saving dictionary
+
+    std::string column_name;
 };
 
 struct PageDecoderOptions {

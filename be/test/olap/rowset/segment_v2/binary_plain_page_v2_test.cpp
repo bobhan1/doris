@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/binary_plain_page_v2.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v3.h"
 
 #include <gtest/gtest.h>
 

@@ -29,7 +29,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "olap/rowset/segment_v2/binary_plain_page_v2.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v3.h"
 #include "olap/rowset/segment_v2/binary_prefix_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
@@ -67,7 +67,7 @@ struct TypeEncodingTraits<type, PLAIN_ENCODING, Slice> {
 };
 
 template <FieldType type, typename CppType>
-struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, CppType> {
+struct TypeEncodingTraits<type, PLAIN_ENCODING_V3, CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return PlainPageBuilder<type>::create(builder, opts);
     }
@@ -79,13 +79,13 @@ struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, CppType> {
 };
 
 template <FieldType type>
-struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, Slice> {
+struct TypeEncodingTraits<type, PLAIN_ENCODING_V3, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        return BinaryPlainPageV2Builder<type>::create(builder, opts);
+        return BinaryPlainPageV3Builder<type>::create(builder, opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
-        *decoder = new BinaryPlainPageV2Decoder<type>(data, opts);
+        *decoder = new BinaryPlainPageV3Decoder<type>(data, opts);
         return Status::OK();
     }
 };
@@ -226,27 +226,27 @@ EncodingInfoResolver::EncodingInfoResolver() {
 
     _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
-    _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V3>();
     _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
-    _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V3>();
     _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
-    _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V3>();
     _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
-    _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V3>();
     _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING>();
-    _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V3>();
     _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PREFIX_ENCODING, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
@@ -299,16 +299,16 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
-    _add_map<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V3>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING>();
-    _add_map<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V3>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING>();
-    _add_map<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V3>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING>();
-    _add_map<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V3>();
 }
 
 EncodingInfoResolver::~EncodingInfoResolver() {
@@ -350,7 +350,7 @@ EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
 
     // Static array of hooks for default encoding transformations
     static const std::array<EncodingTransform, 2> hooks = {
-            // Hook 1: Binary types - PLAIN_ENCODING -> PLAIN_ENCODING_V2
+            // Hook 1: Binary types - PLAIN_ENCODING -> PLAIN_ENCODING_V3
             // Applies when: type is binary, encoding is PLAIN_ENCODING, and config enables v2
             EncodingTransform {
                     .predicate =
@@ -358,7 +358,7 @@ EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
                                 return encoding == PLAIN_ENCODING && is_binary_type(type) &&
                                        config::binary_plain_encoding_default_impl == "v2";
                             },
-                    .target_encoding = PLAIN_ENCODING_V2},
+                    .target_encoding = PLAIN_ENCODING_V3},
 
             // Hook 2: Integer types - any encoding -> PLAIN_ENCODING
             // Applies when: type is integer and config enables plain encoding for integers

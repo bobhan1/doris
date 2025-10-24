@@ -28,7 +28,7 @@
 #include "common/logging.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "olap/rowset/segment_v2/binary_plain_page_v2.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v3.h"
 #include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"

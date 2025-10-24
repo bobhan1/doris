@@ -183,6 +183,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
                                                     const TabletSchemaSPtr& tablet_schema) {
     ColumnWriterOptions opts;
     opts.meta = _footer.add_columns();
+    opts.column_name = column.name();
 
     _init_column_meta(opts.meta, cid, column);
 
@@ -958,6 +959,11 @@ Status VerticalSegmentWriter::write_batch() {
     std::map<uint32_t, vectorized::IOlapColumnDataAccessor*> cid_to_column;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+        LOG_INFO(
+                "[verbose] begin write for column name={}, cid={}, col_unique_id={}, "
+                "batched_blocks_size={}",
+                _tablet_schema->column(cid).name(), cid, _tablet_schema->column(cid).unique_id(),
+                _batched_blocks.size());
         for (auto& data : _batched_blocks) {
             RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                     data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));

@@ -52,6 +52,7 @@ public:
             *count = 0;
             return Status::OK();
         }
+        LOG_INFO("[verbose][] PlainPageBuilder::add count={}", *count);
         size_t old_size = _buffer.size();
         // This may need a large memory, should return error if could not allocated
         // successfully, to avoid BE OOM.

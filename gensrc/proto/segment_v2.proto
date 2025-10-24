@@ -41,6 +41,7 @@ enum EncodingTypePB {
     BIT_SHUFFLE = 6;
     FOR_ENCODING = 7; // Frame-Of-Reference
     PLAIN_ENCODING_V2 = 8; // Binary plain with varuint length prefix
+    PLAIN_ENCODING_V3 = 9；// Binary plain with frame of reference encoded length
 }
 
 enum CompressionTypePB {
