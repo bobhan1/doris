@@ -53,7 +53,7 @@ public:
 
     Status init() override { return reset(); }
 
-    size_t estimate_size() const { return _size_estimate + _buffer.length(); }
+    size_t estimate_size() const { return _size_estimate; }
 
     bool is_page_full() override {
         bool ret = false;
@@ -135,15 +135,16 @@ public:
                 encoder.put_batch(_lengths.data(), _lengths.size());
                 encoder.flush();
 
+                auto data_bytes = _buffer.size();
                 // Append encoded lengths to buffer
                 _buffer.append(lengths_buffer.data(), lengths_buffer.size());
 
                 LOG_INFO(
-                        "[verbose][BinaryPlainPageV3Builder] col_name={}, count={}, "
+                        "[verbose][BinaryPlainPageV3Builder] col_name={}, count={}, data_bytes={}"
                         "[FOR buffer size={}, avg byte per val={:.3f}], "
                         "[varuint buffer size={}, avg byte per val={:.3f}], "
                         "[lengths min={}, max={}, avg={:.3f}]",
-                        _options.column_name, _lengths.size(), lengths_buffer.size(),
+                        _options.column_name, _lengths.size(), data_bytes, lengths_buffer.size(),
                         static_cast<double>(lengths_buffer.size()) /
                                 static_cast<double>(_lengths.size()),
                         varuint_size,

@@ -27,6 +27,7 @@
 #include "common/logging.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
@@ -626,8 +627,21 @@ Status ScalarColumnWriter::write_data() {
         return footer.uncompressed_size() + footer.ByteSizeLong() +
                sizeof(uint32_t) /* footer size */ + sizeof(uint32_t) /* checksum */;
     };
+    auto data_bytes = 0;
+    auto page_num = _pages.size();
+
+    size_t dict_encode_page_num = 0;
+    size_t fallback_page_num = 0;
+    size_t dict_encode_entry_num = 0;
+    size_t fallback_entry_num = 0;
+    size_t dict_encode_entry_bytes = 0;
+    size_t fallback_entry_bytes = 0;
+
+    auto dict_page_bytes = 0;
+    size_t dict_entry_count = 0;
     for (auto& page : _pages) {
         _total_uncompressed_data_pages_size += collect_uncompressed_bytes(page->footer);
+        data_bytes += collect_uncompressed_bytes(page->footer);
         RETURN_IF_ERROR(_write_data_page(page.get()));
     }
     _pages.clear();
@@ -637,12 +651,27 @@ Status ScalarColumnWriter::write_data() {
         RETURN_IF_ERROR(_page_builder->get_dictionary_page(&dict_body));
         EncodingTypePB dict_word_page_encoding;
         RETURN_IF_ERROR(_page_builder->get_dictionary_page_encoding(&dict_word_page_encoding));
+        dict_entry_count =
+                static_cast<BinaryDictPageBuilder*>(_page_builder.get())->dict_entry_num();
+        dict_encode_page_num =
+                static_cast<BinaryDictPageBuilder*>(_page_builder.get())->dict_encode_page_num();
+        fallback_page_num =
+                static_cast<BinaryDictPageBuilder*>(_page_builder.get())->fallback_page_num();
+        dict_encode_entry_num =
+                static_cast<BinaryDictPageBuilder*>(_page_builder.get())->dict_encode_entry_num();
+        fallback_entry_num =
+                static_cast<BinaryDictPageBuilder*>(_page_builder.get())->fallback_entry_num();
+        dict_encode_entry_bytes =
+                static_cast<BinaryDictPageBuilder*>(_page_builder.get())->dict_encode_entry_bytes();
+        fallback_entry_bytes =
+                static_cast<BinaryDictPageBuilder*>(_page_builder.get())->fallback_entry_bytes();
 
         PageFooterPB footer;
         footer.set_type(DICTIONARY_PAGE);
         footer.set_uncompressed_size(cast_set<uint32_t>(dict_body.slice().get_size()));
         footer.mutable_dict_page_footer()->set_encoding(dict_word_page_encoding);
         _total_uncompressed_data_pages_size += collect_uncompressed_bytes(footer);
+        dict_page_bytes += collect_uncompressed_bytes(footer);
 
         PagePointer dict_pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
@@ -650,6 +679,14 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
+    LOG_INFO(
+            "[verbose][ScalarColumnWriter] write data pages: column_name={}, data_page_num={}, "
+            "data_bytes={}, dict_page_bytes={}, dict_entry_count={}, detail: "
+            "[dict_encode_page_num={}, fallback_page_num={}, dict_encode_entry_num={}, "
+            "fallback_entry_num={}, dict_encode_entry_bytes={}, fallback_entry_bytes={}]",
+            _opts.column_name, page_num, data_bytes, dict_page_bytes, dict_entry_count,
+            dict_encode_page_num, fallback_page_num, dict_encode_entry_num, fallback_entry_num,
+            dict_encode_entry_bytes, fallback_entry_bytes);
     _total_compressed_data_pages_size += _file_writer->bytes_appended() - offset;
     _page_builder.reset();
     return Status::OK();

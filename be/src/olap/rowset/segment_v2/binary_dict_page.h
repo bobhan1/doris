@@ -88,6 +88,15 @@ public:
 
     uint64_t get_raw_data_size() const override;
 
+    size_t dict_entry_num() const { return _dict_builder->count(); }
+
+    size_t dict_encode_page_num() const { return _dict_encode_page_num; }
+    size_t fallback_page_num() const { return _fallback_page_num; }
+    size_t dict_encode_entry_num() const { return _dict_encode_entry_num; }
+    size_t fallback_entry_num() const { return _fallback_entry_num; }
+    size_t dict_encode_entry_bytes() const { return _dict_encode_entry_bytes; }
+    size_t fallback_entry_bytes() const { return _fallback_entry_bytes; }
+
 private:
     BinaryDictPageBuilder(const PageBuilderOptions& options);
 
@@ -118,6 +127,13 @@ private:
 
     bool _has_empty = false;
     uint32_t _empty_code = 0;
+
+    size_t _dict_encode_page_num = 0;
+    size_t _dict_encode_entry_num = 0;
+    size_t _dict_encode_entry_bytes = 0;
+    size_t _fallback_page_num = 0;
+    size_t _fallback_entry_num = 0;
+    size_t _fallback_entry_bytes = 0;
 };
 
 class BinaryDictPageDecoder : public PageDecoder {

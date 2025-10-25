@@ -79,6 +79,7 @@ public:
             uint8_t length_buffer[5]; // Max varuint32 size
             uint8_t* ptr = length_buffer;
             ptr = encode_varint32(ptr, cast_set<uint32_t>(src->size));
+            var_int_bytes += ptr - length_buffer;
             size_t length_size = ptr - length_buffer;
             RETURN_IF_CATCH_EXCEPTION(_buffer.append(length_buffer, length_size));
 
@@ -111,6 +112,12 @@ public:
             put_fixed32_le(&_buffer, cast_set<uint32_t>(_positions.size()));
 
             *slice = _buffer.build();
+
+            LOG_INFO(
+                    "[verbose][BinaryPlainPageV2Builder] finish one page. num_elems={}, "
+                    "varint_bytes={}, total_size={}, data_bytes={}",
+                    _positions.size(), var_int_bytes, slice->slice().get_size(),
+                    slice->slice().get_size() - var_int_bytes);
         });
         return Status::OK();
     }
@@ -126,6 +133,8 @@ public:
             _finished = false;
             _last_value_size = 0;
             _raw_data_size = 0;
+
+            var_int_bytes = 0;
         });
         return Status::OK();
     }
@@ -191,6 +200,8 @@ private:
     uint64_t _raw_data_size = 0;
     faststring _first_value;
     faststring _last_value;
+
+    uint32_t var_int_bytes = 0;
 };
 
 template <FieldType Type>

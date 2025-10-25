@@ -173,12 +173,30 @@ Status BinaryDictPageBuilder::finish(OwnedSlice* slice) {
     _finished = true;
 
     OwnedSlice data_slice;
+    if (_encoding_type == DICT_ENCODING) {
+        ++_dict_encode_page_num;
+        _dict_encode_entry_num += _data_page_builder->count();
+    } else {
+        ++_fallback_page_num;
+        _fallback_entry_num += _data_page_builder->count();
+    }
+
     RETURN_IF_ERROR(_data_page_builder->finish(&data_slice));
     // TODO(gaodayue) separate page header and content to avoid this copy
     RETURN_IF_CATCH_EXCEPTION(
             { _buffer.append(data_slice.slice().data, data_slice.slice().size); });
     encode_fixed32_le(&_buffer[0], _encoding_type);
     *slice = _buffer.build();
+    if (_encoding_type == DICT_ENCODING) {
+        _dict_encode_entry_bytes += data_slice.slice().size;
+    } else {
+        _fallback_entry_bytes += data_slice.slice().size;
+    }
+    LOG_INFO(
+            "[verbose][BinaryDictPageBuilder] one page finished. data encoding={}, data page total "
+            "bytes={}, count={}",
+            EncodingTypePB_Name(_encoding_type), data_slice.slice().size,
+            _data_page_builder->count());
     return Status::OK();
 }
 
