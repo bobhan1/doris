@@ -265,6 +265,7 @@ Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<ScannerSPtr>
  * Load rowsets of each tablet with specified version, segments of each rowset.
  */
 Status ParallelScannerBuilder::_load() {
+    SCOPED_TIMER(_scanner_profile->get_counter("GetSegmentNumRowsTime"));
     _total_rows = 0;
     size_t idx = 0;
     for (auto&& [tablet, version] : _tablets) {

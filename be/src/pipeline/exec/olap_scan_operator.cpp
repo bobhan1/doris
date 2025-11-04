@@ -96,6 +96,8 @@ Status OlapScanLocalState::_init_profile() {
     // 2. init timer and counters
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
+    _get_segment_num_rows_timer = ADD_CHILD_COUNTER(_scanner_profile, "GetSegmentNumRowsTime",
+                                                    TUnit::TIME_NS, "ScannerInitTime");
     _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =

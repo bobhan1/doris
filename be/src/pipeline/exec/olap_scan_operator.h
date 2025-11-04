@@ -120,6 +120,7 @@ private:
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
+    RuntimeProfile::Counter* _get_segment_num_rows_timer = nullptr;
     RuntimeProfile::Counter* _process_conjunct_timer = nullptr;
 
     RuntimeProfile::Counter* _io_timer = nullptr;
