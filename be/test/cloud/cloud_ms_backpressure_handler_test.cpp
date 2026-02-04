@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cloud/cloud_tablet_rpc_throttler.h"
+#include "cloud/cloud_ms_backpressure_handler.h"
 
 #include <gtest/gtest.h>
 

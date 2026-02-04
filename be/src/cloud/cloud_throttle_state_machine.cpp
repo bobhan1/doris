@@ -23,6 +23,19 @@
 
 namespace doris::cloud {
 
+// Display names for LoadRelatedRpc types
+static constexpr std::string_view LOAD_RELATED_RPC_NAMES[] = {
+        "prepare_rowset", "commit_rowset", "update_tmp_rowset", "update_packed_file_info",
+        "update_delete_bitmap"};
+
+std::string_view load_related_rpc_name(LoadRelatedRpc rpc) {
+    size_t idx = static_cast<size_t>(rpc);
+    if (idx < static_cast<size_t>(LoadRelatedRpc::COUNT)) {
+        return LOAD_RELATED_RPC_NAMES[idx];
+    }
+    return "unknown";
+}
+
 // ============== RpcThrottleStateMachine ==============
 
 RpcThrottleStateMachine::RpcThrottleStateMachine(RpcThrottleParams params) : _params(params) {
@@ -44,74 +57,48 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_upgrade(
     UpgradeRecord record;
     std::vector<RpcThrottleAction> actions;
 
-    int top_k = _params.top_k;
     double ratio = _params.ratio;
     double floor_qps = _params.floor_qps;
 
-    // Group snapshot by rpc_type
-    std::map<LoadRelatedRpc, std::vector<RpcQpsSnapshot>> snapshot_by_rpc;
+    // Caller is responsible for providing top-k snapshot per RPC type.
+    // State machine simply applies throttling to every entry in the snapshot.
     for (const auto& snapshot : qps_snapshot) {
-        snapshot_by_rpc[snapshot.rpc_type].push_back(snapshot);
-    }
+        auto key = std::make_pair(snapshot.rpc_type, snapshot.table_id);
 
-    // For each RPC type, find top-k tables by QPS and apply throttling
-    for (size_t i = 0; i < static_cast<size_t>(LoadRelatedRpc::COUNT); ++i) {
-        LoadRelatedRpc rpc_type = static_cast<LoadRelatedRpc>(i);
-
-        auto it = snapshot_by_rpc.find(rpc_type);
-        if (it == snapshot_by_rpc.end()) {
-            continue;
+        double old_limit = 0.0;
+        auto limit_it = _current_limits.find(key);
+        if (limit_it != _current_limits.end()) {
+            old_limit = limit_it->second;
         }
 
-        auto& snapshots = it->second;
+        double new_limit;
+        if (old_limit > 0) {
+            // Already has a limit, reduce it further
+            new_limit = old_limit * ratio;
+        } else {
+            // No limit yet, set based on current QPS
+            new_limit = snapshot.current_qps * ratio;
+        }
 
-        // Sort by QPS in descending order
-        std::sort(snapshots.begin(), snapshots.end(),
-                  [](const RpcQpsSnapshot& a, const RpcQpsSnapshot& b) {
-                      return a.current_qps > b.current_qps;
-                  });
+        // Apply floor
+        new_limit = std::max(new_limit, floor_qps);
 
-        // Take top-k
-        int k = std::min(top_k, static_cast<int>(snapshots.size()));
-        for (int j = 0; j < k; ++j) {
-            const auto& snapshot = snapshots[j];
-            auto key = std::make_pair(rpc_type, snapshot.table_id);
+        // Only apply if it's actually limiting
+        if (new_limit < snapshot.current_qps || old_limit > 0) {
+            RpcThrottleAction action;
+            action.type = RpcThrottleAction::Type::SET_LIMIT;
+            action.rpc_type = snapshot.rpc_type;
+            action.table_id = snapshot.table_id;
+            action.qps_limit = new_limit;
 
-            double old_limit = 0.0;
-            auto limit_it = _current_limits.find(key);
-            if (limit_it != _current_limits.end()) {
-                old_limit = limit_it->second;
-            }
+            actions.push_back(action);
+            record.changes[key] = {old_limit, new_limit};
+            _current_limits[key] = new_limit;
 
-            double new_limit;
-            if (old_limit > 0) {
-                // Already has a limit, reduce it further
-                new_limit = old_limit * ratio;
-            } else {
-                // No limit yet, set based on current QPS
-                new_limit = snapshot.current_qps * ratio;
-            }
-
-            // Apply floor
-            new_limit = std::max(new_limit, floor_qps);
-
-            // Only apply if it's actually limiting
-            if (new_limit < snapshot.current_qps || old_limit > 0) {
-                RpcThrottleAction action;
-                action.type = RpcThrottleAction::Type::SET_LIMIT;
-                action.rpc_type = rpc_type;
-                action.table_id = snapshot.table_id;
-                action.qps_limit = new_limit;
-
-                actions.push_back(action);
-                record.changes[key] = {old_limit, new_limit};
-                _current_limits[key] = new_limit;
-
-                LOG(INFO) << "Throttle upgrade: rpc=" << load_related_rpc_name(rpc_type)
-                          << ", table_id=" << snapshot.table_id
-                          << ", current_qps=" << snapshot.current_qps
-                          << ", old_limit=" << old_limit << ", new_limit=" << new_limit;
-            }
+            LOG(INFO) << "Throttle upgrade: rpc=" << load_related_rpc_name(snapshot.rpc_type)
+                      << ", table_id=" << snapshot.table_id
+                      << ", current_qps=" << snapshot.current_qps
+                      << ", old_limit=" << old_limit << ", new_limit=" << new_limit;
         }
     }
 
@@ -230,15 +217,15 @@ bool RpcThrottleCoordinator::report_ms_busy() {
     return false;  // Cooling down
 }
 
-bool RpcThrottleCoordinator::tick() {
+bool RpcThrottleCoordinator::tick(int ticks) {
     std::lock_guard lock(_mtx);
 
     // Increment tick counters
     if (_ticks_since_last_ms_busy >= 0) {
-        ++_ticks_since_last_ms_busy;
+        _ticks_since_last_ms_busy += ticks;
     }
     if (_ticks_since_last_upgrade >= 0) {
-        ++_ticks_since_last_upgrade;
+        _ticks_since_last_upgrade += ticks;
     }
 
     // Check if downgrade should be triggered

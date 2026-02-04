@@ -38,7 +38,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
-#include "cloud/cloud_tablet_rpc_throttler.h"
+#include "cloud/cloud_ms_backpressure_handler.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"

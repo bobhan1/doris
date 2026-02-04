@@ -27,28 +27,14 @@
 #include <shared_mutex>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <unordered_map>
 #include <vector>
 
-#include "butil/containers/flat_map.h"
 #include "cloud/cloud_throttle_state_machine.h"
 #include "util/countdown_latch.h"
+#include "util/thread.h"
 
 namespace doris::cloud {
-
-// Load-related RPC types that need table-level QPS statistics
-enum class LoadRelatedRpc : size_t {
-    PREPARE_ROWSET,
-    COMMIT_ROWSET,
-    UPDATE_TMP_ROWSET,
-    UPDATE_PACKED_FILE_INFO,
-    UPDATE_DELETE_BITMAP,
-    COUNT
-};
-
-// Get the name string for a LoadRelatedRpc type
-std::string_view load_related_rpc_name(LoadRelatedRpc rpc);
 
 // Strict QPS limiter that doesn't allow burst
 // Unlike token bucket, it strictly enforces fixed intervals between requests
@@ -175,10 +161,6 @@ public:
     // Returns true if throttle upgrade was triggered
     bool on_ms_busy();
 
-    // Called periodically (e.g., every second) to drive the coordinator's tick
-    // Returns true if throttle downgrade was triggered
-    bool try_downgrade();
-
     // Called before RPC execution, performs throttle wait
     // Returns the time point to wait until
     std::chrono::steady_clock::time_point before_rpc(LoadRelatedRpc rpc_type, int64_t table_id);
@@ -199,14 +181,17 @@ public:
     int ticks_since_last_upgrade() const;
 
 private:
-    // Background thread callback that periodically calls try_downgrade()
+    // Background thread that periodically advances time
     void _tick_thread_callback();
 
+    // Advance time by specified ticks, handle any triggered events (e.g., downgrade)
+    void _advance_time(int ticks);
+
     // Apply actions to the throttler
-    void apply_actions(const std::vector<RpcThrottleAction>& actions);
+    void _apply_actions(const std::vector<RpcThrottleAction>& actions);
 
     // Build QPS snapshot from registry
-    std::vector<RpcQpsSnapshot> build_qps_snapshot() const;
+    std::vector<RpcQpsSnapshot> _build_qps_snapshot() const;
 
     TableRpcQpsRegistry* _qps_registry;
     TableRpcThrottler* _throttler;
@@ -216,8 +201,8 @@ private:
     std::unique_ptr<RpcThrottleCoordinator> _coordinator;
 
     // Background thread for periodic tick
-    std::unique_ptr<std::thread> _tick_thread;
-    butil::CountDownLatch _stop_latch;
+    std::shared_ptr<Thread> _tick_thread;
+    CountDownLatch _stop_latch;
 
     // For bvar compatibility only - track approximate seconds since last MS_BUSY
     mutable std::mutex _mutex;

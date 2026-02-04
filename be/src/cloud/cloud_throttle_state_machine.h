@@ -17,15 +17,29 @@
 
 #pragma once
 
-#include <chrono>
+#include <cstdint>
 #include <map>
 #include <mutex>
+#include <string_view>
 #include <utility>
 #include <vector>
 
-#include "cloud/cloud_tablet_rpc_throttler.h"
-
 namespace doris::cloud {
+
+// ============== Common Types ==============
+
+// Load-related RPC types that need table-level QPS statistics
+enum class LoadRelatedRpc : size_t {
+    PREPARE_ROWSET,
+    COMMIT_ROWSET,
+    UPDATE_TMP_ROWSET,
+    UPDATE_PACKED_FILE_INFO,
+    UPDATE_DELETE_BITMAP,
+    COUNT
+};
+
+// Get the name string for a LoadRelatedRpc type
+std::string_view load_related_rpc_name(LoadRelatedRpc rpc);
 
 // ============== Data Structures ==============
 
@@ -121,11 +135,10 @@ struct ThrottleCoordinatorParams {
 // - No time awareness: based on tick count, driven by caller
 // - No config dependency: all parameters passed via constructor/update_params
 //
-// Tick to time ratio:
-// - 1 tick = 1 second is the default interpretation
-// - The caller can decide the actual time interval between ticks
-// - For example, if calling tick() every 100ms, then 10 ticks = 1 second
-//   and params should be adjusted accordingly
+// Tick semantics:
+// - 1 tick = 1 millisecond (fixed unit)
+// - upgrade_cooldown_ticks and downgrade_after_ticks are in milliseconds
+// - The tick thread advances time by 1000 ticks (1 second) each iteration
 class RpcThrottleCoordinator {
 public:
     explicit RpcThrottleCoordinator(ThrottleCoordinatorParams params);
@@ -138,9 +151,9 @@ public:
     // Returns true if upgrade should be triggered
     bool report_ms_busy();
 
-    // Advance one tick (caller decides actual time between ticks)
+    // Advance by specified number of ticks (caller decides actual time between ticks)
     // Returns true if downgrade should be triggered
-    bool tick();
+    bool tick(int ticks = 1);
 
     // Tell coordinator whether there are pending upgrades that can be downgraded
     // Called by the state machine consumer after upgrade/downgrade

@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cloud/cloud_tablet_rpc_throttler.h"
+#include "cloud/cloud_ms_backpressure_handler.h"
 
 #include <fmt/format.h>
 #include <glog/logging.h>
 
 #include <algorithm>
 #include <cmath>
+#include <queue>
 #include <thread>
 
 #include "cloud/config.h"
@@ -41,19 +42,6 @@ bvar::LatencyRecorder g_table_throttle_wait_us("ms_rpc_backpressure_throttle_wai
 bvar::Adder<uint64_t> g_ms_busy_count("ms_rpc_backpressure_ms_busy_count");
 bvar::Window<bvar::Adder<uint64_t>> g_ms_busy_qpm("ms_rpc_backpressure_ms_busy_qpm",
                                                   &g_ms_busy_count, 60);
-
-// Display names for LoadRelatedRpc types
-static constexpr std::string_view LOAD_RELATED_RPC_NAMES[] = {
-        "prepare_rowset", "commit_rowset", "update_tmp_rowset", "update_packed_file_info",
-        "update_delete_bitmap"};
-
-std::string_view load_related_rpc_name(LoadRelatedRpc rpc) {
-    size_t idx = static_cast<size_t>(rpc);
-    if (idx < static_cast<size_t>(LoadRelatedRpc::COUNT)) {
-        return LOAD_RELATED_RPC_NAMES[idx];
-    }
-    return "unknown";
-}
 
 // ============== StrictQpsLimiter ==============
 
@@ -158,34 +146,42 @@ TableRpcQpsCounter* TableRpcQpsRegistry::get_or_create_counter(LoadRelatedRpc rp
     return ptr;
 }
 
-std::vector<std::pair<int64_t, double>> TableRpcQpsRegistry::get_top_k_tables(LoadRelatedRpc rpc_type,
-                                                                              int k) const {
+std::vector<std::pair<int64_t, double>> TableRpcQpsRegistry::get_top_k_tables(
+        LoadRelatedRpc rpc_type, int k) const {
     size_t idx = static_cast<size_t>(rpc_type);
     if (idx >= static_cast<size_t>(LoadRelatedRpc::COUNT) || k <= 0) {
         return {};
     }
 
-    std::vector<std::pair<int64_t, double>> result;
+    // Use a min-heap of size k to find top-k without allocating a vector for all tables.
+    // The heap top is the smallest among the k largest elements seen so far.
+    using Entry = std::pair<int64_t, double>; // (table_id, qps)
+    auto min_cmp = [](const Entry& a, const Entry& b) { return a.second > b.second; };
+    std::priority_queue<Entry, std::vector<Entry>, decltype(min_cmp)> min_heap(min_cmp);
 
     {
         std::shared_lock lock(_mutex);
-        result.reserve(_counters[idx].size());
         for (const auto& [table_id, counter] : _counters[idx]) {
             double qps = counter->get_qps();
             if (qps > 0) {
-                result.emplace_back(table_id, qps);
+                if (static_cast<int>(min_heap.size()) < k) {
+                    min_heap.push({table_id, qps});
+                } else if (qps > min_heap.top().second) {
+                    min_heap.pop();
+                    min_heap.push({table_id, qps});
+                }
             }
         }
     }
 
-    // Sort by QPS in descending order
-    std::sort(result.begin(), result.end(),
-              [](const auto& a, const auto& b) { return a.second > b.second; });
-
-    // Keep only top-k
-    if (static_cast<int>(result.size()) > k) {
-        result.resize(k);
+    // Extract results from heap (comes out in ascending order, reverse to descending)
+    std::vector<Entry> result;
+    result.reserve(min_heap.size());
+    while (!min_heap.empty()) {
+        result.push_back(min_heap.top());
+        min_heap.pop();
     }
+    std::reverse(result.begin(), result.end());
 
     return result;
 }
@@ -332,23 +328,26 @@ MSBackpressureHandler::MSBackpressureHandler(TableRpcQpsRegistry* qps_registry,
     _state_machine = std::make_unique<RpcThrottleStateMachine>(throttle_params);
 
     // Initialize coordinator with config values
-    // Note: config is in seconds, coordinator uses ticks (1 tick = 1 second in production)
+    // Coordinator uses ticks where 1 tick = 1 millisecond (fixed unit)
+    // This allows tick_interval_ms to change at runtime without affecting correctness
     ThrottleCoordinatorParams coordinator_params {
-            .upgrade_cooldown_ticks = config::ms_backpressure_upgrade_interval_sec,
-            .downgrade_after_ticks = config::ms_backpressure_downgrade_interval_sec,
+            .upgrade_cooldown_ticks = config::ms_backpressure_upgrade_interval_sec * 1000,
+            .downgrade_after_ticks = config::ms_backpressure_downgrade_interval_sec * 1000,
     };
     _coordinator = std::make_unique<RpcThrottleCoordinator>(coordinator_params);
 
     // Start background tick thread if backpressure handling is enabled
     if (config::enable_ms_backpressure_handling) {
         auto st = Thread::create(
-                "MSBackpressureHandler", "tick_thread",
-                [this]() { this->_tick_thread_callback(); }, &_tick_thread);
+                "MSBackpressureHandler", "tick_thread", [this]() { this->_tick_thread_callback(); },
+                &_tick_thread);
         if (!st.ok()) {
             LOG(WARNING) << "Failed to create tick thread for MSBackpressureHandler: " << st;
         } else {
-            LOG(INFO) << "MSBackpressureHandler tick thread started, interval: "
-                      << config::ms_backpressure_tick_interval_ms << "ms";
+            LOG(INFO) << "MSBackpressureHandler started: upgrade_cooldown="
+                      << config::ms_backpressure_upgrade_interval_sec
+                      << "s, downgrade_interval=" << config::ms_backpressure_downgrade_interval_sec
+                      << "s";
         }
     }
 }
@@ -361,10 +360,28 @@ MSBackpressureHandler::~MSBackpressureHandler() {
 }
 
 void MSBackpressureHandler::_tick_thread_callback() {
-    int tick_interval_ms = config::ms_backpressure_tick_interval_ms;
+    // Fixed tick interval: 1 second. Since 1 tick = 1 ms, advance by 1000 ticks each iteration.
+    constexpr int kTickIntervalMs = 1000;
     do {
-        try_downgrade();
-    } while (!_stop_latch.wait_for(std::chrono::milliseconds(tick_interval_ms)));
+        _advance_time(kTickIntervalMs);
+    } while (!_stop_latch.wait_for(std::chrono::milliseconds(kTickIntervalMs)));
+}
+
+void MSBackpressureHandler::_advance_time(int ticks) {
+    if (!config::enable_ms_backpressure_handling) {
+        return;
+    }
+
+    // Advance coordinator time; if downgrade is triggered, handle it
+    if (_coordinator->tick(ticks)) {
+        LOG(INFO) << "Time advanced, triggering throttle downgrade";
+
+        auto actions = _state_machine->on_downgrade();
+        _apply_actions(actions);
+        _coordinator->set_has_pending_upgrades(_state_machine->upgrade_level() > 0);
+
+        g_backpressure_downgrade_count << 1;
+    }
 }
 
 bool MSBackpressureHandler::on_ms_busy() {
@@ -389,43 +406,18 @@ bool MSBackpressureHandler::on_ms_busy() {
     LOG(INFO) << "Received MS_BUSY, triggering throttle upgrade";
 
     // Build QPS snapshot from registry
-    auto snapshot = build_qps_snapshot();
+    auto snapshot = _build_qps_snapshot();
 
     // Get actions from state machine
     auto actions = _state_machine->on_upgrade(snapshot);
 
     // Apply actions to throttler
-    apply_actions(actions);
+    _apply_actions(actions);
 
     // Update coordinator's pending state
     _coordinator->set_has_pending_upgrades(_state_machine->upgrade_level() > 0);
 
     g_backpressure_upgrade_count << 1;
-    return true;
-}
-
-bool MSBackpressureHandler::try_downgrade() {
-    if (!config::enable_ms_backpressure_handling) {
-        return false;
-    }
-
-    // Advance coordinator by one tick
-    if (!_coordinator->tick()) {
-        return false;
-    }
-
-    LOG(INFO) << "Triggering throttle downgrade";
-
-    // Get actions from state machine
-    auto actions = _state_machine->on_downgrade();
-
-    // Apply actions to throttler
-    apply_actions(actions);
-
-    // Update coordinator's pending state
-    _coordinator->set_has_pending_upgrades(_state_machine->upgrade_level() > 0);
-
-    g_backpressure_downgrade_count << 1;
     return true;
 }
 
@@ -476,7 +468,7 @@ int MSBackpressureHandler::ticks_since_last_upgrade() const {
     return _coordinator->ticks_since_last_upgrade();
 }
 
-void MSBackpressureHandler::apply_actions(const std::vector<RpcThrottleAction>& actions) {
+void MSBackpressureHandler::_apply_actions(const std::vector<RpcThrottleAction>& actions) {
     for (const auto& action : actions) {
         switch (action.type) {
         case RpcThrottleAction::Type::SET_LIMIT:
@@ -489,7 +481,7 @@ void MSBackpressureHandler::apply_actions(const std::vector<RpcThrottleAction>& 
     }
 }
 
-std::vector<RpcQpsSnapshot> MSBackpressureHandler::build_qps_snapshot() const {
+std::vector<RpcQpsSnapshot> MSBackpressureHandler::_build_qps_snapshot() const {
     std::vector<RpcQpsSnapshot> snapshot;
 
     // For each RPC type, get top-k tables
