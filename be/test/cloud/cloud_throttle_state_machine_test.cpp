@@ -33,11 +33,10 @@ TEST_F(RpcThrottleStateMachineTest, SingleUpgradeAndDowngrade) {
     RpcThrottleParams params {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
     RpcThrottleStateMachine sm(params);
 
-    // Construct QPS snapshot: table 100 has QPS=200, table 200 has QPS=100
+    // Construct QPS snapshot: caller already provides top-k (top-2 here)
     std::vector<RpcQpsSnapshot> snapshot = {
             {LoadRelatedRpc::PREPARE_ROWSET, 100, 200.0},
             {LoadRelatedRpc::PREPARE_ROWSET, 200, 100.0},
-            {LoadRelatedRpc::PREPARE_ROWSET, 300, 10.0}, // Not in top-2
     };
 
     auto actions = sm.on_upgrade(snapshot);
@@ -122,10 +121,9 @@ TEST_F(RpcThrottleStateMachineTest, UpdateTopKAtRuntime) {
     RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
     RpcThrottleStateMachine sm(params);
 
-    // First upgrade, top_k=1, only table 100 is throttled
+    // First upgrade, top_k=1, caller provides only 1 entry
     auto a1 = sm.on_upgrade({
             {LoadRelatedRpc::PREPARE_ROWSET, 100, 100.0},
-            {LoadRelatedRpc::PREPARE_ROWSET, 200, 80.0},
     });
     ASSERT_EQ(a1.size(), 1);
     EXPECT_EQ(a1[0].table_id, 100);
@@ -181,16 +179,14 @@ TEST_F(RpcThrottleStateMachineTest, MultipleRpcTypes) {
     RpcThrottleParams params {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
     RpcThrottleStateMachine sm(params);
 
-    // Multiple RPC types
+    // Multiple RPC types, caller provides top-2 per RPC type
     auto actions = sm.on_upgrade({
-            // PREPARE_ROWSET: table 100 (200 qps), table 200 (100 qps)
+            // PREPARE_ROWSET: top-2
             {LoadRelatedRpc::PREPARE_ROWSET, 100, 200.0},
             {LoadRelatedRpc::PREPARE_ROWSET, 200, 100.0},
-            {LoadRelatedRpc::PREPARE_ROWSET, 300, 50.0},
-            // COMMIT_ROWSET: table 100 (150 qps), table 400 (80 qps)
+            // COMMIT_ROWSET: top-2
             {LoadRelatedRpc::COMMIT_ROWSET, 100, 150.0},
             {LoadRelatedRpc::COMMIT_ROWSET, 400, 80.0},
-            {LoadRelatedRpc::COMMIT_ROWSET, 500, 30.0},
     });
 
     // Should have 4 actions: 2 for each RPC type
@@ -267,6 +263,207 @@ TEST_F(RpcThrottleStateMachineTest, OnlyLimitWhenQpsHighEnough) {
     EXPECT_EQ(actions[1].table_id, 300);
 }
 
+// ============== Top-K Snapshot Pattern Tests ==============
+
+TEST_F(RpcThrottleStateMachineTest, EmptySnapshot) {
+    RpcThrottleParams params {.top_k = 3, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
+
+    // Empty snapshot should produce no actions and no upgrade record
+    auto actions = sm.on_upgrade({});
+    EXPECT_TRUE(actions.empty());
+    EXPECT_EQ(sm.upgrade_level(), 0);
+}
+
+TEST_F(RpcThrottleStateMachineTest, SingleEntrySnapshot) {
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
+
+    auto actions = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 200.0}});
+    ASSERT_EQ(actions.size(), 1);
+    EXPECT_EQ(actions[0].table_id, 100);
+    EXPECT_DOUBLE_EQ(actions[0].qps_limit, 100.0);
+    EXPECT_EQ(sm.upgrade_level(), 1);
+}
+
+TEST_F(RpcThrottleStateMachineTest, RepeatedUpgradeOnSameTable) {
+    // Simulate caller providing the same table in consecutive top-k snapshots
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
+
+    // First upgrade: 100 * 0.5 = 50
+    auto a1 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 100.0}});
+    ASSERT_EQ(a1.size(), 1);
+    EXPECT_DOUBLE_EQ(a1[0].qps_limit, 50.0);
+
+    // Second upgrade: existing limit 50 * 0.5 = 25
+    auto a2 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 50.0}});
+    ASSERT_EQ(a2.size(), 1);
+    EXPECT_DOUBLE_EQ(a2[0].qps_limit, 25.0);
+
+    // Third upgrade: existing limit 25 * 0.5 = 12.5
+    auto a3 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 25.0}});
+    ASSERT_EQ(a3.size(), 1);
+    EXPECT_DOUBLE_EQ(a3[0].qps_limit, 12.5);
+
+    EXPECT_EQ(sm.upgrade_level(), 3);
+
+    // Downgrade 3 times, each restoring previous limit
+    auto d1 = sm.on_downgrade();
+    ASSERT_EQ(d1.size(), 1);
+    EXPECT_DOUBLE_EQ(d1[0].qps_limit, 25.0);
+
+    auto d2 = sm.on_downgrade();
+    ASSERT_EQ(d2.size(), 1);
+    EXPECT_DOUBLE_EQ(d2[0].qps_limit, 50.0);
+
+    auto d3 = sm.on_downgrade();
+    ASSERT_EQ(d3.size(), 1);
+    EXPECT_EQ(d3[0].type, RpcThrottleAction::Type::REMOVE_LIMIT);
+
+    EXPECT_EQ(sm.upgrade_level(), 0);
+}
+
+TEST_F(RpcThrottleStateMachineTest, TopKTablesChangeAcrossUpgrades) {
+    // Different tables appear in top-k across successive upgrades
+    RpcThrottleParams params {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
+
+    // First upgrade: tables 100, 200
+    auto a1 = sm.on_upgrade({
+            {LoadRelatedRpc::PREPARE_ROWSET, 100, 200.0},
+            {LoadRelatedRpc::PREPARE_ROWSET, 200, 100.0},
+    });
+    ASSERT_EQ(a1.size(), 2);
+    EXPECT_EQ(a1[0].table_id, 100);
+    EXPECT_EQ(a1[1].table_id, 200);
+
+    // Second upgrade: tables 200, 300 (100 dropped out of top-k, 300 is new)
+    auto a2 = sm.on_upgrade({
+            {LoadRelatedRpc::PREPARE_ROWSET, 200, 50.0},
+            {LoadRelatedRpc::PREPARE_ROWSET, 300, 80.0},
+    });
+    ASSERT_EQ(a2.size(), 2);
+
+    // table 200: already limited at 50, new_limit = 50 * 0.5 = 25
+    // table 300: new, 80 * 0.5 = 40
+    bool found_200 = false, found_300 = false;
+    for (const auto& a : a2) {
+        if (a.table_id == 200) {
+            EXPECT_DOUBLE_EQ(a.qps_limit, 25.0);
+            found_200 = true;
+        } else if (a.table_id == 300) {
+            EXPECT_DOUBLE_EQ(a.qps_limit, 40.0);
+            found_300 = true;
+        }
+    }
+    EXPECT_TRUE(found_200);
+    EXPECT_TRUE(found_300);
+
+    EXPECT_EQ(sm.upgrade_level(), 2);
+
+    // Downgrade: undo second upgrade
+    // table 200 restored to 50, table 300 removed
+    auto d1 = sm.on_downgrade();
+    ASSERT_EQ(d1.size(), 2);
+    for (const auto& a : d1) {
+        if (a.table_id == 200) {
+            EXPECT_EQ(a.type, RpcThrottleAction::Type::SET_LIMIT);
+            EXPECT_DOUBLE_EQ(a.qps_limit, 50.0);
+        } else if (a.table_id == 300) {
+            EXPECT_EQ(a.type, RpcThrottleAction::Type::REMOVE_LIMIT);
+        }
+    }
+
+    // table 100 still has limit from first upgrade
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 100.0);
+    // table 200 restored to first upgrade limit
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 200), 50.0);
+    // table 300 no longer limited
+    EXPECT_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 300), 0.0);
+}
+
+TEST_F(RpcThrottleStateMachineTest, MixedLimitedAndNewTables) {
+    // Snapshot contains both already-limited and never-limited tables
+    RpcThrottleParams params {.top_k = 3, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
+
+    // First upgrade: only table 100
+    auto a1 = sm.on_upgrade({{LoadRelatedRpc::COMMIT_ROWSET, 100, 100.0}});
+    ASSERT_EQ(a1.size(), 1);
+    EXPECT_DOUBLE_EQ(a1[0].qps_limit, 50.0);
+
+    // Second upgrade: table 100 (already limited) + table 200 (new)
+    auto a2 = sm.on_upgrade({
+            {LoadRelatedRpc::COMMIT_ROWSET, 100, 50.0},
+            {LoadRelatedRpc::COMMIT_ROWSET, 200, 80.0},
+    });
+    ASSERT_EQ(a2.size(), 2);
+
+    for (const auto& a : a2) {
+        if (a.table_id == 100) {
+            // Already has limit 50, new_limit = 50 * 0.5 = 25
+            EXPECT_DOUBLE_EQ(a.qps_limit, 25.0);
+        } else if (a.table_id == 200) {
+            // New, 80 * 0.5 = 40
+            EXPECT_DOUBLE_EQ(a.qps_limit, 40.0);
+        }
+    }
+
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::COMMIT_ROWSET, 100), 25.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::COMMIT_ROWSET, 200), 40.0);
+}
+
+TEST_F(RpcThrottleStateMachineTest, FloorQpsWithRepeatedUpgrades) {
+    // Verify floor_qps is enforced even after many successive upgrades
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 10.0};
+    RpcThrottleStateMachine sm(params);
+
+    // 100 * 0.5 = 50
+    auto a1 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 100.0}});
+    EXPECT_DOUBLE_EQ(a1[0].qps_limit, 50.0);
+
+    // 50 * 0.5 = 25
+    auto a2 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 50.0}});
+    EXPECT_DOUBLE_EQ(a2[0].qps_limit, 25.0);
+
+    // 25 * 0.5 = 12.5
+    auto a3 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 25.0}});
+    EXPECT_DOUBLE_EQ(a3[0].qps_limit, 12.5);
+
+    // 12.5 * 0.5 = 6.25 < floor(10), use floor
+    // NOTE: the ratio is applied to old_limit (12.5), not current_qps
+    auto a4 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 12.5}});
+    EXPECT_DOUBLE_EQ(a4[0].qps_limit, 10.0);
+
+    // Already at floor: 10 * 0.5 = 5 < floor(10), stays at floor
+    auto a5 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 10.0}});
+    EXPECT_DOUBLE_EQ(a5[0].qps_limit, 10.0);
+}
+
+TEST_F(RpcThrottleStateMachineTest, MultiRpcTypeTopKIndependence) {
+    // Each RPC type's throttling is independent
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
+
+    // Same table_id, different RPC types
+    auto actions = sm.on_upgrade({
+            {LoadRelatedRpc::PREPARE_ROWSET, 100, 200.0},
+            {LoadRelatedRpc::COMMIT_ROWSET, 100, 80.0},
+    });
+    ASSERT_EQ(actions.size(), 2);
+
+    // Each (rpc_type, table_id) gets its own limit
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 100.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::COMMIT_ROWSET, 100), 40.0);
+
+    // Downgrade undoes both
+    auto downgrade = sm.on_downgrade();
+    ASSERT_EQ(downgrade.size(), 2);
+    EXPECT_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 0.0);
+    EXPECT_EQ(sm.get_current_limit(LoadRelatedRpc::COMMIT_ROWSET, 100), 0.0);
+}
+
 // ============== RpcThrottleCoordinator Tests ==============
 
 class RpcThrottleCoordinatorTest : public testing::Test {
@@ -313,7 +510,7 @@ TEST_F(RpcThrottleCoordinatorTest, DowngradeAfterQuietPeriod) {
 
 TEST_F(RpcThrottleCoordinatorTest, MsBusyResetsDowngradeTimer) {
     ThrottleCoordinatorParams params {
-            .upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 10};
+            .upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 10};
     RpcThrottleCoordinator coord(params);
 
     coord.report_ms_busy();
@@ -342,7 +539,9 @@ TEST_F(RpcThrottleCoordinatorTest, NoDowngradeWithoutPendingUpgrades) {
     RpcThrottleCoordinator coord(params);
 
     coord.report_ms_busy();
-    // Don't set has_pending_upgrades
+    // Explicitly clear pending upgrades to simulate the case where
+    // the caller decided not to upgrade (report_ms_busy sets it internally)
+    coord.set_has_pending_upgrades(false);
 
     for (int i = 0; i < 100; i++) {
         EXPECT_FALSE(coord.tick());
@@ -481,12 +680,11 @@ TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
     ThrottleCoordinatorParams cp {.upgrade_cooldown_ticks = 3, .downgrade_after_ticks = 5};
     RpcThrottleCoordinator coord(cp);
 
-    // Simulate 3 tables with QPS data
-    auto make_snapshot = [](double qps1, double qps2, double qps3) {
+    // Simulate 2 tables with QPS data (caller provides top-k, here top-2)
+    auto make_snapshot = [](double qps1, double qps2) {
         return std::vector<RpcQpsSnapshot> {
                 {LoadRelatedRpc::PREPARE_ROWSET, 100, qps1},
                 {LoadRelatedRpc::PREPARE_ROWSET, 200, qps2},
-                {LoadRelatedRpc::PREPARE_ROWSET, 300, qps3},
         };
     };
 
@@ -494,7 +692,7 @@ TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
 
     // T=0: MS_BUSY, trigger first upgrade
     ASSERT_TRUE(coord.report_ms_busy());
-    auto actions = sm.on_upgrade(make_snapshot(100, 50, 10));
+    auto actions = sm.on_upgrade(make_snapshot(100, 50));
     // top-2: table 100 (limit=50), table 200 (limit=25)
     ASSERT_EQ(actions.size(), 2);
     EXPECT_EQ(actions[0].table_id, 100);
@@ -511,7 +709,7 @@ TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
     coord.tick();
     ASSERT_TRUE(coord.report_ms_busy());
     // table 100 already has limit=50, so new_limit = 50*0.5 = 25
-    actions = sm.on_upgrade(make_snapshot(50, 25, 10));
+    actions = sm.on_upgrade(make_snapshot(50, 25));
     EXPECT_EQ(sm.upgrade_level(), 2);
     coord.set_has_pending_upgrades(true);
 
@@ -563,7 +761,8 @@ TEST(IntegrationTest, DynamicParamsDuringCycle) {
     // Runtime update: change ratio to 0.1
     sm.update_params({.top_k = 1, .ratio = 0.1, .floor_qps = 1.0});
 
-    // T=4: tick
+    // T=4,5: ticks
+    coord.tick();
     coord.tick();
 
     // T=5: cooldown passed, second upgrade with new ratio

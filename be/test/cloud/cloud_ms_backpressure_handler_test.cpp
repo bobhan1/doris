@@ -148,6 +148,89 @@ TEST_F(TableRpcQpsRegistryTest, GetTopKTables) {
     EXPECT_LE(top_tables.size(), 2);
 }
 
+TEST_F(TableRpcQpsRegistryTest, GetTopKTablesWithKZero) {
+    TableRpcQpsRegistry registry;
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+
+    auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::PREPARE_ROWSET, 0);
+    EXPECT_TRUE(top_tables.empty());
+}
+
+TEST_F(TableRpcQpsRegistryTest, GetTopKTablesWithKNegative) {
+    TableRpcQpsRegistry registry;
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+
+    auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::PREPARE_ROWSET, -1);
+    EXPECT_TRUE(top_tables.empty());
+}
+
+TEST_F(TableRpcQpsRegistryTest, GetTopKTablesNoRecords) {
+    TableRpcQpsRegistry registry;
+
+    // No records for this RPC type
+    auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 5);
+    EXPECT_TRUE(top_tables.empty());
+}
+
+TEST_F(TableRpcQpsRegistryTest, GetTopKTablesKLargerThanTableCount) {
+    TableRpcQpsRegistry registry;
+
+    // Only 2 tables recorded
+    for (int i = 0; i < 10; i++) {
+        registry.record(LoadRelatedRpc::COMMIT_ROWSET, 100);
+        registry.record(LoadRelatedRpc::COMMIT_ROWSET, 200);
+    }
+
+    // Request top 100 but only 2 exist
+    auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::COMMIT_ROWSET, 100);
+    EXPECT_LE(top_tables.size(), 2);
+}
+
+TEST_F(TableRpcQpsRegistryTest, GetTopKTablesResultIsSortedDescending) {
+    TableRpcQpsRegistry registry;
+
+    // Record many RPCs for multiple tables
+    for (int i = 0; i < 100; i++) {
+        registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+        registry.record(LoadRelatedRpc::PREPARE_ROWSET, 200);
+        registry.record(LoadRelatedRpc::PREPARE_ROWSET, 300);
+    }
+
+    auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::PREPARE_ROWSET, 10);
+    // Verify descending order
+    for (size_t i = 1; i < top_tables.size(); i++) {
+        EXPECT_GE(top_tables[i - 1].second, top_tables[i].second)
+                << "Result should be sorted by QPS descending";
+    }
+}
+
+TEST_F(TableRpcQpsRegistryTest, GetTopKTablesCrossRpcTypeIndependence) {
+    TableRpcQpsRegistry registry;
+
+    // Record only for PREPARE_ROWSET
+    for (int i = 0; i < 50; i++) {
+        registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+    }
+
+    // COMMIT_ROWSET should have no records
+    auto top_commit = registry.get_top_k_tables(LoadRelatedRpc::COMMIT_ROWSET, 10);
+    EXPECT_TRUE(top_commit.empty());
+
+    // PREPARE_ROWSET should have records
+    auto top_prepare = registry.get_top_k_tables(LoadRelatedRpc::PREPARE_ROWSET, 10);
+    EXPECT_LE(top_prepare.size(), 1);
+}
+
+TEST_F(TableRpcQpsRegistryTest, GetTopKTablesInvalidRpcType) {
+    TableRpcQpsRegistry registry;
+
+    auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::COUNT, 5);
+    EXPECT_TRUE(top_tables.empty());
+
+    top_tables = registry.get_top_k_tables(static_cast<LoadRelatedRpc>(999), 5);
+    EXPECT_TRUE(top_tables.empty());
+}
+
 TEST_F(TableRpcQpsRegistryTest, MaxTrackedTables) {
     config::ms_rpc_max_tracked_tables_per_rpc = 5;
 

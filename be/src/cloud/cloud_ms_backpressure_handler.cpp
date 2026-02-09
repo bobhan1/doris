@@ -354,7 +354,7 @@ MSBackpressureHandler::MSBackpressureHandler(TableRpcQpsRegistry* qps_registry,
 
 MSBackpressureHandler::~MSBackpressureHandler() {
     _stop_latch.count_down();
-    if (_tick_thread && _tick_thread->joinable()) {
+    if (_tick_thread) {
         _tick_thread->join();
     }
 }
