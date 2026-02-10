@@ -491,8 +491,7 @@ TEST_F(RpcThrottleCoordinatorTest, UpgradeCooldown) {
 }
 
 TEST_F(RpcThrottleCoordinatorTest, DowngradeAfterQuietPeriod) {
-    ThrottleCoordinatorParams params {
-            .upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 10};
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 10};
     RpcThrottleCoordinator coord(params);
 
     // Trigger an upgrade
@@ -509,8 +508,7 @@ TEST_F(RpcThrottleCoordinatorTest, DowngradeAfterQuietPeriod) {
 }
 
 TEST_F(RpcThrottleCoordinatorTest, MsBusyResetsDowngradeTimer) {
-    ThrottleCoordinatorParams params {
-            .upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 10};
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 10};
     RpcThrottleCoordinator coord(params);
 
     coord.report_ms_busy();
@@ -534,8 +532,7 @@ TEST_F(RpcThrottleCoordinatorTest, MsBusyResetsDowngradeTimer) {
 }
 
 TEST_F(RpcThrottleCoordinatorTest, NoDowngradeWithoutPendingUpgrades) {
-    ThrottleCoordinatorParams params {
-            .upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 3};
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 3};
     RpcThrottleCoordinator coord(params);
 
     coord.report_ms_busy();
@@ -569,8 +566,7 @@ TEST_F(RpcThrottleCoordinatorTest, UpdateUpgradeCooldownAtRuntime) {
 }
 
 TEST_F(RpcThrottleCoordinatorTest, UpdateDowngradeIntervalAtRuntime) {
-    ThrottleCoordinatorParams params {
-            .upgrade_cooldown_ticks = 1, .downgrade_after_ticks = 20};
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 1, .downgrade_after_ticks = 20};
     RpcThrottleCoordinator coord(params);
 
     coord.report_ms_busy();
@@ -589,8 +585,7 @@ TEST_F(RpcThrottleCoordinatorTest, UpdateDowngradeIntervalAtRuntime) {
 }
 
 TEST_F(RpcThrottleCoordinatorTest, UpdateBothParamsAtRuntime) {
-    ThrottleCoordinatorParams params {
-            .upgrade_cooldown_ticks = 100, .downgrade_after_ticks = 100};
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 100, .downgrade_after_ticks = 100};
     RpcThrottleCoordinator coord(params);
 
     EXPECT_TRUE(coord.report_ms_busy());
@@ -600,7 +595,7 @@ TEST_F(RpcThrottleCoordinatorTest, UpdateBothParamsAtRuntime) {
     for (int i = 0; i < 50; i++) {
         coord.tick();
         EXPECT_FALSE(coord.report_ms_busy()); // Cooling down
-        EXPECT_FALSE(coord.tick()); // Downgrade interval not reached
+        EXPECT_FALSE(coord.tick());           // Downgrade interval not reached
     }
 
     // Runtime drastically shorten both intervals
@@ -672,7 +667,7 @@ TEST_F(RpcThrottleCoordinatorTest, GetParams) {
 
 // ============== Integration Tests ==============
 
-TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
+TEST(RpcThrottleIntegrationTest, FullUpgradeDowngradeCycle) {
     // Full in-memory upgrade/downgrade cycle, no time/config/bvar dependency
     RpcThrottleParams tp {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
     RpcThrottleStateMachine sm(tp);
@@ -688,15 +683,15 @@ TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
         };
     };
 
-    std::vector<RpcThrottleAction> all_actions;
-
     // T=0: MS_BUSY, trigger first upgrade
     ASSERT_TRUE(coord.report_ms_busy());
     auto actions = sm.on_upgrade(make_snapshot(100, 50));
     // top-2: table 100 (limit=50), table 200 (limit=25)
     ASSERT_EQ(actions.size(), 2);
+    EXPECT_EQ(actions[0].type, RpcThrottleAction::Type::SET_LIMIT);
     EXPECT_EQ(actions[0].table_id, 100);
     EXPECT_DOUBLE_EQ(actions[0].qps_limit, 50.0);
+    EXPECT_EQ(actions[1].type, RpcThrottleAction::Type::SET_LIMIT);
     EXPECT_EQ(actions[1].table_id, 200);
     EXPECT_DOUBLE_EQ(actions[1].qps_limit, 25.0);
     coord.set_has_pending_upgrades(sm.upgrade_level() > 0);
@@ -708,8 +703,16 @@ TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
     // T=3: Another MS_BUSY (cooldown just passed), trigger second upgrade
     coord.tick();
     ASSERT_TRUE(coord.report_ms_busy());
-    // table 100 already has limit=50, so new_limit = 50*0.5 = 25
+    // table 100 already has limit=50, new_limit = 50*0.5 = 25
+    // table 200 already has limit=25, new_limit = 25*0.5 = 12.5
     actions = sm.on_upgrade(make_snapshot(50, 25));
+    ASSERT_EQ(actions.size(), 2);
+    EXPECT_EQ(actions[0].type, RpcThrottleAction::Type::SET_LIMIT);
+    EXPECT_EQ(actions[0].table_id, 100);
+    EXPECT_DOUBLE_EQ(actions[0].qps_limit, 25.0);
+    EXPECT_EQ(actions[1].type, RpcThrottleAction::Type::SET_LIMIT);
+    EXPECT_EQ(actions[1].table_id, 200);
+    EXPECT_DOUBLE_EQ(actions[1].qps_limit, 12.5);
     EXPECT_EQ(sm.upgrade_level(), 2);
     coord.set_has_pending_upgrades(true);
 
@@ -719,7 +722,19 @@ TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
     }
     ASSERT_TRUE(coord.tick()); // T=8: 5 ticks since T=3 MS_BUSY
 
-    actions = sm.on_downgrade(); // Undo second upgrade
+    // Undo second upgrade: restore table 100 to 50, table 200 to 25
+    actions = sm.on_downgrade();
+    ASSERT_EQ(actions.size(), 2);
+    for (const auto& a : actions) {
+        EXPECT_EQ(a.type, RpcThrottleAction::Type::SET_LIMIT);
+        if (a.table_id == 100) {
+            EXPECT_DOUBLE_EQ(a.qps_limit, 50.0);
+        } else if (a.table_id == 200) {
+            EXPECT_DOUBLE_EQ(a.qps_limit, 25.0);
+        } else {
+            FAIL() << "Unexpected table_id: " << a.table_id;
+        }
+    }
     EXPECT_EQ(sm.upgrade_level(), 1);
     coord.set_has_pending_upgrades(true);
 
@@ -729,7 +744,14 @@ TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
     }
     ASSERT_TRUE(coord.tick());
 
-    actions = sm.on_downgrade(); // Undo first upgrade
+    // Undo first upgrade: remove limits for both tables
+    actions = sm.on_downgrade();
+    ASSERT_EQ(actions.size(), 2);
+    for (const auto& a : actions) {
+        EXPECT_EQ(a.type, RpcThrottleAction::Type::REMOVE_LIMIT);
+        EXPECT_TRUE(a.table_id == 100 || a.table_id == 200)
+                << "Unexpected table_id: " << a.table_id;
+    }
     EXPECT_EQ(sm.upgrade_level(), 0);
     coord.set_has_pending_upgrades(false);
 
@@ -739,7 +761,7 @@ TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
     }
 }
 
-TEST(IntegrationTest, DynamicParamsDuringCycle) {
+TEST(RpcThrottleIntegrationTest, DynamicParamsDuringCycle) {
     RpcThrottleParams tp {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
     RpcThrottleStateMachine sm(tp);
 
@@ -750,6 +772,9 @@ TEST(IntegrationTest, DynamicParamsDuringCycle) {
     coord.report_ms_busy();
     auto actions = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 100.0}});
     ASSERT_EQ(actions.size(), 1);
+    EXPECT_EQ(actions[0].type, RpcThrottleAction::Type::SET_LIMIT);
+    EXPECT_EQ(actions[0].rpc_type, LoadRelatedRpc::PREPARE_ROWSET);
+    EXPECT_EQ(actions[0].table_id, 100);
     EXPECT_DOUBLE_EQ(actions[0].qps_limit, 50.0);
     coord.set_has_pending_upgrades(true);
 
@@ -769,6 +794,9 @@ TEST(IntegrationTest, DynamicParamsDuringCycle) {
     EXPECT_TRUE(coord.report_ms_busy());
     actions = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 50.0}});
     ASSERT_EQ(actions.size(), 1);
+    EXPECT_EQ(actions[0].type, RpcThrottleAction::Type::SET_LIMIT);
+    EXPECT_EQ(actions[0].rpc_type, LoadRelatedRpc::PREPARE_ROWSET);
+    EXPECT_EQ(actions[0].table_id, 100);
     EXPECT_DOUBLE_EQ(actions[0].qps_limit, 5.0); // 50 * 0.1, not 50 * 0.5
     coord.set_has_pending_upgrades(true);
 
@@ -781,9 +809,146 @@ TEST(IntegrationTest, DynamicParamsDuringCycle) {
     }
     EXPECT_TRUE(coord.tick());
 
+    // Undo second upgrade: restore table 100 to 50.0
     actions = sm.on_downgrade();
-    EXPECT_EQ(actions.size(), 1);
-    EXPECT_DOUBLE_EQ(actions[0].qps_limit, 50.0); // Restored to first upgrade value
+    ASSERT_EQ(actions.size(), 1);
+    EXPECT_EQ(actions[0].type, RpcThrottleAction::Type::SET_LIMIT);
+    EXPECT_EQ(actions[0].rpc_type, LoadRelatedRpc::PREPARE_ROWSET);
+    EXPECT_EQ(actions[0].table_id, 100);
+    EXPECT_DOUBLE_EQ(actions[0].qps_limit, 50.0);
+}
+
+TEST(RpcThrottleIntegrationTest, TopKTablesChangeDuringUpgradeDowngrade) {
+    RpcThrottleParams tp {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(tp);
+
+    ThrottleCoordinatorParams cp {.upgrade_cooldown_ticks = 1, .downgrade_after_ticks = 5};
+    RpcThrottleCoordinator coord(cp);
+
+    // Upgrade 1: top-2 = {100, 200}
+    ASSERT_TRUE(coord.report_ms_busy());
+    auto actions = sm.on_upgrade({
+            {LoadRelatedRpc::PREPARE_ROWSET, 100, 200.0},
+            {LoadRelatedRpc::PREPARE_ROWSET, 200, 100.0},
+    });
+    ASSERT_EQ(actions.size(), 2);
+    EXPECT_EQ(actions[0].table_id, 100);
+    EXPECT_DOUBLE_EQ(actions[0].qps_limit, 100.0); // 200 * 0.5
+    EXPECT_EQ(actions[1].table_id, 200);
+    EXPECT_DOUBLE_EQ(actions[1].qps_limit, 50.0); // 100 * 0.5
+    EXPECT_EQ(sm.upgrade_level(), 1);
+    coord.set_has_pending_upgrades(true);
+
+    // Upgrade 2: top-2 = {200, 300}, table 100 dropped out, table 300 is new
+    coord.tick();
+    ASSERT_TRUE(coord.report_ms_busy());
+    actions = sm.on_upgrade({
+            {LoadRelatedRpc::PREPARE_ROWSET, 200, 50.0},
+            {LoadRelatedRpc::PREPARE_ROWSET, 300, 80.0},
+    });
+    ASSERT_EQ(actions.size(), 2);
+    for (const auto& a : actions) {
+        EXPECT_EQ(a.type, RpcThrottleAction::Type::SET_LIMIT);
+        if (a.table_id == 200) {
+            EXPECT_DOUBLE_EQ(a.qps_limit, 25.0); // old_limit=50, 50*0.5=25
+        } else if (a.table_id == 300) {
+            EXPECT_DOUBLE_EQ(a.qps_limit, 40.0); // new, 80*0.5=40
+        } else {
+            FAIL() << "Unexpected table_id: " << a.table_id;
+        }
+    }
+    EXPECT_EQ(sm.upgrade_level(), 2);
+    coord.set_has_pending_upgrades(true);
+
+    // Upgrade 3: top-2 = {300, 400}, table 200 dropped out, table 400 is new
+    coord.tick();
+    ASSERT_TRUE(coord.report_ms_busy());
+    actions = sm.on_upgrade({
+            {LoadRelatedRpc::PREPARE_ROWSET, 300, 40.0},
+            {LoadRelatedRpc::PREPARE_ROWSET, 400, 60.0},
+    });
+    ASSERT_EQ(actions.size(), 2);
+    for (const auto& a : actions) {
+        EXPECT_EQ(a.type, RpcThrottleAction::Type::SET_LIMIT);
+        if (a.table_id == 300) {
+            EXPECT_DOUBLE_EQ(a.qps_limit, 20.0); // old_limit=40, 40*0.5=20
+        } else if (a.table_id == 400) {
+            EXPECT_DOUBLE_EQ(a.qps_limit, 30.0); // new, 60*0.5=30
+        } else {
+            FAIL() << "Unexpected table_id: " << a.table_id;
+        }
+    }
+    EXPECT_EQ(sm.upgrade_level(), 3);
+    // Verify all active limits
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 100.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 200), 25.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 300), 20.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 400), 30.0);
+    coord.set_has_pending_upgrades(true);
+
+    // Downgrade 1: undo upgrade 3, restore {300→40, 400→removed}
+    for (int i = 0; i < 4; i++) {
+        EXPECT_FALSE(coord.tick());
+    }
+    ASSERT_TRUE(coord.tick());
+    actions = sm.on_downgrade();
+    ASSERT_EQ(actions.size(), 2);
+    for (const auto& a : actions) {
+        if (a.table_id == 300) {
+            EXPECT_EQ(a.type, RpcThrottleAction::Type::SET_LIMIT);
+            EXPECT_DOUBLE_EQ(a.qps_limit, 40.0);
+        } else if (a.table_id == 400) {
+            EXPECT_EQ(a.type, RpcThrottleAction::Type::REMOVE_LIMIT);
+        } else {
+            FAIL() << "Unexpected table_id: " << a.table_id;
+        }
+    }
+    EXPECT_EQ(sm.upgrade_level(), 2);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 100.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 200), 25.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 300), 40.0);
+    EXPECT_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 400), 0.0);
+    coord.set_has_pending_upgrades(true);
+
+    // Downgrade 2: undo upgrade 2, restore {200→50, 300→removed}
+    for (int i = 0; i < 4; i++) {
+        EXPECT_FALSE(coord.tick());
+    }
+    ASSERT_TRUE(coord.tick());
+    actions = sm.on_downgrade();
+    ASSERT_EQ(actions.size(), 2);
+    for (const auto& a : actions) {
+        if (a.table_id == 200) {
+            EXPECT_EQ(a.type, RpcThrottleAction::Type::SET_LIMIT);
+            EXPECT_DOUBLE_EQ(a.qps_limit, 50.0);
+        } else if (a.table_id == 300) {
+            EXPECT_EQ(a.type, RpcThrottleAction::Type::REMOVE_LIMIT);
+        } else {
+            FAIL() << "Unexpected table_id: " << a.table_id;
+        }
+    }
+    EXPECT_EQ(sm.upgrade_level(), 1);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 100.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 200), 50.0);
+    EXPECT_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 300), 0.0);
+    coord.set_has_pending_upgrades(true);
+
+    // Downgrade 3: undo upgrade 1, restore {100→removed, 200→removed}
+    for (int i = 0; i < 4; i++) {
+        EXPECT_FALSE(coord.tick());
+    }
+    ASSERT_TRUE(coord.tick());
+    actions = sm.on_downgrade();
+    ASSERT_EQ(actions.size(), 2);
+    for (const auto& a : actions) {
+        EXPECT_EQ(a.type, RpcThrottleAction::Type::REMOVE_LIMIT);
+        EXPECT_TRUE(a.table_id == 100 || a.table_id == 200)
+                << "Unexpected table_id: " << a.table_id;
+    }
+    EXPECT_EQ(sm.upgrade_level(), 0);
+    EXPECT_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 0.0);
+    EXPECT_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 200), 0.0);
+    coord.set_has_pending_upgrades(false);
 }
 
 } // namespace doris::cloud

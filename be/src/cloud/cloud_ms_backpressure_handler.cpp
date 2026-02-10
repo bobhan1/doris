@@ -83,12 +83,13 @@ double StrictQpsLimiter::get_qps() const {
 
 // ============== TableRpcQpsCounter ==============
 
-TableRpcQpsCounter::TableRpcQpsCounter(int64_t table_id, LoadRelatedRpc rpc_type)
+TableRpcQpsCounter::TableRpcQpsCounter(int64_t table_id, LoadRelatedRpc rpc_type, int window_sec)
         : _table_id(table_id), _rpc_type(rpc_type) {
     std::string bvar_name =
             fmt::format("ms_rpc_table_qps_{}_{}", load_related_rpc_name(rpc_type), table_id);
     _counter = std::make_unique<bvar::Adder<int64_t>>();
-    _qps = std::make_unique<bvar::PerSecond<bvar::Adder<int64_t>>>(bvar_name, _counter.get());
+    _qps = std::make_unique<bvar::PerSecond<bvar::Adder<int64_t>>>(bvar_name, _counter.get(),
+                                                                    window_sec);
 }
 
 void TableRpcQpsCounter::increment() {
@@ -132,15 +133,8 @@ TableRpcQpsCounter* TableRpcQpsRegistry::get_or_create_counter(LoadRelatedRpc rp
         return it->second.get();
     }
 
-    // Check if we've exceeded the maximum number of tracked tables
-    if (static_cast<int32_t>(_counters[idx].size()) >= config::ms_rpc_max_tracked_tables_per_rpc) {
-        LOG_EVERY_N(WARNING, 1000) << "Exceeded max tracked tables per RPC ("
-                                   << config::ms_rpc_max_tracked_tables_per_rpc << ") for "
-                                   << load_related_rpc_name(rpc_type);
-        return nullptr;
-    }
-
-    auto counter = std::make_unique<TableRpcQpsCounter>(table_id, rpc_type);
+    auto counter = std::make_unique<TableRpcQpsCounter>(table_id, rpc_type,
+                                                        config::ms_rpc_table_qps_window_sec);
     auto* ptr = counter.get();
     _counters[idx][table_id] = std::move(counter);
     return ptr;
@@ -331,24 +325,21 @@ MSBackpressureHandler::MSBackpressureHandler(TableRpcQpsRegistry* qps_registry,
     // Coordinator uses ticks where 1 tick = 1 millisecond (fixed unit)
     // This allows tick_interval_ms to change at runtime without affecting correctness
     ThrottleCoordinatorParams coordinator_params {
-            .upgrade_cooldown_ticks = config::ms_backpressure_upgrade_interval_sec * 1000,
-            .downgrade_after_ticks = config::ms_backpressure_downgrade_interval_sec * 1000,
+            .upgrade_cooldown_ticks = config::ms_backpressure_upgrade_interval_ms,
+            .downgrade_after_ticks = config::ms_backpressure_downgrade_interval_ms,
     };
     _coordinator = std::make_unique<RpcThrottleCoordinator>(coordinator_params);
 
-    // Start background tick thread if backpressure handling is enabled
-    if (config::enable_ms_backpressure_handling) {
-        auto st = Thread::create(
-                "MSBackpressureHandler", "tick_thread", [this]() { this->_tick_thread_callback(); },
-                &_tick_thread);
-        if (!st.ok()) {
-            LOG(WARNING) << "Failed to create tick thread for MSBackpressureHandler: " << st;
-        } else {
-            LOG(INFO) << "MSBackpressureHandler started: upgrade_cooldown="
-                      << config::ms_backpressure_upgrade_interval_sec
-                      << "s, downgrade_interval=" << config::ms_backpressure_downgrade_interval_sec
-                      << "s";
-        }
+    auto st = Thread::create(
+            "MSBackpressureHandler", "tick_thread", [this]() { this->_tick_thread_callback(); },
+            &_tick_thread);
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to create tick thread for MSBackpressureHandler: " << st;
+    } else {
+        LOG(INFO) << "MSBackpressureHandler started: upgrade_cooldown="
+                  << config::ms_backpressure_upgrade_interval_ms
+                  << "ms, downgrade_interval=" << config::ms_backpressure_downgrade_interval_ms
+                  << "ms";
     }
 }
 
@@ -362,9 +353,9 @@ MSBackpressureHandler::~MSBackpressureHandler() {
 void MSBackpressureHandler::_tick_thread_callback() {
     // Fixed tick interval: 1 second. Since 1 tick = 1 ms, advance by 1000 ticks each iteration.
     constexpr int kTickIntervalMs = 1000;
-    do {
+    while (!_stop_latch.wait_for(std::chrono::milliseconds(kTickIntervalMs))) {
         _advance_time(kTickIntervalMs);
-    } while (!_stop_latch.wait_for(std::chrono::milliseconds(kTickIntervalMs)));
+    }
 }
 
 void MSBackpressureHandler::_advance_time(int ticks) {

@@ -63,13 +63,13 @@ private:
 // QPS counter for a single (table, RPC type) pair using bvar
 class TableRpcQpsCounter {
 public:
-    TableRpcQpsCounter(int64_t table_id, LoadRelatedRpc rpc_type);
+    TableRpcQpsCounter(int64_t table_id, LoadRelatedRpc rpc_type, int window_sec);
     ~TableRpcQpsCounter() = default;
 
     // Record one RPC call
     void increment();
 
-    // Get current QPS (average over the past 1 second)
+    // Get current QPS (average over the configured time window)
     double get_qps() const;
 
     int64_t table_id() const { return _table_id; }

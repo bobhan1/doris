@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -90,14 +91,9 @@ TEST_F(StrictQpsLimiterTest, MultiThreadedAccess) {
 
 class TableRpcQpsRegistryTest : public testing::Test {
 protected:
-    void SetUp() override {
-        _saved_max_tracked = config::ms_rpc_max_tracked_tables_per_rpc;
-    }
+    void SetUp() override {}
 
-    void TearDown() override { config::ms_rpc_max_tracked_tables_per_rpc = _saved_max_tracked; }
-
-private:
-    int32_t _saved_max_tracked;
+    void TearDown() override {}
 };
 
 TEST_F(TableRpcQpsRegistryTest, RecordAndGetQps) {
@@ -123,10 +119,19 @@ TEST_F(TableRpcQpsRegistryTest, MultipleTables) {
     registry.record(LoadRelatedRpc::COMMIT_ROWSET, 200);
     registry.record(LoadRelatedRpc::COMMIT_ROWSET, 300);
 
+    // Wait for bvar::PerSecond to sample and compute QPS
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
     // Each table should have independent counters
-    // Just verify no crashes and data separation works
     auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::COMMIT_ROWSET, 3);
-    EXPECT_LE(top_tables.size(), 3);
+    ASSERT_EQ(top_tables.size(), 3);
+    // All have equal QPS, order is undefined; verify table IDs as a set
+    std::vector<int64_t> ids;
+    for (const auto& [id, qps] : top_tables) {
+        ids.push_back(id);
+    }
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ(ids, (std::vector<int64_t> {100, 200, 300}));
 }
 
 TEST_F(TableRpcQpsRegistryTest, GetTopKTables) {
@@ -143,9 +148,14 @@ TEST_F(TableRpcQpsRegistryTest, GetTopKTables) {
         registry.record(LoadRelatedRpc::UPDATE_TMP_ROWSET, 300);
     }
 
+    // Wait for bvar::PerSecond to sample and compute QPS
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
     // Get top 2 tables
     auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::UPDATE_TMP_ROWSET, 2);
-    EXPECT_LE(top_tables.size(), 2);
+    ASSERT_EQ(top_tables.size(), 2);
+    EXPECT_EQ(top_tables[0].first, 100); // highest QPS
+    EXPECT_EQ(top_tables[1].first, 200); // second highest QPS
 }
 
 TEST_F(TableRpcQpsRegistryTest, GetTopKTablesWithKZero) {
@@ -181,9 +191,19 @@ TEST_F(TableRpcQpsRegistryTest, GetTopKTablesKLargerThanTableCount) {
         registry.record(LoadRelatedRpc::COMMIT_ROWSET, 200);
     }
 
+    // Wait for bvar::PerSecond to sample and compute QPS
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
     // Request top 100 but only 2 exist
     auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::COMMIT_ROWSET, 100);
-    EXPECT_LE(top_tables.size(), 2);
+    ASSERT_EQ(top_tables.size(), 2);
+    // Equal QPS, order is undefined; verify table IDs as a set
+    std::vector<int64_t> ids;
+    for (const auto& [id, qps] : top_tables) {
+        ids.push_back(id);
+    }
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ(ids, (std::vector<int64_t> {100, 200}));
 }
 
 TEST_F(TableRpcQpsRegistryTest, GetTopKTablesResultIsSortedDescending) {
@@ -196,7 +216,18 @@ TEST_F(TableRpcQpsRegistryTest, GetTopKTablesResultIsSortedDescending) {
         registry.record(LoadRelatedRpc::PREPARE_ROWSET, 300);
     }
 
+    // Wait for bvar::PerSecond to sample and compute QPS
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
     auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::PREPARE_ROWSET, 10);
+    ASSERT_EQ(top_tables.size(), 3);
+    // Verify table IDs as a set
+    std::vector<int64_t> ids;
+    for (const auto& [id, qps] : top_tables) {
+        ids.push_back(id);
+    }
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ(ids, (std::vector<int64_t> {100, 200, 300}));
     // Verify descending order
     for (size_t i = 1; i < top_tables.size(); i++) {
         EXPECT_GE(top_tables[i - 1].second, top_tables[i].second)
@@ -212,13 +243,17 @@ TEST_F(TableRpcQpsRegistryTest, GetTopKTablesCrossRpcTypeIndependence) {
         registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
     }
 
+    // Wait for bvar::PerSecond to sample and compute QPS
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
     // COMMIT_ROWSET should have no records
     auto top_commit = registry.get_top_k_tables(LoadRelatedRpc::COMMIT_ROWSET, 10);
     EXPECT_TRUE(top_commit.empty());
 
-    // PREPARE_ROWSET should have records
+    // PREPARE_ROWSET should have exactly 1 table
     auto top_prepare = registry.get_top_k_tables(LoadRelatedRpc::PREPARE_ROWSET, 10);
-    EXPECT_LE(top_prepare.size(), 1);
+    ASSERT_EQ(top_prepare.size(), 1);
+    EXPECT_EQ(top_prepare[0].first, 100);
 }
 
 TEST_F(TableRpcQpsRegistryTest, GetTopKTablesInvalidRpcType) {
@@ -229,21 +264,6 @@ TEST_F(TableRpcQpsRegistryTest, GetTopKTablesInvalidRpcType) {
 
     top_tables = registry.get_top_k_tables(static_cast<LoadRelatedRpc>(999), 5);
     EXPECT_TRUE(top_tables.empty());
-}
-
-TEST_F(TableRpcQpsRegistryTest, MaxTrackedTables) {
-    config::ms_rpc_max_tracked_tables_per_rpc = 5;
-
-    TableRpcQpsRegistry registry;
-
-    // Try to record more tables than the limit
-    for (int64_t table_id = 1; table_id <= 10; table_id++) {
-        registry.record(LoadRelatedRpc::UPDATE_DELETE_BITMAP, table_id);
-    }
-
-    // Should only track up to 5 tables
-    auto all_tables = registry.get_top_k_tables(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 100);
-    EXPECT_LE(all_tables.size(), 5);
 }
 
 // ============== TableRpcThrottler Tests ==============
@@ -335,8 +355,8 @@ class MSBackpressureHandlerTest : public testing::Test {
 protected:
     void SetUp() override {
         _saved_enable = config::enable_ms_backpressure_handling;
-        _saved_upgrade_interval = config::ms_backpressure_upgrade_interval_sec;
-        _saved_downgrade_interval = config::ms_backpressure_downgrade_interval_sec;
+        _saved_upgrade_interval = config::ms_backpressure_upgrade_interval_ms;
+        _saved_downgrade_interval = config::ms_backpressure_downgrade_interval_ms;
         _saved_top_k = config::ms_backpressure_upgrade_top_k;
         _saved_ratio = config::ms_backpressure_throttle_ratio;
         _saved_floor = config::ms_rpc_table_qps_limit_floor;
@@ -344,8 +364,8 @@ protected:
 
     void TearDown() override {
         config::enable_ms_backpressure_handling = _saved_enable;
-        config::ms_backpressure_upgrade_interval_sec = _saved_upgrade_interval;
-        config::ms_backpressure_downgrade_interval_sec = _saved_downgrade_interval;
+        config::ms_backpressure_upgrade_interval_ms = _saved_upgrade_interval;
+        config::ms_backpressure_downgrade_interval_ms = _saved_downgrade_interval;
         config::ms_backpressure_upgrade_top_k = _saved_top_k;
         config::ms_backpressure_throttle_ratio = _saved_ratio;
         config::ms_rpc_table_qps_limit_floor = _saved_floor;
@@ -373,7 +393,7 @@ TEST_F(MSBackpressureHandlerTest, DisabledByDefault) {
 
 TEST_F(MSBackpressureHandlerTest, OnMsBusyTriggersUpgrade) {
     config::enable_ms_backpressure_handling = true;
-    config::ms_backpressure_upgrade_interval_sec = 0; // No cooldown
+    config::ms_backpressure_upgrade_interval_ms = 0; // No cooldown
     config::ms_backpressure_upgrade_top_k = 3;
     config::ms_backpressure_throttle_ratio = 0.5;
     config::ms_rpc_table_qps_limit_floor = 1.0;
@@ -396,7 +416,7 @@ TEST_F(MSBackpressureHandlerTest, OnMsBusyTriggersUpgrade) {
 
 TEST_F(MSBackpressureHandlerTest, UpgradeIntervalRespected) {
     config::enable_ms_backpressure_handling = true;
-    config::ms_backpressure_upgrade_interval_sec = 100; // Long cooldown
+    config::ms_backpressure_upgrade_interval_ms = 100000; // Long cooldown
 
     TableRpcQpsRegistry registry;
     TableRpcThrottler throttler;
@@ -450,7 +470,7 @@ TEST_F(MSBackpressureHandlerTest, BeforeRpcWithThrottle) {
 
 TEST_F(MSBackpressureHandlerTest, SecondsSinceLastMsBusy) {
     config::enable_ms_backpressure_handling = true;
-    config::ms_backpressure_upgrade_interval_sec = 0;
+    config::ms_backpressure_upgrade_interval_ms = 0;
 
     TableRpcQpsRegistry registry;
     TableRpcThrottler throttler;
@@ -463,6 +483,58 @@ TEST_F(MSBackpressureHandlerTest, SecondsSinceLastMsBusy) {
 
     // After MS_BUSY, should return >= 0
     EXPECT_GE(handler.seconds_since_last_ms_busy(), 0);
+}
+
+TEST_F(MSBackpressureHandlerTest, UpgradeIntervalWithRepeatTrigger) {
+    config::enable_ms_backpressure_handling = true;
+    config::ms_backpressure_upgrade_interval_ms = 100; // 100ms cooldown
+    config::ms_backpressure_downgrade_interval_ms = 600000; // Large, avoid interference
+
+    TableRpcQpsRegistry registry;
+    TableRpcThrottler throttler;
+    MSBackpressureHandler handler(&registry, &throttler);
+
+    // First upgrade should succeed
+    EXPECT_TRUE(handler.on_ms_busy());
+
+    // Immediately second upgrade should be blocked by cooldown
+    EXPECT_FALSE(handler.on_ms_busy());
+
+    // Wait for tick thread to advance past cooldown (tick thread advances 1000 ticks/s)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
+    // After cooldown expired, third upgrade should succeed
+    EXPECT_TRUE(handler.on_ms_busy());
+}
+
+TEST_F(MSBackpressureHandlerTest, DowngradeAfterInterval) {
+    config::enable_ms_backpressure_handling = true;
+    config::ms_backpressure_upgrade_interval_ms = 0; // No cooldown
+    config::ms_backpressure_downgrade_interval_ms = 1000; // 1s downgrade
+    config::ms_backpressure_upgrade_top_k = 3;
+    config::ms_backpressure_throttle_ratio = 0.5;
+    config::ms_rpc_table_qps_limit_floor = 1.0;
+
+    TableRpcQpsRegistry registry;
+    TableRpcThrottler throttler;
+    MSBackpressureHandler handler(&registry, &throttler);
+
+    // Record RPCs so there are tables to throttle
+    for (int i = 0; i < 100; i++) {
+        registry.record(LoadRelatedRpc::PREPARE_ROWSET, 12345);
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
+    // Trigger upgrade
+    EXPECT_TRUE(handler.on_ms_busy());
+    EXPECT_EQ(handler.upgrade_level(), 1);
+
+    // Wait for tick thread to advance past downgrade interval
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+
+    // After downgrade triggered, upgrade level should have decremented
+    EXPECT_EQ(handler.upgrade_level(), 0);
 }
 
 // ============== LoadRelatedRpc Utility Tests ==============
