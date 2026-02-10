@@ -504,6 +504,10 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         } else if (res->status().code() == MetaServiceCode::INVALID_ARGUMENT) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("failed to {}: {}", op_name,
                                                                      res->status().msg());
+        } else if (res->status().code() == MetaServiceCode::MAX_QPS_LIMIT) {
+            // TODO(bobhan1): change to correct error code
+            rate_limit_ctx.backpressure_handler->on_ms_busy();
+            // MS_BUSY should also be retried
         } else if (res->status().code() != MetaServiceCode::KV_TXN_CONFLICT) {
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to {}: {}", op_name,
                                                                    res->status().msg());
