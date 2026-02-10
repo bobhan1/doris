@@ -189,17 +189,13 @@ DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
 DEFINE_mBool(enable_ms_backpressure_handling, "false");
 
 // Throttle upgrade config
-DEFINE_mInt32(ms_backpressure_upgrade_interval_sec, "10");
+DEFINE_mInt32(ms_backpressure_upgrade_interval_ms, "10000");
 DEFINE_mInt32(ms_backpressure_upgrade_top_k, "3");
 DEFINE_mDouble(ms_backpressure_throttle_ratio, "0.5");
 DEFINE_mDouble(ms_rpc_table_qps_limit_floor, "1.0");
 
 // Throttle downgrade config
-DEFINE_mInt32(ms_backpressure_downgrade_interval_sec, "60");
-
-// Memory management config
-DEFINE_mInt32(ms_rpc_max_tracked_tables_per_rpc, "10000");
-DEFINE_mInt32(ms_rpc_table_counter_cleanup_interval_sec, "300");
+DEFINE_mInt32(ms_backpressure_downgrade_interval_ms, "60000");
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

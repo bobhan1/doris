@@ -233,8 +233,8 @@ DECLARE_mBool(enable_ms_backpressure_handling);
 
 // ------------ Throttle upgrade config ------------
 
-// Minimum interval between throttle upgrades after receiving MS_BUSY (seconds)
-DECLARE_mInt32(ms_backpressure_upgrade_interval_sec);
+// Minimum interval between throttle upgrades after receiving MS_BUSY (milliseconds)
+DECLARE_mInt32(ms_backpressure_upgrade_interval_ms);
 
 // Number of top-k tables to throttle on each upgrade
 DECLARE_mInt32(ms_backpressure_upgrade_top_k);
@@ -249,16 +249,8 @@ DECLARE_mDouble(ms_rpc_table_qps_limit_floor);
 
 // ------------ Throttle downgrade config ------------
 
-// Time without MS_BUSY before triggering throttle downgrade (seconds)
-DECLARE_mInt32(ms_backpressure_downgrade_interval_sec);
-
-// ------------ Memory management config ------------
-
-// Maximum number of tables to track per RPC type (prevents unbounded memory growth)
-DECLARE_mInt32(ms_rpc_max_tracked_tables_per_rpc);
-
-// Interval for cleaning up inactive table counters (seconds)
-DECLARE_mInt32(ms_rpc_table_counter_cleanup_interval_sec);
+// Time without MS_BUSY before triggering throttle downgrade (milliseconds)
+DECLARE_mInt32(ms_backpressure_downgrade_interval_ms);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config
