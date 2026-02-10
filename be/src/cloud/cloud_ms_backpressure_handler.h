@@ -79,7 +79,6 @@ private:
     int64_t _table_id;
     LoadRelatedRpc _rpc_type;
 
-    // bvar name: "ms_rpc_table_qps_{rpc_name}_{table_id}"
     std::unique_ptr<bvar::Adder<int64_t>> _counter;
     std::unique_ptr<bvar::PerSecond<bvar::Adder<int64_t>>> _qps;
 };
@@ -211,11 +210,13 @@ private:
 
 // Global bvar metrics for backpressure handling
 extern bvar::Adder<uint64_t> g_backpressure_upgrade_count;
-extern bvar::Window<bvar::Adder<uint64_t>> g_backpressure_upgrade_qpm;
+extern bvar::Window<bvar::Adder<uint64_t>> g_backpressure_upgrade_60s;
 extern bvar::Adder<uint64_t> g_backpressure_downgrade_count;
-extern bvar::Window<bvar::Adder<uint64_t>> g_backpressure_downgrade_qpm;
-extern bvar::LatencyRecorder g_table_throttle_wait_us;
+extern bvar::Window<bvar::Adder<uint64_t>> g_backpressure_downgrade_60s;
 extern bvar::Adder<uint64_t> g_ms_busy_count;
-extern bvar::Window<bvar::Adder<uint64_t>> g_ms_busy_qpm;
+extern bvar::Window<bvar::Adder<uint64_t>> g_ms_busy_60s;
+
+// Per-RPC-type throttle wait latency recorders
+bvar::LatencyRecorder* get_throttle_wait_recorder(LoadRelatedRpc rpc);
 
 } // namespace doris::cloud

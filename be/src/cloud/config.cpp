@@ -191,7 +191,7 @@ DEFINE_Int32(ms_rpc_table_qps_window_sec, "10");
 
 // Throttle upgrade config
 DEFINE_mInt32(ms_backpressure_upgrade_interval_ms, "5000");
-DEFINE_mInt32(ms_backpressure_upgrade_top_k, "3");
+DEFINE_mInt32(ms_backpressure_upgrade_top_k, "2");
 DEFINE_mDouble(ms_backpressure_throttle_ratio, "0.5");
 DEFINE_mDouble(ms_rpc_table_qps_limit_floor, "1.0");
 

@@ -33,15 +33,38 @@ namespace doris::cloud {
 
 // Global bvar metrics
 bvar::Adder<uint64_t> g_backpressure_upgrade_count("ms_rpc_backpressure_upgrade_count");
-bvar::Window<bvar::Adder<uint64_t>> g_backpressure_upgrade_qpm("ms_rpc_backpressure_upgrade_qpm",
+bvar::Window<bvar::Adder<uint64_t>> g_backpressure_upgrade_60s("ms_rpc_backpressure_upgrade_60s",
                                                                &g_backpressure_upgrade_count, 60);
 bvar::Adder<uint64_t> g_backpressure_downgrade_count("ms_rpc_backpressure_downgrade_count");
-bvar::Window<bvar::Adder<uint64_t>> g_backpressure_downgrade_qpm(
-        "ms_rpc_backpressure_downgrade_qpm", &g_backpressure_downgrade_count, 60);
-bvar::LatencyRecorder g_table_throttle_wait_us("ms_rpc_backpressure_throttle_wait");
+bvar::Window<bvar::Adder<uint64_t>> g_backpressure_downgrade_60s(
+        "ms_rpc_backpressure_downgrade_60s", &g_backpressure_downgrade_count, 60);
+bvar::LatencyRecorder g_throttle_wait_prepare_rowset(
+        "ms_rpc_backpressure_throttle_wait_prepare_rowset");
+bvar::LatencyRecorder g_throttle_wait_commit_rowset(
+        "ms_rpc_backpressure_throttle_wait_commit_rowset");
+bvar::LatencyRecorder g_throttle_wait_update_tmp_rowset(
+        "ms_rpc_backpressure_throttle_wait_update_tmp_rowset");
+bvar::LatencyRecorder g_throttle_wait_update_packed_file_info(
+        "ms_rpc_backpressure_throttle_wait_update_packed_file_info");
+bvar::LatencyRecorder g_throttle_wait_update_delete_bitmap(
+        "ms_rpc_backpressure_throttle_wait_update_delete_bitmap");
 bvar::Adder<uint64_t> g_ms_busy_count("ms_rpc_backpressure_ms_busy_count");
-bvar::Window<bvar::Adder<uint64_t>> g_ms_busy_qpm("ms_rpc_backpressure_ms_busy_qpm",
+bvar::Window<bvar::Adder<uint64_t>> g_ms_busy_60s("ms_rpc_backpressure_ms_busy_60s",
                                                   &g_ms_busy_count, 60);
+
+static bvar::LatencyRecorder* s_throttle_wait_recorders[] = {
+        &g_throttle_wait_prepare_rowset,       &g_throttle_wait_commit_rowset,
+        &g_throttle_wait_update_tmp_rowset,    &g_throttle_wait_update_packed_file_info,
+        &g_throttle_wait_update_delete_bitmap,
+};
+
+bvar::LatencyRecorder* get_throttle_wait_recorder(LoadRelatedRpc rpc) {
+    size_t idx = static_cast<size_t>(rpc);
+    if (idx >= static_cast<size_t>(LoadRelatedRpc::COUNT)) {
+        return nullptr;
+    }
+    return s_throttle_wait_recorders[idx];
+}
 
 // ============== StrictQpsLimiter ==============
 
@@ -85,11 +108,10 @@ double StrictQpsLimiter::get_qps() const {
 
 TableRpcQpsCounter::TableRpcQpsCounter(int64_t table_id, LoadRelatedRpc rpc_type, int window_sec)
         : _table_id(table_id), _rpc_type(rpc_type) {
-    std::string bvar_name =
-            fmt::format("ms_rpc_table_qps_{}_{}", load_related_rpc_name(rpc_type), table_id);
     _counter = std::make_unique<bvar::Adder<int64_t>>();
-    _qps = std::make_unique<bvar::PerSecond<bvar::Adder<int64_t>>>(bvar_name, _counter.get(),
-                                                                    window_sec);
+    _counter->hide();
+    _qps = std::make_unique<bvar::PerSecond<bvar::Adder<int64_t>>>(_counter.get(), window_sec);
+    _qps->hide();
 }
 
 void TableRpcQpsCounter::increment() {
@@ -382,7 +404,6 @@ bool MSBackpressureHandler::on_ms_busy() {
         return false;
     }
 
-    // Update time tracking for bvar compatibility
     {
         std::lock_guard lock(_mutex);
         _last_ms_busy_time = std::chrono::steady_clock::now();
@@ -396,16 +417,9 @@ bool MSBackpressureHandler::on_ms_busy() {
 
     LOG(INFO) << "Received MS_BUSY, triggering throttle upgrade";
 
-    // Build QPS snapshot from registry
     auto snapshot = _build_qps_snapshot();
-
-    // Get actions from state machine
     auto actions = _state_machine->on_upgrade(snapshot);
-
-    // Apply actions to throttler
     _apply_actions(actions);
-
-    // Update coordinator's pending state
     _coordinator->set_has_pending_upgrades(_state_machine->upgrade_level() > 0);
 
     g_backpressure_upgrade_count << 1;

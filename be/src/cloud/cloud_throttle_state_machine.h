@@ -57,16 +57,16 @@ struct RpcThrottleAction {
     Type type;
     LoadRelatedRpc rpc_type;
     int64_t table_id;
-    double qps_limit;  // only meaningful for SET_LIMIT
+    double qps_limit {0}; // only meaningful for SET_LIMIT
 };
 
 // ============== ThrottleStateMachine ==============
 
 // Parameters for throttle state machine
 struct RpcThrottleParams {
-    int top_k = 3;            // Number of top tables to throttle on each upgrade
-    double ratio = 0.5;       // Decay ratio for throttle upgrade
-    double floor_qps = 1.0;   // Floor value for table-level QPS limit
+    int top_k = 3;          // Number of top tables to throttle on each upgrade
+    double ratio = 0.5;     // Decay ratio for throttle upgrade
+    double floor_qps = 1.0; // Floor value for table-level QPS limit
 
     bool operator==(const RpcThrottleParams& other) const {
         return top_k == other.top_k && ratio == other.ratio && floor_qps == other.floor_qps;
@@ -96,8 +96,8 @@ public:
     std::vector<RpcThrottleAction> on_downgrade();
 
     // Query current state
-    size_t upgrade_level() const;  // Current upgrade level
-    double get_current_limit(LoadRelatedRpc rpc_type, int64_t table_id) const;  // 0 = no limit
+    size_t upgrade_level() const; // Current upgrade level
+    double get_current_limit(LoadRelatedRpc rpc_type, int64_t table_id) const; // 0 = no limit
     RpcThrottleParams get_params() const;
 
 private:
@@ -168,9 +168,9 @@ private:
     mutable std::mutex _mtx;
 
     ThrottleCoordinatorParams _params;
-    int _ticks_since_last_ms_busy = -1;  // -1 means never received
-    int _ticks_since_last_upgrade = -1;  // -1 means never upgraded
-    bool _has_pending_upgrades = false;  // Whether there are upgrade records to downgrade
+    int _ticks_since_last_ms_busy = -1; // -1 means never received
+    int _ticks_since_last_upgrade = -1; // -1 means never upgraded
+    bool _has_pending_upgrades = false; // Whether there are upgrade records to downgrade
 };
 
 } // namespace doris::cloud

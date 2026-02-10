@@ -85,20 +85,20 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_upgrade(
 
         // Only apply if it's actually limiting
         if (new_limit < snapshot.current_qps || old_limit > 0) {
-            RpcThrottleAction action;
-            action.type = RpcThrottleAction::Type::SET_LIMIT;
-            action.rpc_type = snapshot.rpc_type;
-            action.table_id = snapshot.table_id;
-            action.qps_limit = new_limit;
-
+            RpcThrottleAction action {
+                    .type = RpcThrottleAction::Type::SET_LIMIT,
+                    .rpc_type = snapshot.rpc_type,
+                    .table_id = snapshot.table_id,
+                    .qps_limit = new_limit,
+            };
             actions.push_back(action);
             record.changes[key] = {old_limit, new_limit};
             _current_limits[key] = new_limit;
 
             LOG(INFO) << "Throttle upgrade: rpc=" << load_related_rpc_name(snapshot.rpc_type)
                       << ", table_id=" << snapshot.table_id
-                      << ", current_qps=" << snapshot.current_qps
-                      << ", old_limit=" << old_limit << ", new_limit=" << new_limit;
+                      << ", current_qps=" << snapshot.current_qps << ", old_limit=" << old_limit
+                      << ", new_limit=" << new_limit;
         }
     }
 
@@ -127,11 +127,12 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_downgrade() {
 
         if (old_limit > 0) {
             // Restore the previous limit
-            RpcThrottleAction action;
-            action.type = RpcThrottleAction::Type::SET_LIMIT;
-            action.rpc_type = rpc_type;
-            action.table_id = table_id;
-            action.qps_limit = old_limit;
+            RpcThrottleAction action {
+                    .type = RpcThrottleAction::Type::SET_LIMIT,
+                    .rpc_type = rpc_type,
+                    .table_id = table_id,
+                    .qps_limit = old_limit,
+            };
 
             actions.push_back(action);
             _current_limits[key] = old_limit;
@@ -140,10 +141,11 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_downgrade() {
                       << ", table_id=" << table_id << ", restored_limit=" << old_limit;
         } else {
             // No previous limit, remove it entirely
-            RpcThrottleAction action;
-            action.type = RpcThrottleAction::Type::REMOVE_LIMIT;
-            action.rpc_type = rpc_type;
-            action.table_id = table_id;
+            RpcThrottleAction action {
+                    .type = RpcThrottleAction::Type::REMOVE_LIMIT,
+                    .rpc_type = rpc_type,
+                    .table_id = table_id,
+            };
 
             actions.push_back(action);
             _current_limits.erase(key);
@@ -179,8 +181,7 @@ RpcThrottleParams RpcThrottleStateMachine::get_params() const {
 
 // ============== RpcThrottleCoordinator ==============
 
-RpcThrottleCoordinator::RpcThrottleCoordinator(ThrottleCoordinatorParams params)
-        : _params(params) {
+RpcThrottleCoordinator::RpcThrottleCoordinator(ThrottleCoordinatorParams params) : _params(params) {
     LOG(INFO) << "RpcThrottleCoordinator initialized: upgrade_cooldown_ticks="
               << params.upgrade_cooldown_ticks
               << ", downgrade_after_ticks=" << params.downgrade_after_ticks;
@@ -209,12 +210,12 @@ bool RpcThrottleCoordinator::report_ms_busy() {
 
         LOG(INFO) << "Upgrade triggered: ticks_since_last_upgrade=" << _ticks_since_last_upgrade
                   << ", cooldown=" << _params.upgrade_cooldown_ticks;
-        return true;  // Should trigger upgrade
+        return true; // Should trigger upgrade
     }
 
     LOG(INFO) << "Upgrade skipped (cooling down): ticks_since_last_upgrade="
               << _ticks_since_last_upgrade << ", cooldown=" << _params.upgrade_cooldown_ticks;
-    return false;  // Cooling down
+    return false; // Cooling down
 }
 
 bool RpcThrottleCoordinator::tick(int ticks) {
@@ -229,15 +230,14 @@ bool RpcThrottleCoordinator::tick(int ticks) {
     }
 
     // Check if downgrade should be triggered
-    if (_has_pending_upgrades &&
-        _ticks_since_last_ms_busy >= _params.downgrade_after_ticks) {
+    if (_has_pending_upgrades && _ticks_since_last_ms_busy >= _params.downgrade_after_ticks) {
         // Reset for next downgrade cycle
         _ticks_since_last_ms_busy = 0;
 
         LOG(INFO) << "Downgrade triggered: ticks_since_last_ms_busy="
                   << (_ticks_since_last_ms_busy + _params.downgrade_after_ticks)
                   << ", threshold=" << _params.downgrade_after_ticks;
-        return true;  // Should trigger downgrade
+        return true; // Should trigger downgrade
     }
 
     return false;
