@@ -76,14 +76,14 @@ static int get_rpc_qps_from_config(MetaServiceRPC rpc) {
 
 RpcRateLimiter::RpcRateLimiter(int qps, std::string_view op_name) {
     latency_recorder = std::make_unique<bvar::LatencyRecorder>("host_level_ms_rpc_rate_limit_sleep",
-                                                                std::string(op_name));
-    limiter = std::make_unique<S3RateLimiterHolder>(qps, qps, /*limit=*/0,
-                                                    [this](int64_t sleep_ns) {
-                                                        if (sleep_ns > 0) {
-                                                            // Convert ns to us for LatencyRecorder
-                                                            *latency_recorder << (sleep_ns / 1000);
-                                                        }
-                                                    });
+                                                               std::string(op_name));
+    limiter = std::make_unique<TokenBucketRateLimiterHolder>(
+            qps, qps, /*limit=*/0, [this](int64_t sleep_ns) {
+                if (sleep_ns > 0) {
+                    // Convert ns to us for LatencyRecorder
+                    *latency_recorder << (sleep_ns / 1000);
+                }
+            });
 }
 
 void RpcRateLimiter::reset(int qps) {
