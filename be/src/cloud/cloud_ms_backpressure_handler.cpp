@@ -300,8 +300,8 @@ void TableRpcThrottler::remove_qps_limit(LoadRelatedRpc rpc_type, int64_t table_
             _throttled_table_counts[idx]->set_value(count);
         }
 
-        LOG(INFO) << "[ms-throttle] removed table QPS limit: rpc=" << load_related_rpc_name(rpc_type)
-                  << ", table_id=" << table_id;
+        LOG(INFO) << "[ms-throttle] removed table QPS limit: rpc="
+                  << load_related_rpc_name(rpc_type) << ", table_id=" << table_id;
     }
 }
 
