@@ -278,7 +278,7 @@ void TableRpcThrottler::set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id,
         }
     }
 
-    LOG(INFO) << "Set table QPS limit: rpc=" << load_related_rpc_name(rpc_type)
+    LOG(INFO) << "[ms-throttle] set table QPS limit: rpc=" << load_related_rpc_name(rpc_type)
               << ", table_id=" << table_id << ", qps_limit=" << qps_limit;
 }
 
@@ -300,7 +300,7 @@ void TableRpcThrottler::remove_qps_limit(LoadRelatedRpc rpc_type, int64_t table_
             _throttled_table_counts[idx]->set_value(count);
         }
 
-        LOG(INFO) << "Removed table QPS limit: rpc=" << load_related_rpc_name(rpc_type)
+        LOG(INFO) << "[ms-throttle] removed table QPS limit: rpc=" << load_related_rpc_name(rpc_type)
                   << ", table_id=" << table_id;
     }
 }
@@ -366,9 +366,9 @@ MSBackpressureHandler::MSBackpressureHandler(TableRpcQpsRegistry* qps_registry,
             "MSBackpressureHandler", "tick_thread", [this]() { this->_tick_thread_callback(); },
             &_tick_thread);
     if (!st.ok()) {
-        LOG(WARNING) << "Failed to create tick thread for MSBackpressureHandler: " << st;
+        LOG(WARNING) << "[ms-throttle] failed to create tick thread: " << st;
     } else {
-        LOG(INFO) << "MSBackpressureHandler started: upgrade_cooldown="
+        LOG(INFO) << "[ms-throttle] handler started: upgrade_cooldown="
                   << config::ms_backpressure_upgrade_interval_ms
                   << "ms, downgrade_interval=" << config::ms_backpressure_downgrade_interval_ms
                   << "ms";
@@ -397,7 +397,8 @@ void MSBackpressureHandler::_advance_time(int ticks) {
 
     // Advance coordinator time; if downgrade is triggered, handle it
     if (_coordinator->tick(ticks)) {
-        LOG(INFO) << "Time advanced, triggering throttle downgrade";
+        LOG(INFO) << "[ms-throttle] triggering downgrade, upgrade_level="
+                  << _state_machine->upgrade_level();
 
         auto actions = _state_machine->on_downgrade();
         _apply_actions(actions);
@@ -421,11 +422,10 @@ bool MSBackpressureHandler::on_ms_busy() {
 
     // Check with coordinator if upgrade should be triggered
     if (!_coordinator->report_ms_busy()) {
-        LOG(INFO) << "Received MS_BUSY but skipping upgrade (cooling down)";
         return false;
     }
 
-    LOG(INFO) << "Received MS_BUSY, triggering throttle upgrade";
+    LOG(INFO) << "[ms-throttle] received MS_BUSY, triggering upgrade";
 
     auto snapshot = _build_qps_snapshot();
     auto actions = _state_machine->on_upgrade(snapshot);

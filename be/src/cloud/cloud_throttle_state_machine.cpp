@@ -39,14 +39,14 @@ std::string_view load_related_rpc_name(LoadRelatedRpc rpc) {
 // ============== RpcThrottleStateMachine ==============
 
 RpcThrottleStateMachine::RpcThrottleStateMachine(RpcThrottleParams params) : _params(params) {
-    LOG(INFO) << "RpcThrottleStateMachine initialized: top_k=" << params.top_k
+    LOG(INFO) << "[ms-throttle] state machine initialized: top_k=" << params.top_k
               << ", ratio=" << params.ratio << ", floor_qps=" << params.floor_qps;
 }
 
 void RpcThrottleStateMachine::update_params(RpcThrottleParams params) {
     std::lock_guard lock(_mtx);
     _params = params;
-    LOG(INFO) << "RpcThrottleStateMachine params updated: top_k=" << params.top_k
+    LOG(INFO) << "[ms-throttle] state machine params updated: top_k=" << params.top_k
               << ", ratio=" << params.ratio << ", floor_qps=" << params.floor_qps;
 }
 
@@ -95,7 +95,7 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_upgrade(
             record.changes[key] = {old_limit, new_limit};
             _current_limits[key] = new_limit;
 
-            LOG(INFO) << "Throttle upgrade: rpc=" << load_related_rpc_name(snapshot.rpc_type)
+            LOG(INFO) << "[ms-throttle] upgrade: rpc=" << load_related_rpc_name(snapshot.rpc_type)
                       << ", table_id=" << snapshot.table_id
                       << ", current_qps=" << snapshot.current_qps << ", old_limit=" << old_limit
                       << ", new_limit=" << new_limit;
@@ -106,6 +106,10 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_upgrade(
         _upgrade_history.push_back(std::move(record));
     }
 
+    LOG(INFO) << "[ms-throttle] on_upgrade done: actions=" << actions.size()
+              << ", upgrade_level=" << _upgrade_history.size()
+              << ", snapshot_size=" << qps_snapshot.size();
+
     return actions;
 }
 
@@ -115,6 +119,7 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_downgrade() {
     std::vector<RpcThrottleAction> actions;
 
     if (_upgrade_history.empty()) {
+        LOG(INFO) << "[ms-throttle] on_downgrade skipped: no upgrade history";
         return actions;
     }
 
@@ -137,7 +142,7 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_downgrade() {
             actions.push_back(action);
             _current_limits[key] = old_limit;
 
-            LOG(INFO) << "Throttle downgrade: rpc=" << load_related_rpc_name(rpc_type)
+            LOG(INFO) << "[ms-throttle] downgrade: rpc=" << load_related_rpc_name(rpc_type)
                       << ", table_id=" << table_id << ", restored_limit=" << old_limit;
         } else {
             // No previous limit, remove it entirely
@@ -150,12 +155,15 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_downgrade() {
             actions.push_back(action);
             _current_limits.erase(key);
 
-            LOG(INFO) << "Throttle downgrade: rpc=" << load_related_rpc_name(rpc_type)
+            LOG(INFO) << "[ms-throttle] downgrade: rpc=" << load_related_rpc_name(rpc_type)
                       << ", table_id=" << table_id << ", removed limit";
         }
     }
 
     _upgrade_history.pop_back();
+
+    LOG(INFO) << "[ms-throttle] on_downgrade done: actions=" << actions.size()
+              << ", upgrade_level=" << _upgrade_history.size();
 
     return actions;
 }
@@ -182,7 +190,7 @@ RpcThrottleParams RpcThrottleStateMachine::get_params() const {
 // ============== RpcThrottleCoordinator ==============
 
 RpcThrottleCoordinator::RpcThrottleCoordinator(ThrottleCoordinatorParams params) : _params(params) {
-    LOG(INFO) << "RpcThrottleCoordinator initialized: upgrade_cooldown_ticks="
+    LOG(INFO) << "[ms-throttle] coordinator initialized: upgrade_cooldown_ticks="
               << params.upgrade_cooldown_ticks
               << ", downgrade_after_ticks=" << params.downgrade_after_ticks;
 }
@@ -190,7 +198,7 @@ RpcThrottleCoordinator::RpcThrottleCoordinator(ThrottleCoordinatorParams params)
 void RpcThrottleCoordinator::update_params(ThrottleCoordinatorParams params) {
     std::lock_guard lock(_mtx);
     _params = params;
-    LOG(INFO) << "RpcThrottleCoordinator params updated: upgrade_cooldown_ticks="
+    LOG(INFO) << "[ms-throttle] coordinator params updated: upgrade_cooldown_ticks="
               << params.upgrade_cooldown_ticks
               << ", downgrade_after_ticks=" << params.downgrade_after_ticks;
 }
@@ -208,13 +216,10 @@ bool RpcThrottleCoordinator::report_ms_busy() {
         _ticks_since_last_upgrade = 0;
         _has_pending_upgrades = true;
 
-        LOG(INFO) << "Upgrade triggered: ticks_since_last_upgrade=" << _ticks_since_last_upgrade
+        LOG(INFO) << "[ms-throttle] upgrade triggered: ticks_since_last_upgrade=" << _ticks_since_last_upgrade
                   << ", cooldown=" << _params.upgrade_cooldown_ticks;
         return true; // Should trigger upgrade
     }
-
-    LOG(INFO) << "Upgrade skipped (cooling down): ticks_since_last_upgrade="
-              << _ticks_since_last_upgrade << ", cooldown=" << _params.upgrade_cooldown_ticks;
     return false; // Cooling down
 }
 
@@ -234,7 +239,7 @@ bool RpcThrottleCoordinator::tick(int ticks) {
         // Reset for next downgrade cycle
         _ticks_since_last_ms_busy = 0;
 
-        LOG(INFO) << "Downgrade triggered: ticks_since_last_ms_busy="
+        LOG(INFO) << "[ms-throttle] downgrade triggered: ticks_since_last_ms_busy="
                   << (_ticks_since_last_ms_busy + _params.downgrade_after_ticks)
                   << ", threshold=" << _params.downgrade_after_ticks;
         return true; // Should trigger downgrade
