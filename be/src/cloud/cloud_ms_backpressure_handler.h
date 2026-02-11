@@ -139,6 +139,14 @@ public:
     // Get the number of throttled tables for a given RPC type
     size_t get_throttled_table_count(LoadRelatedRpc rpc_type) const;
 
+    // Get all currently throttled entries: (rpc_type, table_id, qps_limit)
+    struct ThrottleEntry {
+        LoadRelatedRpc rpc_type;
+        int64_t table_id;
+        double qps_limit;
+    };
+    std::vector<ThrottleEntry> get_all_throttled_entries() const;
+
 private:
     mutable std::shared_mutex _mutex;
     // (rpc_type, table_id) -> StrictQpsLimiter

@@ -327,6 +327,16 @@ size_t TableRpcThrottler::get_throttled_table_count(LoadRelatedRpc rpc_type) con
     return _throttled_table_counts[idx]->get_value();
 }
 
+std::vector<TableRpcThrottler::ThrottleEntry> TableRpcThrottler::get_all_throttled_entries() const {
+    std::shared_lock lock(_mutex);
+    std::vector<ThrottleEntry> entries;
+    entries.reserve(_limiters.size());
+    for (const auto& [key, limiter] : _limiters) {
+        entries.push_back({key.first, key.second, limiter->get_qps()});
+    }
+    return entries;
+}
+
 // ============== MSBackpressureHandler ==============
 
 MSBackpressureHandler::MSBackpressureHandler(TableRpcQpsRegistry* qps_registry,
