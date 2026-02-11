@@ -112,10 +112,6 @@ private:
     // Use atomic_shared_ptr for thread-safe access during concurrent limit() and reset() calls
     std::array<doris::atomic_shared_ptr<RpcRateLimiter>, static_cast<size_t>(MetaServiceRPC::COUNT)>
             _limiters;
-
-    // For testing: allow direct access to internal state
-    friend class HostLevelMSRpcRateLimitersTest;
-    friend class HostLevelMSRpcRateLimitersConfigTest;
 };
 
 } // namespace doris::cloud

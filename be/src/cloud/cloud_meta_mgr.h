@@ -80,8 +80,7 @@ public:
             CloudTablet* tablet, std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
             const SyncOptions& options = {}, SyncRowsetStats* sync_stats = nullptr);
 
-    Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
-                          int64_t table_id,
+    Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,

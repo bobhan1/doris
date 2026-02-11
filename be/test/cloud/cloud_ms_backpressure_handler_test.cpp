@@ -487,7 +487,7 @@ TEST_F(MSBackpressureHandlerTest, SecondsSinceLastMsBusy) {
 
 TEST_F(MSBackpressureHandlerTest, UpgradeIntervalWithRepeatTrigger) {
     config::enable_ms_backpressure_handling = true;
-    config::ms_backpressure_upgrade_interval_ms = 100; // 100ms cooldown
+    config::ms_backpressure_upgrade_interval_ms = 100;      // 100ms cooldown
     config::ms_backpressure_downgrade_interval_ms = 600000; // Large, avoid interference
 
     TableRpcQpsRegistry registry;
@@ -509,7 +509,7 @@ TEST_F(MSBackpressureHandlerTest, UpgradeIntervalWithRepeatTrigger) {
 
 TEST_F(MSBackpressureHandlerTest, DowngradeAfterInterval) {
     config::enable_ms_backpressure_handling = true;
-    config::ms_backpressure_upgrade_interval_ms = 0; // No cooldown
+    config::ms_backpressure_upgrade_interval_ms = 0;      // No cooldown
     config::ms_backpressure_downgrade_interval_ms = 1000; // 1s downgrade
     config::ms_backpressure_upgrade_top_k = 3;
     config::ms_backpressure_throttle_ratio = 0.5;

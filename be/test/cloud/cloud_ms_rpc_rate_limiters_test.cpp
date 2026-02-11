@@ -55,7 +55,7 @@ TEST_F(HostLevelMSRpcRateLimitersTest, DisabledRateLimiting) {
 TEST_F(HostLevelMSRpcRateLimitersTest, AllRpcTypesExist) {
     config::enable_ms_rpc_host_level_rate_limit = true;
 
-    HostLevelMSRpcRateLimiters limiters(10000);  // High QPS to avoid waiting
+    HostLevelMSRpcRateLimiters limiters(10000); // High QPS to avoid waiting
 
     // All RPC types should return 0 (no wait) for first call with high QPS
     for (size_t i = 0; i < static_cast<size_t>(MetaServiceRPC::COUNT); ++i) {
@@ -173,7 +173,8 @@ TEST_F(HostLevelMSRpcRateLimitersTest, DisplayNames) {
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::GET_OBJ_STORE_INFO),
               "get obj store info");
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::START_TABLET_JOB), "start tablet job");
-    EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::FINISH_TABLET_JOB), "finish tablet job");
+    EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::FINISH_TABLET_JOB),
+              "finish tablet job");
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::GET_DELETE_BITMAP),
               "get delete bitmap");
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::UPDATE_DELETE_BITMAP),
@@ -241,37 +242,37 @@ private:
 // Directly check limiter QPS values instead of relying on throttling behavior
 TEST_F(HostLevelMSRpcRateLimitersConfigTest, EachConfigControlsCorrespondingLimiter) {
     config::enable_ms_rpc_host_level_rate_limit = true;
-    config::ms_rpc_qps_default = 10;  // Default QPS
+    config::ms_rpc_qps_default = 10; // Default QPS
 
     int num_cores = doris::CpuInfo::num_cores();
 
 // Test each RPC type with different config values
-#define TEST_RPC_CONFIG(enum_name, config_suffix, display_name)                                   \
-    {                                                                                             \
-        /* Test with config = 0 (disabled) */                                                     \
-        config::ms_rpc_qps_##config_suffix = 0;                                                   \
-        HostLevelMSRpcRateLimiters limiters1;                                                     \
-        size_t idx = static_cast<size_t>(MetaServiceRPC::enum_name);                              \
-        EXPECT_EQ(limiters1._limiters[idx].load(), nullptr)                                       \
-                << "RPC " << #enum_name << " should be disabled when config=0";                   \
-                                                                                                  \
-        /* Test with config = -1 (use default) */                                                 \
-        config::ms_rpc_qps_##config_suffix = -1;                                                  \
-        HostLevelMSRpcRateLimiters limiters2;                                                     \
-        ASSERT_NE(limiters2._limiters[idx].load(), nullptr)                                       \
-                << "RPC " << #enum_name << " should use default when config=-1";                  \
-        size_t expected_qps = 10 * num_cores;                                                     \
-        EXPECT_EQ(limiters2._limiters[idx].load()->limiter->get_max_speed(), expected_qps)        \
-                << "RPC " << #enum_name << " should use default QPS when config=-1";              \
-                                                                                                  \
-        /* Test with config = specific value */                                                   \
-        config::ms_rpc_qps_##config_suffix = 5;                                                   \
-        HostLevelMSRpcRateLimiters limiters3;                                                     \
-        ASSERT_NE(limiters3._limiters[idx].load(), nullptr)                                       \
-                << "RPC " << #enum_name << " should be enabled with config=5";                    \
-        expected_qps = 5 * num_cores;                                                             \
-        EXPECT_EQ(limiters3._limiters[idx].load()->limiter->get_max_speed(), expected_qps)        \
-                << "RPC " << #enum_name << " should have QPS=5*num_cores when config=5";          \
+#define TEST_RPC_CONFIG(enum_name, config_suffix, display_name)                            \
+    {                                                                                      \
+        /* Test with config = 0 (disabled) */                                              \
+        config::ms_rpc_qps_##config_suffix = 0;                                            \
+        HostLevelMSRpcRateLimiters limiters1;                                              \
+        size_t idx = static_cast<size_t>(MetaServiceRPC::enum_name);                       \
+        EXPECT_EQ(limiters1._limiters[idx].load(), nullptr)                                \
+                << "RPC " << #enum_name << " should be disabled when config=0";            \
+                                                                                           \
+        /* Test with config = -1 (use default) */                                          \
+        config::ms_rpc_qps_##config_suffix = -1;                                           \
+        HostLevelMSRpcRateLimiters limiters2;                                              \
+        ASSERT_NE(limiters2._limiters[idx].load(), nullptr)                                \
+                << "RPC " << #enum_name << " should use default when config=-1";           \
+        size_t expected_qps = 10 * num_cores;                                              \
+        EXPECT_EQ(limiters2._limiters[idx].load()->limiter->get_max_speed(), expected_qps) \
+                << "RPC " << #enum_name << " should use default QPS when config=-1";       \
+                                                                                           \
+        /* Test with config = specific value */                                            \
+        config::ms_rpc_qps_##config_suffix = 5;                                            \
+        HostLevelMSRpcRateLimiters limiters3;                                              \
+        ASSERT_NE(limiters3._limiters[idx].load(), nullptr)                                \
+                << "RPC " << #enum_name << " should be enabled with config=5";             \
+        expected_qps = 5 * num_cores;                                                      \
+        EXPECT_EQ(limiters3._limiters[idx].load()->limiter->get_max_speed(), expected_qps) \
+                << "RPC " << #enum_name << " should have QPS=5*num_cores when config=5";   \
     }
 
     META_SERVICE_RPC_TYPES(TEST_RPC_CONFIG)
@@ -282,7 +283,7 @@ TEST_F(HostLevelMSRpcRateLimitersConfigTest, EachConfigControlsCorrespondingLimi
 TEST_F(HostLevelMSRpcRateLimitersConfigTest, ResetAllReadsConfig) {
     config::enable_ms_rpc_host_level_rate_limit = true;
     config::ms_rpc_qps_default = -1;
-    config::ms_rpc_qps_get_tablet_meta = 0;  // Disabled initially
+    config::ms_rpc_qps_get_tablet_meta = 0; // Disabled initially
 
     HostLevelMSRpcRateLimiters limiters;
 
