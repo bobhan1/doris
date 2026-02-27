@@ -61,7 +61,8 @@ struct RuntimeFilterTimerQueue;
 } // namespace pipeline
 class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
-class S3RateLimiterHolder;
+class TokenBucketRateLimiterHolder;
+using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 namespace io {
 class FileCacheFactory;
 class HdfsMgr;
