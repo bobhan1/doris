@@ -75,6 +75,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
         BACKEND_TABLE.add("backend_tablets");
         BACKEND_TABLE.add("backend_configuration");
+        BACKEND_TABLE.add("backend_ms_rpc_table_throttlers");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {
