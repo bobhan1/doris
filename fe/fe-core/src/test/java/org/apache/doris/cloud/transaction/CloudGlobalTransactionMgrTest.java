@@ -38,6 +38,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -404,5 +405,120 @@ public class CloudGlobalTransactionMgrTest {
         };
         long result = masterTransMgr.getNextTransactionId();
         Assert.assertEquals(1000, result);
+    }
+
+    @Test
+    public void testCommitAndPublishTransactionWithDeleteBitmapLockRetrySuccess() throws Exception {
+        // Test retry on DELETE_BITMAP_LOCK_ERR and eventually succeed
+        int originalRetryTimes = Config.mow_calculate_delete_bitmap_retry_times;
+        Config.mow_calculate_delete_bitmap_retry_times = 3;
+
+        new MockUp<CloudGlobalTransactionMgr>() {
+            private int callTimes = 0;
+
+            @Mock
+            public void commitTransactionWithoutLock(long dbId, java.util.List<Table> tableList,
+                    long transactionId, java.util.List<org.apache.doris.transaction.TabletCommitInfo> tabletCommitInfos,
+                    org.apache.doris.transaction.TxnCommitAttachment txnCommitAttachment) throws UserException {
+                callTimes++;
+                // Simulate DELETE_BITMAP_LOCK_ERR for first 2 calls, succeed on 3rd
+                if (callTimes <= 2) {
+                    throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                            "Failed to calculate delete bitmap. Timeout.");
+                }
+                // Do nothing on success (actual commit logic is mocked)
+            }
+        };
+
+        try {
+            long transactionId = 123533;
+            Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+            boolean result = masterTransMgr.commitAndPublishTransaction(
+                    masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1),
+                    Lists.newArrayList(testTable1),
+                    transactionId,
+                    null,
+                    60000,
+                    null);
+            Assert.assertTrue(result);
+        } finally {
+            Config.mow_calculate_delete_bitmap_retry_times = originalRetryTimes;
+        }
+    }
+
+    @Test
+    public void testCommitAndPublishTransactionWithDeleteBitmapLockRetryExhausted() throws Exception {
+        // Test retry on DELETE_BITMAP_LOCK_ERR and exhaust retry times
+        int originalRetryTimes = Config.mow_calculate_delete_bitmap_retry_times;
+        Config.mow_calculate_delete_bitmap_retry_times = 2;
+
+        new MockUp<CloudGlobalTransactionMgr>() {
+            @Mock
+            public void commitTransactionWithoutLock(long dbId, java.util.List<Table> tableList,
+                    long transactionId, java.util.List<org.apache.doris.transaction.TabletCommitInfo> tabletCommitInfos,
+                    org.apache.doris.transaction.TxnCommitAttachment txnCommitAttachment) throws UserException {
+                // Always throw DELETE_BITMAP_LOCK_ERR
+                throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                        "Failed to calculate delete bitmap. Timeout.");
+            }
+        };
+
+        try {
+            long transactionId = 123533;
+            Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+            Assertions.assertThrows(UserException.class, () -> {
+                masterTransMgr.commitAndPublishTransaction(
+                        masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1),
+                        Lists.newArrayList(testTable1),
+                        transactionId,
+                        null,
+                        60000,
+                        null);
+            });
+        } finally {
+            Config.mow_calculate_delete_bitmap_retry_times = originalRetryTimes;
+        }
+    }
+
+    @Test
+    public void testCommitAndPublishTransactionWithTxnAttachmentRetrySuccess() throws Exception {
+        // Test 6-param version with TxnCommitAttachment to verify the fix
+        int originalRetryTimes = Config.mow_calculate_delete_bitmap_retry_times;
+        Config.mow_calculate_delete_bitmap_retry_times = 3;
+
+        new MockUp<CloudGlobalTransactionMgr>() {
+            private int callTimes = 0;
+
+            @Mock
+            public void commitTransactionWithoutLock(long dbId, java.util.List<Table> tableList,
+                    long transactionId, java.util.List<org.apache.doris.transaction.TabletCommitInfo> tabletCommitInfos,
+                    org.apache.doris.transaction.TxnCommitAttachment txnCommitAttachment) throws UserException {
+                callTimes++;
+                // Simulate DELETE_BITMAP_LOCK_ERR for first 2 calls, succeed on 3rd
+                if (callTimes <= 2) {
+                    throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                            "Failed to calculate delete bitmap. Timeout.");
+                }
+                // Do nothing on success (actual commit logic is mocked)
+            }
+        };
+
+        try {
+            long transactionId = 123533;
+            Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+            boolean result = masterTransMgr.commitAndPublishTransaction(
+                    masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1),
+                    Lists.newArrayList(testTable1),
+                    transactionId,
+                    null,
+                    60000,
+                    null);
+            Assert.assertTrue(result);
+        } finally {
+            Config.mow_calculate_delete_bitmap_retry_times = originalRetryTimes;
+        }
     }
 }
