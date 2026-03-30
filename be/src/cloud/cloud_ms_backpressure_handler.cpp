@@ -395,6 +395,8 @@ void MSBackpressureHandler::_advance_time(int ticks) {
         return;
     }
 
+    std::lock_guard lock(_transition_mutex);
+
     // Advance coordinator time; if downgrade is triggered, handle it
     if (_coordinator->tick(ticks)) {
         LOG(INFO) << "[ms-throttle] triggering downgrade, upgrade_level="
@@ -419,6 +421,8 @@ bool MSBackpressureHandler::on_ms_busy() {
         std::lock_guard lock(_mutex);
         _last_ms_busy_time = std::chrono::steady_clock::now();
     }
+
+    std::lock_guard lock(_transition_mutex);
 
     // Check with coordinator if upgrade should be triggered
     if (!_coordinator->report_ms_busy()) {

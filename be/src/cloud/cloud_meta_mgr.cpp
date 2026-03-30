@@ -748,7 +748,19 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             if (ms_backpressure_handler_) {
                 ms_backpressure_handler_->on_ms_busy();
             }
-            continue;
+            if (tried++ < retry_times) {
+                auto rng = make_random_engine();
+                std::uniform_int_distribution<uint32_t> u(20, 200);
+                std::uniform_int_distribution<uint32_t> u1(500, 1000);
+                uint32_t duration_ms = tried >= 100 ? u(rng) : u1(rng);
+                bthread_usleep(duration_ms * 1000);
+                LOG_INFO("meta service is too busy when getting rowset meta, " + tablet_info)
+                        .tag("reason", resp.status().msg())
+                        .tag("tried", tried)
+                        .tag("sleep", duration_ms);
+                continue;
+            }
+            return Status::RpcError("failed to get rowset meta: {}", resp.status().msg());
         }
         if (resp.status().code() != MetaServiceCode::OK) {
             LOG(WARNING) << " failed to get rowset meta, err=" << resp.status().msg() << " "

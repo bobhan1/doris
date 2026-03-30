@@ -202,6 +202,7 @@ private:
 
     TableRpcQpsRegistry* _qps_registry;
     TableRpcThrottler* _throttler;
+    mutable std::mutex _transition_mutex;
 
     // State machine components
     std::unique_ptr<RpcThrottleStateMachine> _state_machine;
