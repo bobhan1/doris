@@ -504,10 +504,11 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         } else if (res->status().code() == MetaServiceCode::INVALID_ARGUMENT) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("failed to {}: {}", op_name,
                                                                      res->status().msg());
-        } else if (res->status().code() == MetaServiceCode::MAX_QPS_LIMIT) {
-            // TODO(bobhan1): change to correct error code
-            rate_limit_ctx.backpressure_handler->on_ms_busy();
+        } else if (res->status().code() == MetaServiceCode::MS_TOO_BUSY) {
             // MS_BUSY should also be retried
+            if (rate_limit_ctx.backpressure_handler) {
+                rate_limit_ctx.backpressure_handler->on_ms_busy();
+            }
         } else if (res->status().code() != MetaServiceCode::KV_TXN_CONFLICT) {
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to {}: {}", op_name,
                                                                    res->status().msg());
@@ -742,10 +743,11 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             return Status::NotFound("failed to get rowset meta: {}, {}", resp.status().msg(),
                                     tablet_info);
         }
-        if (resp.status().code() == MetaServiceCode::MAX_QPS_LIMIT) {
-            // TODO(bobhan1): change to correct error code
-            ms_backpressure_handler_->on_ms_busy();
+        if (resp.status().code() == MetaServiceCode::MS_TOO_BUSY) {
             // MS_BUSY should also be retried
+            if (ms_backpressure_handler_) {
+                ms_backpressure_handler_->on_ms_busy();
+            }
             continue;
         }
         if (resp.status().code() != MetaServiceCode::OK) {

@@ -125,13 +125,13 @@ suite('test_cloud_ms_rpc_table_throttle', 'docker') {
         }
         sleep(1000)
 
-        // Phase 1: Enable MS injection to return MAX_QPS_LIMIT
+        // Phase 1: Enable MS injection to return MS_TOO_BUSY
         logger.info("Phase 1 - enabling MS injection to trigger backpressure upgrade")
-        ms_inject_suite.call(msHttpPort, "MetaServiceProxy::inject_max_qps_limit")
+        ms_inject_suite.call(msHttpPort, "MetaServiceProxy::inject_ms_too_busy")
         ms_inject_enable.call(msHttpPort)
         // Set injection probability to 100% for deterministic testing
         ms_inject_change_args.call(msHttpPort,
-                "MetaServiceProxy::call_impl::inject_max_qps_limit.set_p",
+                "MetaServiceProxy::call_impl::inject_ms_too_busy.set_p",
                 URLEncoder.encode('[0.5]', "UTF-8"))
 
         // Generate traffic to trigger MS_BUSY -> upgrade

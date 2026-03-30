@@ -111,9 +111,9 @@ static void register_suites() {
         });
         LOG_INFO("enable Transaction::commit.enable_inject");
     });
-    suite_map.emplace("MetaServiceProxy::inject_max_qps_limit", []() {
+    suite_map.emplace("MetaServiceProxy::inject_ms_too_busy", []() {
         auto* sp = SyncPoint::get_instance();
-        sp->set_call_back("MetaServiceProxy::call_impl::inject_max_qps_limit", [](auto&& args) {
+        sp->set_call_back("MetaServiceProxy::call_impl::inject_ms_too_busy", [](auto&& args) {
             // args: [&retry_times, resp->mutable_status(), &req_name, &pred]
             auto* req_name = try_any_cast<std::string*>(args[2]);
             if (*req_name != "CreateRowsetRequest") {
@@ -124,21 +124,21 @@ static void register_suites() {
                 std::mt19937 gen {std::random_device {}()};
                 double p {-1.0};
                 TEST_INJECTION_POINT_CALLBACK(
-                        "MetaServiceProxy::call_impl::inject_max_qps_limit.set_p", &p);
+                        "MetaServiceProxy::call_impl::inject_ms_too_busy.set_p", &p);
                 if (p < 0 || p > 1.0) {
                     p = 0.01; // default injection possibility is 1%
                 }
                 std::bernoulli_distribution inject_fault {p};
                 if (inject_fault(gen)) {
                     auto* status = try_any_cast<MetaServiceResponseStatus*>(args[1]);
-                    status->set_code(MetaServiceCode::MAX_QPS_LIMIT);
-                    status->set_msg("injected max qps limit");
-                    LOG_WARNING("inject max qps limit on {} with probability {}", *req_name, p);
+                    status->set_code(MetaServiceCode::MS_TOO_BUSY);
+                    status->set_msg("injected ms too busy");
+                    LOG_WARNING("inject ms too busy on {} with probability {}", *req_name, p);
                     *try_any_cast<bool*>(args.back()) = true;
                 }
             }
         });
-        LOG_INFO("enable MetaServiceProxy::inject_max_qps_limit");
+        LOG_INFO("enable MetaServiceProxy::inject_ms_too_busy");
     });
 }
 

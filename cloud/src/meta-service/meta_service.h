@@ -1060,7 +1060,7 @@ private:
         uint64_t duration_ms = 0, retry_drift_ms = 0;
         while (true) {
             resp->Clear(); // reset the response message in case it is reused for retry
-            TEST_SYNC_POINT_RETURN_WITH_VOID("MetaServiceProxy::call_impl::inject_max_qps_limit",
+            TEST_SYNC_POINT_RETURN_WITH_VOID("MetaServiceProxy::call_impl::inject_ms_too_busy",
                                              &retry_times, resp->mutable_status(), &req_name);
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
             MetaServiceCode code = resp->status().code();

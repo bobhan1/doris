@@ -228,7 +228,7 @@ TEST(RateLimiterTest, TestAdjustLimitInfluence1) {
         ASSERT_TRUE(meta_service->rate_limiter()->set_rate_limit(0));
         std::this_thread::sleep_for(std::chrono::seconds(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
-                          MetaServiceCode::MAX_QPS_LIMIT, 1);
+                          MetaServiceCode::MS_TOO_BUSY, 1);
         // have to sleep 5s to ensure sucess, maybe related with bvar latency
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
@@ -239,10 +239,10 @@ TEST(RateLimiterTest, TestAdjustLimitInfluence1) {
                           MetaServiceCode::OK, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_1,
-                          MetaServiceCode::MAX_QPS_LIMIT, 1);
+                          MetaServiceCode::MS_TOO_BUSY, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
-                          MetaServiceCode::MAX_QPS_LIMIT, 3);
+                          MetaServiceCode::MS_TOO_BUSY, 3);
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     {
@@ -253,7 +253,7 @@ TEST(RateLimiterTest, TestAdjustLimitInfluence1) {
                           MetaServiceCode::OK, 3);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_1,
-                          MetaServiceCode::MAX_QPS_LIMIT, 3);
+                          MetaServiceCode::MS_TOO_BUSY, 3);
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     {
@@ -261,7 +261,7 @@ TEST(RateLimiterTest, TestAdjustLimitInfluence1) {
                 meta_service->rate_limiter()->set_rate_limit(2, "get_cluster", mock_instance_0));
         std::this_thread::sleep_for(std::chrono::seconds(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
-                          MetaServiceCode::MAX_QPS_LIMIT, 3);
+                          MetaServiceCode::MS_TOO_BUSY, 3);
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     {
@@ -285,7 +285,7 @@ TEST(RateLimiterTest, TestAdjustLimitInfluence2) {
                 meta_service->rate_limiter()->set_rate_limit(6, "get_cluster", mock_instance_0));
         std::this_thread::sleep_for(std::chrono::seconds(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
-                          MetaServiceCode::MAX_QPS_LIMIT, 7);
+                          MetaServiceCode::MS_TOO_BUSY, 7);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
                           MetaServiceCode::OK, 5);
@@ -298,7 +298,7 @@ TEST(RateLimiterTest, TestAdjustLimitInfluence2) {
         ASSERT_TRUE(meta_service->rate_limiter()->set_instance_rate_limit(4, mock_instance_0));
         std::this_thread::sleep_for(std::chrono::seconds(2));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
-                          MetaServiceCode::MAX_QPS_LIMIT, 5);
+                          MetaServiceCode::MS_TOO_BUSY, 5);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
                           MetaServiceCode::OK, 3);
@@ -314,7 +314,7 @@ TEST(RateLimiterTest, TestAdjustLimitInfluence2) {
                           MetaServiceCode::OK, 3);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_1,
-                          MetaServiceCode::MAX_QPS_LIMIT, 3);
+                          MetaServiceCode::MS_TOO_BUSY, 3);
     }
 }
 
@@ -342,7 +342,7 @@ TEST(RateLimiterTest, AdjustLimitMockRPCTest) {
         ASSERT_TRUE(meta_service->rate_limiter()->set_rate_limit(1, "get_cluster"));
         ASSERT_TRUE(meta_service->rate_limiter()->set_rate_limit(1));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
-                          MetaServiceCode::MAX_QPS_LIMIT, 1);
+                          MetaServiceCode::MS_TOO_BUSY, 1);
         auto limit =
                 meta_service->rate_limiter()->get_rpc_rate_limiter("get_cluster")->max_qps_limit();
         ASSERT_EQ(limit, 1);
@@ -372,7 +372,7 @@ TEST(RateLimiterTest, AdjustLimitMockRPCTest) {
     {
         ASSERT_TRUE(meta_service->rate_limiter()->set_instance_rate_limit(1, mock_instance_0));
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
-                          MetaServiceCode::MAX_QPS_LIMIT, 1);
+                          MetaServiceCode::MS_TOO_BUSY, 1);
         mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_1,
                           MetaServiceCode::OK, 20);
         auto limit = meta_service->rate_limiter()
