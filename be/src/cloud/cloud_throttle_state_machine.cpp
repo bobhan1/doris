@@ -217,8 +217,8 @@ bool RpcThrottleCoordinator::report_ms_busy() {
         _ticks_since_last_upgrade = 0;
         _has_pending_upgrades = true;
 
-        LOG(INFO) << "[ms-throttle] upgrade triggered: ticks_since_last_upgrade="
-                  << actual_ticks << ", cooldown=" << _params.upgrade_cooldown_ticks;
+        LOG(INFO) << "[ms-throttle] upgrade triggered: ticks_since_last_upgrade=" << actual_ticks
+                  << ", cooldown=" << _params.upgrade_cooldown_ticks;
         return true; // Should trigger upgrade
     }
     return false; // Cooling down
@@ -241,8 +241,7 @@ bool RpcThrottleCoordinator::tick(int ticks) {
         auto actual_ticks = _ticks_since_last_ms_busy;
         _ticks_since_last_ms_busy = 0;
 
-        LOG(INFO) << "[ms-throttle] downgrade triggered: ticks_since_last_ms_busy="
-                  << actual_ticks
+        LOG(INFO) << "[ms-throttle] downgrade triggered: ticks_since_last_ms_busy=" << actual_ticks
                   << ", threshold=" << _params.downgrade_after_ticks;
         return true; // Should trigger downgrade
     }
