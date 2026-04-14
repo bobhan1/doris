@@ -368,7 +368,7 @@ PROPERTIES(
 - `REGEX 'pattern'`：正则表达式匹配
 
 **语法约束**：
-- **INCLUDE 规则必须写在 EXCLUDE 规则之前**。即语法上分为两个区域：先声明所有 INCLUDE 规则，再声明所有 EXCLUDE 规则。不允许交叉书写。
+- INCLUDE 和 EXCLUDE 规则**可以任意顺序书写**，系统内部自动将其分组为 INCLUDE 集合和 EXCLUDE 集合，与书写顺序无关
 - 不使用 `ON TABLES` 子句 → 集群级别全量预热（兼容现有语法）
 
 **语义（集合运算）**：
@@ -512,15 +512,14 @@ for table in include_set:
 ```sql
 WARM UP COMPUTE GROUP <target> WITH COMPUTE GROUP <source>
 ON TABLES (
-    INCLUDE '<glob_pattern>'
-    [, INCLUDE '<glob_pattern>' ...]
-    [, EXCLUDE '<glob_pattern>']
-    [, EXCLUDE '<glob_pattern>' ...]
+    {INCLUDE|EXCLUDE} '<glob_pattern>'
+    [, {INCLUDE|EXCLUDE} '<glob_pattern>' ...]
 )
 PROPERTIES (
     "sync_mode" = "event_driven",
     "sync_event" = "load"
 );
+-- 注：INCLUDE 和 EXCLUDE 可以任意顺序书写，至少包含一条 INCLUDE
 ```
 
 **关键简化**：
@@ -530,7 +529,7 @@ PROPERTIES (
 - "或"关系通过多条 INCLUDE 规则表达：`INCLUDE 'dw.fact_*', INCLUDE 'dw.dim_*'` 替代原方案 E 的 `INCLUDE REGEX '^dw\.(fact_|dim_).*$'`
 
 **语法约束**（同方案 E）：
-- INCLUDE 规则必须写在 EXCLUDE 规则之前，不允许交叉书写
+- INCLUDE 和 EXCLUDE 规则可以任意顺序书写，系统内部自动分组、排序和去重，生成规范化的 canonical JSON
 - 至少包含一条 INCLUDE 规则
 - 不使用 `ON TABLES` 子句 → 集群级别全量预热
 
@@ -642,6 +641,7 @@ PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load");
 > 5. **实现简单**——Parser 仅需解析 INCLUDE/EXCLUDE + 单引号字符串，无需多种匹配模式分支
 > 6. **表达力充分**——INCLUDE/EXCLUDE 集合运算 + glob 覆盖 95% 以上实际场景
 > 7. **可扩展性**——未来如需 REGEX 支持，可增加 `GLOB`/`REGEX` 关键字，向后兼容（无关键字默认为 GLOB）
+> 8. **规则顺序无关**——INCLUDE/EXCLUDE 可自由混写，系统自动规范化为 canonical JSON，降低用户心智负担
 >
 > 方案 F 是"够用就好"与"极致简洁"之间的最优平衡。放弃了 REGEX 的极端灵活性，换来了语法统一、零转义、低实现复杂度。
 
@@ -664,11 +664,27 @@ PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load");
 #### 语法约束
 
 1. `ON TABLES` 子句可选。不使用 → 集群级别全量预热（兼容现有语法）
-2. `ON TABLES` 内部必须先写所有 `INCLUDE` 规则，再写所有 `EXCLUDE` 规则，不允许交叉
+2. `ON TABLES` 内部 `INCLUDE` 和 `EXCLUDE` 规则**可以任意顺序书写**，系统内部自动分组、排序和去重，生成规范化表示
 3. 至少包含一条 `INCLUDE` 规则（纯 `EXCLUDE` 无意义，因为默认不纳入）
 4. 大小写敏感（与 Doris 的 DB/表名一致）
 5. 所有模式使用单引号包裹，统一为 glob 语法（`*` 匹配任意字符，`?` 匹配单个字符）
 6. 精确匹配通过不使用通配符的 glob 实现：`INCLUDE 'db.table'`
+
+> **规范化（Canonicalization）**：无论用户以何种顺序书写规则，系统在创建 Job 时会自动执行以下规范化操作：
+> 1. 将所有规则按类型分组：提取全部 INCLUDE 规则和全部 EXCLUDE 规则
+> 2. 在每组内按模式字符串字典序排序
+> 3. 在每组内去除重复的模式字符串
+> 4. 生成 canonical JSON 作为持久化标识和重复检测依据
+>
+> 示例：以下两条 SQL 产生**完全相同**的 canonical JSON，因此会被判定为重复 Job：
+> ```sql
+> -- SQL A
+> ON TABLES (INCLUDE 'dw.*', EXCLUDE 'dw.tmp_*', INCLUDE 'ods.*')
+> -- SQL B
+> ON TABLES (INCLUDE 'ods.*', INCLUDE 'dw.*', EXCLUDE 'dw.tmp_*')
+> -- 两者的 canonical JSON 均为：
+> -- {"include":["dw.*","ods.*"],"exclude":["dw.tmp_*"]}
+> ```
 
 ### 2.6 完整 SQL 示例
 
@@ -770,12 +786,13 @@ SHOW WARM UP JOB;
 | Status | RUNNING | |
 | Type | CLUSTER | 不变，仍为 CLUSTER 类型 |
 | SyncMode | EVENT_DRIVEN (LOAD) | |
-| TableFilter | `INCLUDE 'ods.*', EXCLUDE 'ods.tmp_*'` | **新增**：创建时的 ON TABLES 规则表达式（还原为 SQL 片段） |
+| TableFilter | `{"include":["ods.*"],"exclude":["ods.tmp_*"]}` | **新增**：canonical JSON 格式的 ON TABLES 规则（规范化后） |
 | MatchedTables | `ods.order, ods.user, ods.payment` | **新增**：当前匹配的表名列表（FE 最近一次动态评估的结果） |
 | CreateTime | 2024-01-01 00:00:00 | |
 
 > **TableFilter** 展示说明：
-> - 将 `ON TABLES (...)` 子句中的规则还原为可读的字符串格式
+> - 展示规范化后的 canonical JSON 格式，如 `{"include":["dw.*","ods.*"],"exclude":["dw.tmp_*"]}`
+> - 无论创建时 INCLUDE/EXCLUDE 的书写顺序如何，SHOW 展示的都是规范化后的结果
 > - 集群级别 Job（无 ON TABLES）：该列为空
 >
 > **MatchedTables** 展示说明：
@@ -886,24 +903,31 @@ public class OnTablesFilter {
 #### 3.1.3 模式解析流程
 
 ```
-用户输入:
+用户输入（规则可以任意顺序书写）:
     ON TABLES (
         INCLUDE 'ods.*',
-        INCLUDE 'dw.fact_orders',
-        EXCLUDE 'ods.tmp_*'
+        EXCLUDE 'ods.tmp_*',
+        INCLUDE 'dw.fact_orders'
     )
             │
             ▼
     FE Parser 解析 ON TABLES 子句
             │
             ▼
-    校验：INCLUDE 规则在前，EXCLUDE 规则在后
+    校验：至少包含一条 INCLUDE 规则
+            │
+            ▼
+    规范化（Canonicalization）：
+    1. 按类型分组 → INCLUDE: ["ods.*", "dw.fact_orders"], EXCLUDE: ["ods.tmp_*"]
+    2. 每组内按字典序排序 → INCLUDE: ["dw.fact_orders", "ods.*"], EXCLUDE: ["ods.tmp_*"]
+    3. 每组内去除重复
+    4. 生成 canonical JSON → {"include":["dw.fact_orders","ods.*"],"exclude":["ods.tmp_*"]}
             │
             ▼
     编译每条规则为 TableFilterRule 对象（glob → Java 正则）
     includeRules = [
-        "ods.*"          → Pattern("^ods\\..*$"),
-        "dw.fact_orders" → Pattern("^dw\\.fact_orders$")
+        "dw.fact_orders" → Pattern("^dw\\.fact_orders$"),
+        "ods.*"          → Pattern("^ods\\..*$")
     ]
     excludeRules = [
         "ods.tmp_*"      → Pattern("^ods\\.tmp_.*$")
@@ -934,12 +958,12 @@ public Set<Long> resolveTableIds(OnTablesFilter filter) {
 }
 ```
 
-**存储策略：持久化模式规则，table_id 集合由运行时动态计算**
+**存储策略：持久化模式规则（canonical JSON），table_id 集合由运行时动态计算**
 
 | 存储内容 | 持久化 | 用途 |
 |----------|--------|------|
 | `tableFilterRules`（INCLUDE/EXCLUDE 规则列表） | ✅ EditLog | **核心持久化数据**。FE 恢复时用于重建 `OnTablesFilter`，定期重新评估匹配 |
-| `tableFilterExpr`（ON TABLES 表达式字符串） | ✅ EditLog | 辅助展示。SHOW WARM UP JOB 时展示原始创建意图 |
+| `tableFilterExpr`（canonical JSON 字符串） | ✅ EditLog | **规范化标识**。用于 JobKey 重复检测 + SHOW 展示 |
 | `currentTableIds`（当前匹配的 table_id 集合） | ❌ 仅运行时 | FE 内存中维护，每次刷新后更新，下发到 BE |
 
 > **设计要点**：
@@ -957,7 +981,7 @@ public Set<Long> resolveTableIds(OnTablesFilter filter) {
 public class CloudWarmUpJob {
     // 持久化字段（GSON 序列化到 EditLog）
     @SerializedName(value = "tableFilterExpr")
-    protected String tableFilterExpr = "";              // ON TABLES 子句的原始表达式，用于 SHOW 展示
+    protected String tableFilterExpr = "";              // canonical JSON，用于 JobKey 重复检测 + SHOW 展示
 
     @SerializedName(value = "tableFilterRules")
     protected List<PersistedTableFilterRule> tableFilterRules = new ArrayList<>();  // 模式规则，用于定期重新评估
@@ -978,6 +1002,45 @@ public class CloudWarmUpJob {
         public String pattern;   // glob 模式，如 "ods.*"
     }
 
+    /**
+     * 从规则列表生成 canonical JSON 字符串。
+     * 规范化步骤：
+     * 1. 按 ruleType 分组为 INCLUDE 和 EXCLUDE 两组
+     * 2. 每组内按 pattern 字典序排序
+     * 3. 每组内去除重复 pattern
+     * 4. 序列化为紧凑 JSON：{"include":["a","b"],"exclude":["x"]}
+     *
+     * 该 canonical JSON 用于：
+     * - JobKey 重复检测（不同书写顺序但语义相同的规则 → 相同 canonical JSON → 判定为重复 Job）
+     * - SHOW WARM UP JOB 的 TableFilter 列展示
+     */
+    public static String canonicalize(List<PersistedTableFilterRule> rules) {
+        List<String> includes = rules.stream()
+            .filter(r -> "INCLUDE".equals(r.ruleType))
+            .map(r -> r.pattern)
+            .distinct()
+            .sorted()
+            .collect(Collectors.toList());
+        List<String> excludes = rules.stream()
+            .filter(r -> "EXCLUDE".equals(r.ruleType))
+            .map(r -> r.pattern)
+            .distinct()
+            .sorted()
+            .collect(Collectors.toList());
+
+        // 生成紧凑 JSON（使用 Gson 确保转义正确）
+        JsonObject json = new JsonObject();
+        JsonArray incArr = new JsonArray();
+        includes.forEach(incArr::add);
+        json.add("include", incArr);
+        if (!excludes.isEmpty()) {
+            JsonArray excArr = new JsonArray();
+            excludes.forEach(excArr::add);
+            json.add("exclude", excArr);
+        }
+        return json.toString();  // 紧凑格式，无多余空格
+    }
+
     // FE 启动/主从切换后从 tableFilterRules 重建 OnTablesFilter
     public void rebuildOnTablesFilter() {
         if (tableFilterRules.isEmpty()) return;
@@ -995,8 +1058,9 @@ public class CloudWarmUpJob {
 
 | 决策点 | 决定 | 原因 |
 |--------|------|------|
-| 持久化内容 | 模式规则列表 + 显示表达式 | 规则是重新评估的依据，table_id 不持久化 |
+| 持久化内容 | 模式规则列表 + canonical JSON | 规则是重新评估的依据，canonical JSON 用于 JobKey 去重，table_id 不持久化 |
 | table_id 集合 | 运行时动态计算，不持久化 | 支持新建表自动纳入、删除表自动移除 |
+| 规则顺序 | 用户可任意顺序书写，内部自动规范化 | 简化用户体验，canonical JSON 保证语义相同的规则集产生相同标识 |
 | 模式匹配时机 | 创建时匹配一次 + **定期刷新**（默认 60s） | 动态跟踪 catalog 变化 |
 | RENAME 行为 | 取决于新表名是否匹配模式 | 语义直观：模式描述"意图"，而非固定的 table_id |
 | 新建表 | **自动纳入**（下次刷新时） | 减少运维负担 |
@@ -1011,9 +1075,9 @@ public class WarmUpClusterCommand extends Command {
     private final List<TableFilterRule> onTablesRules;  // ON TABLES 子句的规则列表（可为 null，表示集群级别）
 
     // 解析时校验：
-    // 1. onTablesRules 中 INCLUDE 规则在前，EXCLUDE 在后
-    // 2. 至少有一条 INCLUDE 规则
-    // 3. glob 模式格式合法（包含 '.'，格式为 'db_pattern.table_pattern'）
+    // 1. 至少有一条 INCLUDE 规则
+    // 2. glob 模式格式合法（包含 '.'，格式为 'db_pattern.table_pattern'）
+    // 注意：INCLUDE 和 EXCLUDE 可以任意顺序书写，无需校验顺序
 }
 ```
 
@@ -1039,7 +1103,6 @@ public long createJob(WarmUpClusterCommand stmt) {
             if (initialTableIds.isEmpty()) {
                 throw new DdlException("ON TABLES rules do not match any existing table");
             }
-            tableFilterExpr = filter.toDisplayString();  // 还原为可读 SQL 片段
             // 将规则转为可持久化格式
             for (TableFilterRule rule : onTablesRules) {
                 CloudWarmUpJob.PersistedTableFilterRule pr = new CloudWarmUpJob.PersistedTableFilterRule();
@@ -1047,6 +1110,8 @@ public long createJob(WarmUpClusterCommand stmt) {
                 pr.pattern = rule.getPattern();
                 persistedRules.add(pr);
             }
+            // 生成 canonical JSON（规范化：分组 + 排序 + 去重）
+            tableFilterExpr = CloudWarmUpJob.canonicalize(persistedRules);
         }
 
         CloudWarmUpJob job = new CloudWarmUpJob.Builder()
@@ -1056,7 +1121,7 @@ public long createJob(WarmUpClusterCommand stmt) {
             .setJobType(JobType.CLUSTER)
             .setSyncMode(SyncMode.EVENT_DRIVEN)
             .setSyncEvent(syncEvent)
-            .setTableFilterExpr(tableFilterExpr)        // 展示 + 持久化
+            .setTableFilterExpr(tableFilterExpr)        // canonical JSON，持久化 + JobKey
             .setTableFilterRules(persistedRules)        // 持久化，用于定期重新评估
             .build();
 
@@ -1175,7 +1240,7 @@ private void pushTableFilterToSourceBEs(CloudWarmUpJob job, Set<Long> tableIds) 
 
 当前 `JobKey` = `(src, dst, syncMode)`。
 
-**调整后**：`JobKey` = `(src, dst, syncMode, tableFilterExpr)`
+**调整后**：`JobKey` = `(src, dst, syncMode, tableFilterExpr)`，其中 `tableFilterExpr` 为 **canonical JSON**。
 
 ```java
 // repeatJobDetectionSet 的 key 扩展
@@ -1183,16 +1248,30 @@ public static class JobKey {
     String srcCluster;
     String dstCluster;
     SyncMode syncMode;
-    String tableFilterExpr;   // 新增：空串 = 集群级别，非空 = ON TABLES 表达式
+    String tableFilterExpr;   // canonical JSON（空串 = 集群级别，非空 = 规范化后的 ON TABLES 表达式）
 
     // equals/hashCode 使用所有字段
 }
 ```
 
+**规范化保证**：由于 `tableFilterExpr` 是经过规范化（分组 + 字典序排序 + 去重）的 canonical JSON，不同书写顺序但语义相同的 ON TABLES 子句会产生**相同的 canonical JSON**，从而正确判定为重复 Job。
+
+```
+-- 用户创建 Job A：
+ON TABLES (INCLUDE 'dw.*', EXCLUDE 'dw.tmp_*', INCLUDE 'ods.*')
+-- canonical JSON → {"include":["dw.*","ods.*"],"exclude":["dw.tmp_*"]}
+
+-- 用户创建 Job B（与 A 语义相同，顺序不同）：
+ON TABLES (INCLUDE 'ods.*', INCLUDE 'dw.*', EXCLUDE 'dw.tmp_*')
+-- canonical JSON → {"include":["dw.*","ods.*"],"exclude":["dw.tmp_*"]}
+
+-- Job A 和 Job B 的 JobKey 相同 → Job B 被拒绝为重复 Job ✓
+```
+
 **行为**：
 - 同一 `(src, dst)` 对允许创建一个集群级别 + 多个不同 ON TABLES 规则的表级别 event-driven job
-- 完全相同的 ON TABLES 表达式会被判定为重复 job 并拒绝
-- ON TABLES 规则有交集但不完全相同的情况：**允许创建**，依赖目标 BE 的去重机制
+- canonical JSON 相同的 ON TABLES 表达式会被判定为重复 job 并拒绝（无论书写顺序）
+- ON TABLES 规则有交集但 canonical JSON 不同的情况：**允许创建**，依赖目标 BE 的去重机制
 
 #### 3.2.6 getTabletReplicaInfos 无需修改
 
@@ -1613,7 +1692,7 @@ PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load");
 | `ON TABLES (INCLUDE '*.*')` | 显式全量匹配（所有表） |
 | `ON TABLES (INCLUDE 'nonexistent_db.*')` | 创建时校验，当前无匹配表则报错。但若后续创建了 `nonexistent_db`，下次刷新会自动匹配 |
 | 纯 EXCLUDE 无 INCLUDE | 语法错误，至少需要一条 INCLUDE 规则 |
-| INCLUDE 和 EXCLUDE 交叉书写 | 语法错误，INCLUDE 必须在 EXCLUDE 之前 |
+| INCLUDE 和 EXCLUDE 交叉书写 | **允许**。系统内部自动分组、排序和去重，生成 canonical JSON |
 | Glob 中 `*` `?` | `*` 匹配任意字符，`?` 匹配单个字符，其余按字面值匹配 |
 | Glob 中 `.` | 字面值（库名和表名分隔符），无歧义 |
 | 所有匹配表都被 DROP | FE 推送空 table_id 集合 → BE 不触发任何预热 → Job 保持 RUNNING（等待新匹配表出现） |
@@ -1720,11 +1799,12 @@ private static class JobKey {
 **兼容性分析**：
 | 场景 | 行为 | 安全 |
 |------|------|------|
-| **新增 `tableFilterExpr` 字段到 JobKey** | 纯内存结构，无持久化 → 不存在跨版本兼容问题 | ✅ |
+| **新增 `tableFilterExpr`（canonical JSON）字段到 JobKey** | 纯内存结构，无持久化 → 不存在跨版本兼容问题 | ✅ |
 | **FE 重启后恢复** | 从 CloudWarmUpJob 的已持久化 `tableFilterExpr` 字段重建 → 正确恢复 | ✅ |
 | **旧 Job 恢复**（无 `tableFilterExpr`） | 反序列化后 `tableFilterExpr=""`，JobKey 中为空串 → 等同于集群级别 | ✅ |
+| **规范化保证 JobKey 一致性** | 不同书写顺序但语义相同的规则 → 相同 canonical JSON → 正确去重 | ✅ |
 
-> **结论**：`repeatJobDetectionSet` 不持久化，因此 JobKey 结构变更是纯代码变更，不影响数据兼容性。
+> **结论**：`repeatJobDetectionSet` 不持久化，因此 JobKey 结构变更是纯代码变更，不影响数据兼容性。canonical JSON 格式的 `tableFilterExpr` 确保了 JobKey 的规范性。
 
 #### 7.1.3 Thrift TWarmUpTabletsRequest 扩展（✅ 安全）
 
@@ -1794,7 +1874,7 @@ public static class Builder {
 | 变更点 | 持久化？ | 旧版本兼容 | 风险 |
 |--------|---------|-----------|------|
 | `CloudWarmUpJob` 新增 `tableFilterRules` + `tableFilterExpr` | ✅ EditLog (GSON JSON) | GSON 忽略未知字段 / 缺失字段用默认值 | ✅ 无 |
-| `JobKey` 新增 `tableFilterExpr` | ❌ 纯内存 | 不涉及持久化兼容 | ✅ 无 |
+| `JobKey` 新增 `tableFilterExpr`（canonical JSON） | ❌ 纯内存 | 不涉及持久化兼容，canonical JSON 保证规范性 | ✅ 无 |
 | `TWarmUpTabletsRequest` 新增 field 6 | ❌ RPC 协议 | Thrift optional 字段向后兼容 | ✅ 无 |
 | `OperationType` | 不变（仍为 1002） | — | ✅ 无 |
 | `Builder` 新增 setter | ❌ 代码 | 不影响已有调用 | ✅ 无 |
@@ -1843,19 +1923,25 @@ public static class Builder {
 15. **FE 主从切换后恢复**：切主后 → 新 Master 从 EditLog 恢复规则 → 立即刷新 → BE 收到最新 table_ids
 16. **所有匹配表被 DROP**：删除所有匹配表 → 刷新后 table_id 集合为空 → Job 保持 RUNNING → 新建匹配表后自动恢复
 
-### 8.3 边界测试
+### 8.3 规范化测试
 
-14. **无 ON TABLES**：不使用 ON TABLES → 等价于集群级别，全量预热
-15. **无匹配**：`ON TABLES (INCLUDE 'nonexistent.*')` → 创建时报错
-16. **纯 EXCLUDE**：`ON TABLES (EXCLUDE 'db1.*')` → 语法错误（至少需要一条 INCLUDE）
-17. **Schema Change**：SC 过程中和之后的 rowset 都被正确预热
-18. **Source BE 重启**：FE 重新注册触发器，包含 table_ids
-19. **FE 主从切换**：job 恢复后继续工作
+17. **顺序无关**：`ON TABLES (INCLUDE 'b.*', EXCLUDE 'b.tmp_*', INCLUDE 'a.*')` 和 `ON TABLES (INCLUDE 'a.*', INCLUDE 'b.*', EXCLUDE 'b.tmp_*')` → 两者 canonical JSON 相同 → 第二个创建被判定为重复 Job
+18. **重复规则去重**：`ON TABLES (INCLUDE 'db.*', INCLUDE 'db.*')` → canonical JSON 中只有一条 `"db.*"` → 不报错，正常去重
+19. **canonical JSON 格式**：SHOW WARM UP JOB 的 TableFilter 列展示规范化后的 JSON → 验证格式正确、pattern 按字典序排列
 
-### 8.4 性能测试
+### 8.4 边界测试
 
-17. **过滤效率**：大量不相关表写入时，验证 commit_rowset 延迟不受影响
-18. **大量 job**：创建 50+ 个不同模式的 job → 验证系统稳定
+20. **无 ON TABLES**：不使用 ON TABLES → 等价于集群级别，全量预热
+21. **无匹配**：`ON TABLES (INCLUDE 'nonexistent.*')` → 创建时报错
+22. **纯 EXCLUDE**：`ON TABLES (EXCLUDE 'db1.*')` → 语法错误（至少需要一条 INCLUDE）
+23. **Schema Change**：SC 过程中和之后的 rowset 都被正确预热
+24. **Source BE 重启**：FE 重新注册触发器，包含 table_ids
+25. **FE 主从切换**：job 恢复后继续工作
+
+### 8.5 性能测试
+
+26. **过滤效率**：大量不相关表写入时，验证 commit_rowset 延迟不受影响
+27. **大量 job**：创建 50+ 个不同模式的 job → 验证系统稳定
 
 ---
 
@@ -1868,14 +1954,14 @@ public static class Builder {
 | 1 | SQL 语法 | 方案 F：`ON TABLES (INCLUDE/EXCLUDE '...')` 纯 Glob 子句 |
 | 2 | 表匹配模式 | 纯 Glob 通配符（`*` `?`），精确匹配通过不使用通配符实现 |
 | 3 | INCLUDE/EXCLUDE 语义 | 集合运算：先算 INCLUDE 集合，再减 EXCLUDE 集合 |
-| 4 | 语法约束 | INCLUDE 规则必须写在 EXCLUDE 之前 |
+| 4 | 语法约束 | INCLUDE/EXCLUDE 可任意顺序，内部自动规范化为 canonical JSON |
 | 5 | 过滤粒度 | DB + 表级别，不支持分区 |
 | 6 | 模式匹配时机 | **创建时匹配一次 + 定期刷新**（默认每 60 秒），动态跟踪 catalog 变化 |
-| 7 | 持久化内容 | 模式规则列表（tableFilterRules）+ 显示表达式（tableFilterExpr），**不持久化 table_id 集合** |
+| 7 | 持久化内容 | 模式规则列表（tableFilterRules）+ canonical JSON（tableFilterExpr），**不持久化 table_id 集合** |
 | 8 | 过滤位置 | BE 侧（减少 97.5% 无效 RPC） |
 | 9 | table_id 获取 | `rs_meta.tablet_schema()->table_id()`，O(1) |
 | 10 | BE 过滤器 | `std::optional<unordered_set<int64_t>>`：nullopt=集群级别，has_value=表级别 |
-| 11 | 重复检测 | 按 (src, dst, syncMode, tableFilterExpr) 去重 |
+| 11 | 重复检测 | 按 (src, dst, syncMode, canonical JSON) 去重，书写顺序无关 |
 | 12 | 集群+表共存 | 允许，目标 BE 侧去重 |
 | 13 | RENAME | **跟随模式匹配**——新表名仍匹配则继续预热，不匹配则停止 |
 | 14 | 新建表 | **自动纳入**——下次刷新时匹配到新表则自动加入预热范围 |
