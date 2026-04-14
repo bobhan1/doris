@@ -26,6 +26,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Tests for table-filter extensions in {@link CloudWarmUpJob}:
+ * canonicalize(), rebuildOnTablesFilter(), hasTableFilter(), getJobInfo().
+ */
 public class CloudWarmUpJobTableFilterTest {
 
     private PersistedTableFilterRule rule(String type, String pattern) {
@@ -44,13 +48,14 @@ public class CloudWarmUpJobTableFilterTest {
                 .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN);
     }
 
+    // ===== canonicalize() =====
+
     @Test
     public void testCanonicalizeIncludeOnly() {
         List<PersistedTableFilterRule> rules = Arrays.asList(
                 rule("INCLUDE", "dw.*"),
                 rule("INCLUDE", "ods.*"));
         String expr = CloudWarmUpJob.canonicalize(rules);
-        // Should be sorted alphabetically
         Assertions.assertEquals("{\"include\":[\"dw.*\",\"ods.*\"]}", expr);
     }
 
@@ -71,50 +76,41 @@ public class CloudWarmUpJobTableFilterTest {
                 rule("INCLUDE", "ods.*"),
                 rule("INCLUDE", "dw.*"));
         String expr = CloudWarmUpJob.canonicalize(rules);
-        // Duplicates should be removed
         Assertions.assertEquals("{\"include\":[\"dw.*\",\"ods.*\"]}", expr);
     }
 
     @Test
-    public void testCanonicalizeOrderIndependent() {
+    public void testCanonicalizeIsOrderIndependent() {
         List<PersistedTableFilterRule> rules1 = Arrays.asList(
-                rule("INCLUDE", "ods.*"),
-                rule("INCLUDE", "dw.*"),
-                rule("EXCLUDE", "dw.tmp_*"));
+                rule("INCLUDE", "ods.*"), rule("INCLUDE", "dw.*"), rule("EXCLUDE", "dw.tmp_*"));
         List<PersistedTableFilterRule> rules2 = Arrays.asList(
-                rule("EXCLUDE", "dw.tmp_*"),
-                rule("INCLUDE", "dw.*"),
-                rule("INCLUDE", "ods.*"));
+                rule("EXCLUDE", "dw.tmp_*"), rule("INCLUDE", "dw.*"), rule("INCLUDE", "ods.*"));
         Assertions.assertEquals(
                 CloudWarmUpJob.canonicalize(rules1),
                 CloudWarmUpJob.canonicalize(rules2));
     }
 
     @Test
-    public void testCanonicalizeExcludeOnlyOmitsExcludeKey() {
-        // When there are no excludes, the "exclude" key should be absent
-        List<PersistedTableFilterRule> rules = Arrays.asList(
-                rule("INCLUDE", "ods.*"));
-        String expr = CloudWarmUpJob.canonicalize(rules);
+    public void testCanonicalizeExcludeKeyAbsentWhenNoExcludes() {
+        String expr = CloudWarmUpJob.canonicalize(Arrays.asList(rule("INCLUDE", "ods.*")));
         Assertions.assertFalse(expr.contains("exclude"));
     }
 
     @Test
-    public void testCanonicalizeEmpty() {
+    public void testCanonicalizeEmptyRules() {
         String expr = CloudWarmUpJob.canonicalize(new ArrayList<>());
         Assertions.assertEquals("{\"include\":[]}", expr);
     }
+
+    // ===== rebuildOnTablesFilter() =====
 
     @Test
     public void testRebuildOnTablesFilter() {
         CloudWarmUpJob job = baseBuilder()
                 .setTableFilterRules(Arrays.asList(
-                        rule("INCLUDE", "ods.*"),
-                        rule("EXCLUDE", "ods.tmp_*")))
+                        rule("INCLUDE", "ods.*"), rule("EXCLUDE", "ods.tmp_*")))
                 .setTableFilterExpr("{\"include\":[\"ods.*\"],\"exclude\":[\"ods.tmp_*\"]}")
                 .build();
-
-        // Before rebuild, onTablesFilter is null (transient field)
         job.rebuildOnTablesFilter();
 
         OnTablesFilter filter = job.getOnTablesFilter();
@@ -125,35 +121,54 @@ public class CloudWarmUpJobTableFilterTest {
     }
 
     @Test
-    public void testRebuildOnTablesFilterEmpty() {
+    public void testRebuildOnTablesFilterNoRules() {
         CloudWarmUpJob job = baseBuilder().build();
         job.rebuildOnTablesFilter();
         Assertions.assertNull(job.getOnTablesFilter());
     }
 
+    // ===== hasTableFilter() =====
+
     @Test
     public void testHasTableFilter() {
-        CloudWarmUpJob jobWithFilter = baseBuilder()
+        CloudWarmUpJob withFilter = baseBuilder()
                 .setTableFilterRules(Arrays.asList(rule("INCLUDE", "ods.*")))
                 .build();
-        Assertions.assertTrue(jobWithFilter.hasTableFilter());
+        Assertions.assertTrue(withFilter.hasTableFilter());
 
-        CloudWarmUpJob jobWithoutFilter = baseBuilder().build();
-        Assertions.assertFalse(jobWithoutFilter.hasTableFilter());
+        CloudWarmUpJob withoutFilter = baseBuilder().build();
+        Assertions.assertFalse(withoutFilter.hasTableFilter());
     }
 
+    // ===== getJobInfo() =====
+
     @Test
-    public void testGetJobInfoHasTableFilterColumns() {
+    public void testGetJobInfoIncludesTableFilterColumns() {
         CloudWarmUpJob job = baseBuilder()
                 .setTableFilterExpr("{\"include\":[\"ods.*\"]}")
                 .setTableFilterRules(Arrays.asList(rule("INCLUDE", "ods.*")))
                 .build();
         List<String> info = job.getJobInfo();
-        // getJobInfo should have at least the base columns + 2 new columns (TableFilter, MatchedTables)
-        // The last two entries are tableFilterExpr and currentTableIds
-        Assertions.assertTrue(info.size() >= 2);
-        // Second-to-last should be the filter expr
-        String filterCol = info.get(info.size() - 2);
-        Assertions.assertEquals("{\"include\":[\"ods.*\"]}", filterCol);
+        // The last two columns are TableFilter and MatchedTables
+        String tableFilterCol = info.get(info.size() - 2);
+        Assertions.assertEquals("{\"include\":[\"ods.*\"]}", tableFilterCol);
+    }
+
+    @Test
+    public void testGetJobInfoWithoutTableFilter() {
+        CloudWarmUpJob job = baseBuilder().build();
+        List<String> info = job.getJobInfo();
+        // tableFilterExpr defaults to "" when not set
+        String tableFilterCol = info.get(info.size() - 2);
+        Assertions.assertEquals("", tableFilterCol);
+    }
+
+    // ===== Builder validation =====
+
+    @Test
+    public void testBuilderMissingRequiredFieldsThrows() {
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            new CloudWarmUpJob.Builder().build();
+        });
     }
 }
