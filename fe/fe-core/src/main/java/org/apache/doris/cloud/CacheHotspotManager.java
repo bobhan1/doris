@@ -18,12 +18,14 @@
 package org.apache.doris.cloud;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.CloudWarmUpJob.JobState;
 import org.apache.doris.cloud.CloudWarmUpJob.JobType;
@@ -67,6 +69,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -116,11 +119,17 @@ public class CacheHotspotManager extends MasterDaemon {
         private final String srcName;
         private final String dstName;
         private final CloudWarmUpJob.SyncMode syncMode;
+        private final String tableFilterExpr;
 
         public JobKey(String srcName, String dstName, CloudWarmUpJob.SyncMode syncMode) {
+            this(srcName, dstName, syncMode, "");
+        }
+
+        public JobKey(String srcName, String dstName, CloudWarmUpJob.SyncMode syncMode, String tableFilterExpr) {
             this.srcName = srcName;
             this.dstName = dstName;
             this.syncMode = syncMode;
+            this.tableFilterExpr = tableFilterExpr == null ? "" : tableFilterExpr;
         }
 
         @Override
@@ -134,17 +143,22 @@ public class CacheHotspotManager extends MasterDaemon {
             JobKey jobKey = (JobKey) o;
             return Objects.equals(srcName, jobKey.srcName)
                     && Objects.equals(dstName, jobKey.dstName)
-                    && syncMode == jobKey.syncMode;
+                    && syncMode == jobKey.syncMode
+                    && Objects.equals(tableFilterExpr, jobKey.tableFilterExpr);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(srcName, dstName, syncMode);
+            return Objects.hash(srcName, dstName, syncMode, tableFilterExpr);
         }
 
         @Override
         public String toString() {
-            return "WarmUpJob src='" + srcName + "', dst='" + dstName + "', syncMode=" + String.valueOf(syncMode);
+            String s = "WarmUpJob src='" + srcName + "', dst='" + dstName + "', syncMode=" + String.valueOf(syncMode);
+            if (!tableFilterExpr.isEmpty()) {
+                s += ", tableFilter=" + tableFilterExpr;
+            }
+            return s;
         }
     }
 
@@ -157,9 +171,8 @@ public class CacheHotspotManager extends MasterDaemon {
             return;
         }
         if (job.isEventDriven() || job.isPeriodic()) {
-            // For long lasting jobs, i.e. event-driven and periodic.
-            // It is meaningless to create more than one job for a given src, dst, and syncMode.
-            JobKey key = new JobKey(job.getSrcClusterName(), job.getDstClusterName(), job.getSyncMode());
+            JobKey key = new JobKey(job.getSrcClusterName(), job.getDstClusterName(),
+                    job.getSyncMode(), job.getTableFilterExpr());
             boolean added = this.repeatJobDetectionSet.add(key);
             if (!added && !replay) {
                 throw new AnalysisException(key + " already has a runnable job");
@@ -236,7 +249,8 @@ public class CacheHotspotManager extends MasterDaemon {
         }
         if (job.isEventDriven() || job.isPeriodic()) {
             this.repeatJobDetectionSet.remove(new JobKey(
-                    job.getSrcClusterName(), job.getDstClusterName(), job.getSyncMode()));
+                    job.getSrcClusterName(), job.getDstClusterName(),
+                    job.getSyncMode(), job.getTableFilterExpr()));
         }
     }
 
@@ -627,6 +641,7 @@ public class CacheHotspotManager extends MasterDaemon {
         public void runAfterCatalogReady() {
             if (cycleCount >= CYCLE_COUNT_TO_CHECK_EXPIRE_CLOUD_WARM_UP_JOB) {
                 clearFinishedOrCancelCloudWarmUpJob();
+                refreshAllTableFilters();
                 cycleCount = 0;
             }
             ++cycleCount;
@@ -826,10 +841,35 @@ public class CacheHotspotManager extends MasterDaemon {
                 }
                 builder.setSyncMode(SyncMode.EVENT_DRIVEN)
                         .setSyncEvent(syncEvent);
+
+                // Handle ON TABLES rules
+                List<OnTablesFilter.TableFilterRule> onTablesRules = stmt.getOnTablesRules();
+                if (onTablesRules != null && !onTablesRules.isEmpty()) {
+                    List<CloudWarmUpJob.PersistedTableFilterRule> persistedRules = new ArrayList<>();
+                    for (OnTablesFilter.TableFilterRule rule : onTablesRules) {
+                        CloudWarmUpJob.PersistedTableFilterRule pr = new CloudWarmUpJob.PersistedTableFilterRule();
+                        pr.ruleType = rule.getRuleType().name();
+                        pr.pattern = rule.getRawPattern();
+                        persistedRules.add(pr);
+                    }
+                    String tableFilterExpr = CloudWarmUpJob.canonicalize(persistedRules);
+                    builder.setTableFilterExpr(tableFilterExpr)
+                            .setTableFilterRules(persistedRules);
+                }
             } else {
                 builder.setSyncMode(SyncMode.ONCE);
             }
             warmUpJob = builder.build();
+
+            // For event-driven jobs with ON TABLES, rebuild filter and resolve initial table IDs
+            if (warmUpJob.hasTableFilter()) {
+                warmUpJob.rebuildOnTablesFilter();
+                Set<Long> initialTableIds = resolveTableIds(warmUpJob.getOnTablesFilter());
+                warmUpJob.setCurrentTableIds(initialTableIds);
+                if (initialTableIds.isEmpty()) {
+                    LOG.warn("ON TABLES rules do not match any existing table for job {}", jobId);
+                }
+            }
         }
 
         addCloudWarmUpJob(warmUpJob);
@@ -887,6 +927,14 @@ public class CacheHotspotManager extends MasterDaemon {
         runnableCloudWarmUpJobs.put(cloudWarmUpJob.getJobId(), cloudWarmUpJob);
         cloudWarmUpJobs.put(cloudWarmUpJob.getJobId(), cloudWarmUpJob);
         LOG.info("replay cloud warm up job {}, state {}", cloudWarmUpJob.getJobId(), cloudWarmUpJob.getJobState());
+
+        // Rebuild transient ON TABLES filter from persisted rules
+        if (cloudWarmUpJob.hasTableFilter()) {
+            cloudWarmUpJob.rebuildOnTablesFilter();
+            Set<Long> tableIds = resolveTableIds(cloudWarmUpJob.getOnTablesFilter());
+            cloudWarmUpJob.setCurrentTableIds(tableIds);
+        }
+
         if (cloudWarmUpJob.isDone()) {
             notifyJobStop(cloudWarmUpJob);
         } else {
@@ -900,6 +948,57 @@ public class CacheHotspotManager extends MasterDaemon {
                 // should not happen, but it does no matter, just add a warn log here to observe
                 LOG.warn("failed to find cloud warm up job {} when replay removing expired job.",
                             cloudWarmUpJob.getJobId());
+            }
+        }
+    }
+
+    /**
+     * Resolve glob-based ON TABLES filter to a set of matching table IDs
+     * by iterating all databases and tables in the internal catalog.
+     */
+    public Set<Long> resolveTableIds(OnTablesFilter filter) {
+        Set<Long> result = new HashSet<>();
+        if (filter == null) {
+            return result;
+        }
+        Collection<DatabaseIf<? extends TableIf>> allDbs =
+                Env.getCurrentInternalCatalog().getAllDbs();
+        for (DatabaseIf<? extends TableIf> dbIf : allDbs) {
+            String dbName = dbIf.getFullName();
+            // Strip "default_cluster:" prefix if present
+            if (dbName.contains(":")) {
+                dbName = dbName.substring(dbName.indexOf(':') + 1);
+            }
+            for (TableIf tableIf : dbIf.getTables()) {
+                if (filter.shouldWarmUp(dbName, tableIf.getName())) {
+                    result.add(tableIf.getId());
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Periodically refresh table IDs for all running event-driven jobs with ON TABLES filter.
+     * Called from the daemon loop to pick up newly created/dropped tables matching glob patterns.
+     */
+    public void refreshAllTableFilters() {
+        for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
+            if (job.isDone() || !job.isEventDriven() || !job.hasTableFilter()) {
+                continue;
+            }
+            try {
+                Set<Long> newTableIds = resolveTableIds(job.getOnTablesFilter());
+                Set<Long> oldTableIds = job.getCurrentTableIds();
+                if (!newTableIds.equals(oldTableIds)) {
+                    job.setCurrentTableIds(newTableIds);
+                    LOG.info("refreshed table filter for job {}: {} -> {} tables",
+                            job.getJobId(),
+                            oldTableIds == null ? 0 : oldTableIds.size(),
+                            newTableIds.size());
+                }
+            } catch (Exception e) {
+                LOG.warn("failed to refresh table filter for job {}", job.getJobId(), e);
             }
         }
     }
