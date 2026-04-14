@@ -2073,10 +2073,3 @@ public static class Builder {
 | 15 | DROP TABLE | **自动移除**——下次刷新时自动从过滤集合移除，Job 不取消 |
 | 16 | 转义问题 | 无（glob 中 `.` 是字面量，无 REGEX 转义问题） |
 | 17 | FE→BE 推送 | 复用 SET_JOB RPC + table_ids 字段，BE 侧支持幂等更新过滤器 |
-
-### 待确认事项
-
-1. **BE 扩容**：现有集群级别 event-driven 的 BE 扩容机制是什么？表级别可直接复用。
-2. **监控指标**：是否需要按表维度拆分预热相关指标？
-3. **刷新频率**：默认 60 秒是否合适？是否需要作为 FE Config 或 Job PROPERTY 可配置？
-4. **`{}` 花括号展开**：是否复用 `GlobRegexUtil`（放弃 `{}`）还是扩展 `GlobRegexUtil` 增加 `{}` 支持？
