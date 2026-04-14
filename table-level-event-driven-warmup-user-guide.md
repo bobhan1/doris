@@ -24,15 +24,14 @@
 ```sql
 WARM UP COMPUTE GROUP <目标集群> WITH COMPUTE GROUP <源集群>
 ON TABLES (
-    INCLUDE '<pattern>'
-    [, INCLUDE '<pattern>' ...]
-    [, EXCLUDE '<pattern>']
-    [, EXCLUDE '<pattern>' ...]
+    {INCLUDE|EXCLUDE} '<pattern>'
+    [, {INCLUDE|EXCLUDE} '<pattern>' ...]
 )
 PROPERTIES (
     "sync_mode" = "event_driven",
     "sync_event" = "load"
 );
+-- INCLUDE 和 EXCLUDE 可以任意顺序书写，至少包含一条 INCLUDE
 ```
 
 ### 语法说明
@@ -78,21 +77,20 @@ PROPERTIES (
 
 ### 书写规则
 
-1. **INCLUDE 必须写在 EXCLUDE 之前**。所有 INCLUDE 规则写完后，再写 EXCLUDE 规则，不允许交叉
+1. **INCLUDE 和 EXCLUDE 可以任意顺序书写**。系统内部会自动将规则按类型分组，并进行排序和去重
 
    ```sql
-   -- ✅ 正确
+   -- ✅ 以下两种写法等价，系统内部自动规范化
    ON TABLES (
        INCLUDE 'ods.*',
        INCLUDE 'dw.*',
        EXCLUDE '*.tmp_*'
    )
-   
-   -- ❌ 错误：INCLUDE 和 EXCLUDE 交叉
+
    ON TABLES (
        INCLUDE 'ods.*',
        EXCLUDE '*.tmp_*',
-       INCLUDE 'dw.*'         -- 报语法错误
+       INCLUDE 'dw.*'
    )
    ```
 
@@ -129,11 +127,11 @@ SHOW WARM UP JOB;
 
 | 列名 | 说明 |
 |------|------|
-| **TableFilter** | 创建 Job 时 `ON TABLES` 中的规则，还原为可读字符串。集群级别 Job 此列为空 |
+| **TableFilter** | 创建 Job 时 `ON TABLES` 中的规则，以规范化 JSON 格式展示。集群级别 Job 此列为空 |
 | **MatchedTables** | Job 当前实际覆盖的表名列表。基于内部表 ID 反查，始终展示表的最新名称 |
 
 **MatchedTables 与 TableFilter 的区别**：
-- `TableFilter` 是创建时写入的原始规则表达式，始终不变
+- `TableFilter` 是规范化后的规则表达式（canonical JSON），展示格式固定，与书写顺序无关
 - `MatchedTables` 是当前实际匹配的表，会反映表的重命名和删除等变化
 
 ---
@@ -537,6 +535,20 @@ PROPERTIES (
 ---
 
 ## 常见问题
+
+### Q：INCLUDE 和 EXCLUDE 的书写顺序有影响吗？
+
+**没有影响**。系统内部会自动将规则按类型（INCLUDE/EXCLUDE）分组处理。以下两种写法完全等价：
+
+```sql
+-- 写法 A
+ON TABLES (INCLUDE 'ods.*', EXCLUDE '*.tmp_*', INCLUDE 'dw.*')
+
+-- 写法 B
+ON TABLES (INCLUDE 'dw.*', INCLUDE 'ods.*', EXCLUDE '*.tmp_*')
+```
+
+两者产生的 Job 完全相同。如果已经存在其中一个，再创建另一个会被判定为重复 Job。
 
 ### Q：不使用通配符的模式（如 `'sales.orders'`）是精确匹配吗？
 
