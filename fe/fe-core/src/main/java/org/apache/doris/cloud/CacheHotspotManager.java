@@ -106,6 +106,10 @@ public class CacheHotspotManager extends MasterDaemon {
 
     private boolean startJobDaemon = false;
 
+    private MasterDaemon tableFilterRefreshDaemon;
+
+    private boolean startTableFilterRefreshDaemon = false;
+
     private ConcurrentMap<Long, CloudWarmUpJob> cloudWarmUpJobs = Maps.newConcurrentMap();
 
     private ConcurrentMap<Long, CloudWarmUpJob> activeCloudWarmUpJobs = Maps.newConcurrentMap();
@@ -265,6 +269,11 @@ public class CacheHotspotManager extends MasterDaemon {
             jobDaemon = new JobDaemon();
             jobDaemon.start();
             startJobDaemon = true;
+        }
+        if (!startTableFilterRefreshDaemon) {
+            tableFilterRefreshDaemon = new TableFilterRefreshDaemon();
+            tableFilterRefreshDaemon.start();
+            startTableFilterRefreshDaemon = true;
         }
 
         if (!tableCreated) {
@@ -641,11 +650,23 @@ public class CacheHotspotManager extends MasterDaemon {
         public void runAfterCatalogReady() {
             if (cycleCount >= CYCLE_COUNT_TO_CHECK_EXPIRE_CLOUD_WARM_UP_JOB) {
                 clearFinishedOrCancelCloudWarmUpJob();
-                refreshAllTableFilters();
                 cycleCount = 0;
             }
             ++cycleCount;
             runCloudWarmUpJob();
+        }
+    }
+
+    private class TableFilterRefreshDaemon extends MasterDaemon {
+        TableFilterRefreshDaemon() {
+            super("TableFilterRefreshDaemon", Config.cloud_warm_up_table_filter_refresh_interval_ms);
+            LOG.info("start table filter refresh daemon, interval={}ms",
+                    Config.cloud_warm_up_table_filter_refresh_interval_ms);
+        }
+
+        @Override
+        public void runAfterCatalogReady() {
+            refreshAllTableFilters();
         }
     }
 

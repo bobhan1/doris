@@ -475,23 +475,22 @@ Status CloudWarmUpManager::set_event(int64_t job_id, TWarmUpEventType::type even
             LOG(INFO) << "Clear event driven sync, job_id=" << job_id << ", event=" << event;
         } else if (!_tablet_replica_cache.contains(job_id)) {
             static_cast<void>(_tablet_replica_cache[job_id]);
-            if (table_ids != nullptr && !table_ids->empty()) {
+            if (table_ids != nullptr) {
+                // table-level filter: set to the given table_id set (may be empty,
+                // meaning all matched tables were deleted — warm up nothing)
                 _event_driven_filters[job_id] =
                         std::unordered_set<int64_t>(table_ids->begin(), table_ids->end());
                 LOG(INFO) << "Set event driven sync with table filter, job_id=" << job_id
                           << ", event=" << event << ", table_ids_size=" << table_ids->size();
             } else {
+                // cluster-level: no filter, warm up all tables
                 _event_driven_filters[job_id] = std::nullopt;
                 LOG(INFO) << "Set event driven sync, job_id=" << job_id << ", event=" << event;
             }
         } else if (table_ids != nullptr) {
-            // Update table_ids for an existing job
-            if (!table_ids->empty()) {
-                _event_driven_filters[job_id] =
-                        std::unordered_set<int64_t>(table_ids->begin(), table_ids->end());
-            } else {
-                _event_driven_filters[job_id] = std::nullopt;
-            }
+            // Update table_ids for an existing job (may be empty)
+            _event_driven_filters[job_id] =
+                    std::unordered_set<int64_t>(table_ids->begin(), table_ids->end());
             LOG(INFO) << "Updated table filter for event driven sync, job_id=" << job_id
                       << ", table_ids_size=" << table_ids->size();
         }

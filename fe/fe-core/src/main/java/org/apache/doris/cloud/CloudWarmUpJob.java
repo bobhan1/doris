@@ -820,8 +820,9 @@ public class CloudWarmUpJob implements Writable {
                     throw new IllegalArgumentException("Unknown SyncEvent " + syncEvent);
                 }
                 request.setEvent(event);
-                if (hasTableFilter() && currentTableIds != null && !currentTableIds.isEmpty()) {
-                    request.setTableIds(new ArrayList<>(currentTableIds));
+                if (hasTableFilter()) {
+                    request.setTableIds(currentTableIds != null
+                            ? new ArrayList<>(currentTableIds) : new ArrayList<>());
                 }
                 LOG.debug("send warm up request to BE {} ({}). job_id={}, event={}, "
                                 + "request_type=SET_JOB(EVENT), table_ids_count={}",

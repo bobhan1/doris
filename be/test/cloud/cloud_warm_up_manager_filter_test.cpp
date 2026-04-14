@@ -77,7 +77,8 @@ TEST_F(CloudWarmUpManagerFilterTest, SetEventWithTableIds) {
     EXPECT_TRUE(st.ok());
 }
 
-// Test set_event with empty table_ids (should behave as cluster-level)
+// Test set_event with empty table_ids (should set empty filter, not cluster-level)
+// Scenario: all matched tables were deleted, should warm up nothing
 TEST_F(CloudWarmUpManagerFilterTest, SetEventWithEmptyTableIds) {
     CloudWarmUpManager manager(_engine);
     int64_t job_id = 1003;
