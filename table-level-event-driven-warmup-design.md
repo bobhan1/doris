@@ -774,32 +774,137 @@ PROPERTIES (
 
 ```sql
 SHOW WARM UP JOB;
+-- 或按 Job ID 查看
+SHOW WARM UP JOB WHERE id = 13418;
 ```
 
-展示列新增/调整：
+#### 当前已有列（13 列）
 
-| 列名 | 示例值 | 说明 |
-|------|--------|------|
-| JobId | 13418 | |
-| DstComputeGroup | read_cg | 目标集群 |
-| SrcComputeGroup | write_cg | 源集群 |
-| Status | RUNNING | |
-| Type | CLUSTER | 不变，仍为 CLUSTER 类型 |
-| SyncMode | EVENT_DRIVEN (LOAD) | |
-| TableFilter | `{"include":["ods.*"],"exclude":["ods.tmp_*"]}` | **新增**：canonical JSON 格式的 ON TABLES 规则（规范化后） |
-| MatchedTables | `ods.order, ods.user, ods.payment` | **新增**：当前匹配的表名列表（FE 最近一次动态评估的结果） |
-| CreateTime | 2024-01-01 00:00:00 | |
+| # | 列名 | 示例值 | 说明 |
+|---|------|--------|------|
+| 1 | JobId | 13418 | Job 唯一标识 |
+| 2 | SrcComputeGroup | write_cg | 源集群（被监听写入事件的集群） |
+| 3 | DstComputeGroup | read_cg | 目标集群（缓存被预热的集群） |
+| 4 | Status | RUNNING | Job 状态（RUNNING / FINISHED / CANCELLED / ...） |
+| 5 | Type | CLUSTER | Job 类型（CLUSTER = 集群级别） |
+| 6 | SyncMode | EVENT_DRIVEN (LOAD) | 同步模式（ONCE / PERIODIC / EVENT_DRIVEN） |
+| 7 | CreateTime | 2024-01-01 10:00:00.000 | 创建时间 |
+| 8 | StartTime | 2024-01-01 10:00:01.000 | 开始时间 |
+| 9 | FinishBatch | 0 | 已完成批次数（event-driven 类型通常为 0） |
+| 10 | AllBatch | 0 | 总批次数（event-driven 类型通常为 0） |
+| 11 | FinishTime | N/A | 完成时间（event-driven 类型长期运行，此值为 N/A） |
+| 12 | ErrMsg | | 错误信息 |
+| 13 | Tables | db1.t1, db2.t2 | 当前已有的表列表字段（用于 TABLE 类型的 ONCE/PERIODIC job） |
+
+#### 新增列（2 列）
+
+| # | 列名 | 示例值 | 说明 |
+|---|------|--------|------|
+| 14 | **TableFilter** | `{"include":["ods.*"],"exclude":["ods.tmp_*"]}` | **新增**：ON TABLES 规则的 canonical JSON 表示 |
+| 15 | **MatchedTables** | `ods.order, ods.user, ods.payment` | **新增**：当前匹配的表名列表 |
+
+#### SHOW 输出示例
+
+**示例 1：集群级别 event-driven job（无 ON TABLES）**
+
+```
++-------+------------------+------------------+---------+---------+---------------------+-------------------------+-------------------------+-------------+----------+------------+--------+--------+-------------+---------------+
+| JobId | SrcComputeGroup  | DstComputeGroup  | Status  | Type    | SyncMode            | CreateTime              | StartTime               | FinishBatch | AllBatch | FinishTime | ErrMsg | Tables | TableFilter | MatchedTables |
++-------+------------------+------------------+---------+---------+---------------------+-------------------------+-------------------------+-------------+----------+------------+--------+--------+-------------+---------------+
+| 13418 | write_cg         | read_cg          | RUNNING | CLUSTER | EVENT_DRIVEN (LOAD) | 2024-01-01 10:00:00.000 | 2024-01-01 10:00:01.000 |           0 |        0 | N/A        |        |        |             |               |
++-------+------------------+------------------+---------+---------+---------------------+-------------------------+-------------------------+-------------+----------+------------+--------+--------+-------------+---------------+
+```
+
+> 集群级别 Job：`TableFilter` 和 `MatchedTables` 两列为空。
+
+**示例 2：表级别 event-driven job（带 ON TABLES）**
+
+```
++-------+------------------+------------------+---------+---------+---------------------+-------------------------+-------------------------+-------------+----------+------------+--------+--------+-------------------------------------------------------+-----------------------------------------------------+
+| JobId | SrcComputeGroup  | DstComputeGroup  | Status  | Type    | SyncMode            | CreateTime              | StartTime               | FinishBatch | AllBatch | FinishTime | ErrMsg | Tables | TableFilter                                           | MatchedTables                                       |
++-------+------------------+------------------+---------+---------+---------------------+-------------------------+-------------------------+-------------+----------+------------+--------+--------+-------------------------------------------------------+-----------------------------------------------------+
+| 13419 | ingestion_cg     | analytics_cg     | RUNNING | CLUSTER | EVENT_DRIVEN (LOAD) | 2024-01-01 10:05:00.000 | 2024-01-01 10:05:01.000 |           0 |        0 | N/A        |        |        | {"include":["ods.*"],"exclude":["ods.tmp_*"]}         | ods.orders, ods.users, ods.payments                 |
++-------+------------------+------------------+---------+---------+---------------------+-------------------------+-------------------------+-------------+----------+------------+--------+--------+-------------------------------------------------------+-----------------------------------------------------+
+```
+
+**示例 3：多个 Job 共存**
+
+```
++-------+------------------+------------------+---------+---------+---------------------+-------------------------+-------------------------+-------------+----------+------------+--------+--------+-------------------------------------------------------+---------------------------------------------+
+| JobId | SrcComputeGroup  | DstComputeGroup  | Status  | Type    | SyncMode            | CreateTime              | ...         | TableFilter                                           | MatchedTables                               |
++-------+------------------+------------------+---------+---------+---------------------+-------------------------+-------------+-------------------------------------------------------+---------------------------------------------+
+| 13418 | write_cg         | read_cg          | RUNNING | CLUSTER | EVENT_DRIVEN (LOAD) | 2024-01-01 10:00:00.000 | ...         |                                                       |                                             |
+| 13419 | ingestion_cg     | analytics_cg     | RUNNING | CLUSTER | EVENT_DRIVEN (LOAD) | 2024-01-01 10:05:00.000 | ...         | {"include":["ods.*"],"exclude":["ods.tmp_*"]}         | ods.orders, ods.users, ods.payments         |
+| 13420 | ingestion_cg     | realtime_cg      | RUNNING | CLUSTER | EVENT_DRIVEN (LOAD) | 2024-01-01 10:10:00.000 | ...         | {"include":["dw.fact_*","dw.dim_*"]}                  | dw.fact_sales, dw.fact_orders, dw.dim_date  |
++-------+------------------+------------------+---------+---------+---------------------+-------------------------+-------------+-------------------------------------------------------+---------------------------------------------+
+```
 
 > **TableFilter** 展示说明：
-> - 展示规范化后的 canonical JSON 格式，如 `{"include":["dw.*","ods.*"],"exclude":["dw.tmp_*"]}`
+> - 展示规范化后的 canonical JSON 格式
 > - 无论创建时 INCLUDE/EXCLUDE 的书写顺序如何，SHOW 展示的都是规范化后的结果
 > - 集群级别 Job（无 ON TABLES）：该列为空
+> - 仅含 INCLUDE 无 EXCLUDE 时：JSON 中不含 `"exclude"` 键，如 `{"include":["dw.fact_*","dw.dim_*"]}`
 >
 > **MatchedTables** 展示说明：
 > - 基于 FE 最近一次定期评估的 table_id 集合，反查当前表名
 > - **动态更新**：创建 Job 后新建的匹配表，在下一次刷新后会出现在 MatchedTables 中
 > - 已 DROP 的表不会出现（下次刷新后自动移除）
 > - 如果某张表被 RENAME 且新名仍匹配模式，展示新名；若不再匹配，则从列表消失
+> - 匹配表较多时（如超过 100 张），展示前 100 张表名并附 `... and N more` 后缀
+
+#### 实现变更
+
+```java
+// ShowWarmUpCommand.java — 新增 2 列
+private static final ImmutableList<String> WARM_UP_JOB_TITLE_NAMES = new ImmutableList.Builder<String>()
+        .add("JobId")
+        .add("SrcComputeGroup")
+        .add("DstComputeGroup")
+        .add("Status")
+        .add("Type")
+        .add("SyncMode")
+        .add("CreateTime")
+        .add("StartTime")
+        .add("FinishBatch")
+        .add("AllBatch")
+        .add("FinishTime")
+        .add("ErrMsg")
+        .add("Tables")
+        .add("TableFilter")       // 新增
+        .add("MatchedTables")     // 新增
+        .build();
+
+// CloudWarmUpJob.getJobInfo() — 在末尾追加 2 个字段
+public List<String> getJobInfo() {
+    List<String> info = Lists.newArrayList();
+    // ... 原有 13 个字段 ...
+    
+    // 新增字段 14: TableFilter (canonical JSON)
+    info.add(tableFilterExpr);  // 空串 = 集群级别
+
+    // 新增字段 15: MatchedTables (当前匹配的表名)
+    if (currentTableIds == null || currentTableIds.isEmpty()) {
+        info.add("");
+    } else {
+        List<String> tableNames = new ArrayList<>();
+        for (Long tableId : currentTableIds) {
+            Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
+            if (table != null) {
+                Database db = Env.getCurrentInternalCatalog().getDbOfTable(table);
+                tableNames.add(db.getFullName() + "." + table.getName());
+            }
+        }
+        Collections.sort(tableNames);
+        if (tableNames.size() > 100) {
+            int extra = tableNames.size() - 100;
+            info.add(String.join(", ", tableNames.subList(0, 100)) + "... and " + extra + " more");
+        } else {
+            info.add(String.join(", ", tableNames));
+        }
+    }
+    return info;
+}
+```
 
 ### 2.8 取消
 
