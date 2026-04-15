@@ -58,7 +58,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -143,14 +142,14 @@ public class CloudWarmUpJob implements Writable {
     @SerializedName(value = "syncEvent")
     protected SyncEvent syncEvent;
 
-    @SerializedName(value = "tableFilterExpr")
-    protected String tableFilterExpr = "";
-
     @SerializedName(value = "tableFilterRules")
     protected List<PersistedTableFilterRule> tableFilterRules = new ArrayList<>();
 
+    // Computed from tableFilterRules via canonicalize(); not persisted.
+    private transient String tableFilterExpr = "";
     private transient OnTablesFilter onTablesFilter;
-    private transient Set<Long> currentTableIds = new HashSet<>();
+    // Maps table ID → "db.table" qualified name for matched tables.
+    private transient Map<Long, String> currentTableIdNames = new HashMap<>();
 
     /**
      * Serializable rule for GSON persistence.
@@ -182,7 +181,6 @@ public class CloudWarmUpJob implements Writable {
         private SyncMode syncMode = SyncMode.ONCE;
         private SyncEvent syncEvent;
         private long syncInterval;
-        private String tableFilterExpr = "";
         private List<PersistedTableFilterRule> tableFilterRules = new ArrayList<>();
 
         public Builder() {}
@@ -222,11 +220,6 @@ public class CloudWarmUpJob implements Writable {
             return this;
         }
 
-        public Builder setTableFilterExpr(String tableFilterExpr) {
-            this.tableFilterExpr = tableFilterExpr;
-            return this;
-        }
-
         public Builder setTableFilterRules(List<PersistedTableFilterRule> tableFilterRules) {
             this.tableFilterRules = tableFilterRules;
             return this;
@@ -249,8 +242,8 @@ public class CloudWarmUpJob implements Writable {
         this.syncMode = builder.syncMode;
         this.syncEvent = builder.syncEvent;
         this.syncInterval = builder.syncInterval;
-        this.tableFilterExpr = builder.tableFilterExpr;
         this.tableFilterRules = builder.tableFilterRules;
+        this.tableFilterExpr = computeTableFilterExpr();
         this.createTimeMs = System.currentTimeMillis();
     }
 
@@ -443,11 +436,10 @@ public class CloudWarmUpJob implements Writable {
     }
 
     private String getMatchedTablesString() {
-        if (currentTableIds == null || currentTableIds.isEmpty()) {
+        if (currentTableIdNames == null || currentTableIdNames.isEmpty()) {
             return "";
         }
-        return currentTableIds.stream()
-                .map(String::valueOf)
+        return currentTableIdNames.values().stream()
                 .sorted()
                 .collect(Collectors.joining(", "));
     }
@@ -526,12 +518,29 @@ public class CloudWarmUpJob implements Writable {
         return onTablesFilter;
     }
 
+    /**
+     * Returns the set of currently matched table IDs.
+     */
     public Set<Long> getCurrentTableIds() {
-        return currentTableIds;
+        return currentTableIdNames.keySet();
     }
 
-    public void setCurrentTableIds(Set<Long> tableIds) {
-        this.currentTableIds = tableIds;
+    /**
+     * Sets the current matched table ID-to-name mapping.
+     */
+    public void setCurrentTableIdNames(Map<Long, String> idNames) {
+        this.currentTableIdNames = idNames;
+    }
+
+    /**
+     * Compute the canonical table filter expression from persisted rules.
+     * Returns empty string when no table filter rules exist.
+     */
+    private String computeTableFilterExpr() {
+        if (tableFilterRules == null || tableFilterRules.isEmpty()) {
+            return "";
+        }
+        return canonicalize(tableFilterRules);
     }
 
     /**
@@ -565,13 +574,14 @@ public class CloudWarmUpJob implements Writable {
     }
 
     /**
-     * Rebuild the transient OnTablesFilter from persisted tableFilterRules.
+     * Rebuild the transient OnTablesFilter and tableFilterExpr from persisted tableFilterRules.
      * Called after deserialization (EditLog replay, FE restart).
      */
     public void rebuildOnTablesFilter() {
         if (tableFilterRules == null || tableFilterRules.isEmpty()) {
             return;
         }
+        this.tableFilterExpr = computeTableFilterExpr();
         List<OnTablesFilter.TableFilterRule> rules = tableFilterRules.stream()
                 .map(r -> new OnTablesFilter.TableFilterRule(
                         "INCLUDE".equals(r.ruleType)
@@ -821,13 +831,13 @@ public class CloudWarmUpJob implements Writable {
                 }
                 request.setEvent(event);
                 if (hasTableFilter()) {
-                    request.setTableIds(currentTableIds != null
-                            ? new ArrayList<>(currentTableIds) : new ArrayList<>());
+                    request.setTableIds(currentTableIdNames != null
+                            ? new ArrayList<>(currentTableIdNames.keySet()) : new ArrayList<>());
                 }
                 LOG.debug("send warm up request to BE {} ({}). job_id={}, event={}, "
                                 + "request_type=SET_JOB(EVENT), table_ids_count={}",
                         entry.getKey(), getBackendEndpoint(entry.getKey()), jobId, syncEvent,
-                        hasTableFilter() ? currentTableIds.size() : "all");
+                        hasTableFilter() ? currentTableIdNames.size() : "all");
                 TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                 if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                     if (!response.getStatus().getErrorMsgs().isEmpty()) {

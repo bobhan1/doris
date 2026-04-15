@@ -69,7 +69,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -873,9 +872,7 @@ public class CacheHotspotManager extends MasterDaemon {
                         pr.pattern = rule.getRawPattern();
                         persistedRules.add(pr);
                     }
-                    String tableFilterExpr = CloudWarmUpJob.canonicalize(persistedRules);
-                    builder.setTableFilterExpr(tableFilterExpr)
-                            .setTableFilterRules(persistedRules);
+                    builder.setTableFilterRules(persistedRules);
                 }
             } else {
                 builder.setSyncMode(SyncMode.ONCE);
@@ -885,9 +882,9 @@ public class CacheHotspotManager extends MasterDaemon {
             // For event-driven jobs with ON TABLES, rebuild filter and resolve initial table IDs
             if (warmUpJob.hasTableFilter()) {
                 warmUpJob.rebuildOnTablesFilter();
-                Set<Long> initialTableIds = resolveTableIds(warmUpJob.getOnTablesFilter());
-                warmUpJob.setCurrentTableIds(initialTableIds);
-                if (initialTableIds.isEmpty()) {
+                Map<Long, String> initialTableIdNames = resolveTableIds(warmUpJob.getOnTablesFilter());
+                warmUpJob.setCurrentTableIdNames(initialTableIdNames);
+                if (initialTableIdNames.isEmpty()) {
                     LOG.warn("ON TABLES rules do not match any existing table for job {}", jobId);
                 }
             }
@@ -952,8 +949,8 @@ public class CacheHotspotManager extends MasterDaemon {
         // Rebuild transient ON TABLES filter from persisted rules
         if (cloudWarmUpJob.hasTableFilter()) {
             cloudWarmUpJob.rebuildOnTablesFilter();
-            Set<Long> tableIds = resolveTableIds(cloudWarmUpJob.getOnTablesFilter());
-            cloudWarmUpJob.setCurrentTableIds(tableIds);
+            Map<Long, String> tableIdNames = resolveTableIds(cloudWarmUpJob.getOnTablesFilter());
+            cloudWarmUpJob.setCurrentTableIdNames(tableIdNames);
         }
 
         if (cloudWarmUpJob.isDone()) {
@@ -974,11 +971,11 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     /**
-     * Resolve glob-based ON TABLES filter to a set of matching table IDs
+     * Resolve glob-based ON TABLES filter to a map of matching table ID → "db.table" name
      * by iterating all databases and tables in the internal catalog.
      */
-    public Set<Long> resolveTableIds(OnTablesFilter filter) {
-        Set<Long> result = new HashSet<>();
+    public Map<Long, String> resolveTableIds(OnTablesFilter filter) {
+        Map<Long, String> result = new HashMap<>();
         if (filter == null) {
             return result;
         }
@@ -992,7 +989,7 @@ public class CacheHotspotManager extends MasterDaemon {
             }
             for (TableIf tableIf : dbIf.getTables()) {
                 if (filter.shouldWarmUp(dbName, tableIf.getName())) {
-                    result.add(tableIf.getId());
+                    result.put(tableIf.getId(), dbName + "." + tableIf.getName());
                 }
             }
         }
@@ -1009,14 +1006,14 @@ public class CacheHotspotManager extends MasterDaemon {
                 continue;
             }
             try {
-                Set<Long> newTableIds = resolveTableIds(job.getOnTablesFilter());
+                Map<Long, String> newTableIdNames = resolveTableIds(job.getOnTablesFilter());
                 Set<Long> oldTableIds = job.getCurrentTableIds();
-                if (!newTableIds.equals(oldTableIds)) {
-                    job.setCurrentTableIds(newTableIds);
+                if (!newTableIdNames.keySet().equals(oldTableIds)) {
+                    job.setCurrentTableIdNames(newTableIdNames);
                     LOG.info("refreshed table filter for job {}: {} -> {} tables",
                             job.getJobId(),
                             oldTableIds == null ? 0 : oldTableIds.size(),
-                            newTableIds.size());
+                            newTableIdNames.size());
                 }
             } catch (Exception e) {
                 LOG.warn("failed to refresh table filter for job {}", job.getJobId(), e);

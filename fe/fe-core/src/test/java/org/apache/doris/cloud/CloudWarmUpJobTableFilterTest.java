@@ -24,9 +24,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 /**
  * Tests for table-filter extensions in {@link CloudWarmUpJob}:
@@ -121,7 +121,6 @@ public class CloudWarmUpJobTableFilterTest {
         CloudWarmUpJob job = baseBuilder()
                 .setTableFilterRules(Arrays.asList(
                         rule("INCLUDE", "ods.*"), rule("EXCLUDE", "ods.tmp_*")))
-                .setTableFilterExpr("{\"include\":[\"ods.*\"],\"exclude\":[\"ods.tmp_*\"]}")
                 .build();
         job.rebuildOnTablesFilter();
 
@@ -130,6 +129,19 @@ public class CloudWarmUpJobTableFilterTest {
         Assertions.assertTrue(filter.shouldWarmUp("ods", "orders"));
         Assertions.assertFalse(filter.shouldWarmUp("ods", "tmp_staging"));
         Assertions.assertFalse(filter.shouldWarmUp("dw", "something"));
+    }
+
+    @Test
+    public void testRebuildOnTablesFilterAlsoComputesExpr() {
+        // tableFilterExpr is transient, so after rebuild it should be recomputed from rules
+        CloudWarmUpJob job = baseBuilder()
+                .setTableFilterRules(Arrays.asList(
+                        rule("INCLUDE", "ods.*"), rule("EXCLUDE", "ods.tmp_*")))
+                .build();
+        job.rebuildOnTablesFilter();
+        List<String> info = job.getJobInfo();
+        Assertions.assertEquals("{\"include\":[\"ods.*\"],\"exclude\":[\"ods.tmp_*\"]}",
+                info.get(COL_TABLE_FILTER));
     }
 
     @Test
@@ -152,21 +164,42 @@ public class CloudWarmUpJobTableFilterTest {
         Assertions.assertFalse(withoutFilter.hasTableFilter());
     }
 
+    // ===== tableFilterExpr derived from rules (single source of truth) =====
+
+    @Test
+    public void testTableFilterExprDerivedFromRules() {
+        // tableFilterExpr should be computed from rules, not set explicitly
+        CloudWarmUpJob job = baseBuilder()
+                .setTableFilterRules(Arrays.asList(
+                        rule("INCLUDE", "dw.*"), rule("INCLUDE", "ods.*")))
+                .build();
+        List<String> info = job.getJobInfo();
+        Assertions.assertEquals("{\"include\":[\"dw.*\",\"ods.*\"]}", info.get(COL_TABLE_FILTER));
+    }
+
+    @Test
+    public void testTableFilterExprEmptyWhenNoRules() {
+        CloudWarmUpJob job = baseBuilder().build();
+        List<String> info = job.getJobInfo();
+        Assertions.assertEquals("", info.get(COL_TABLE_FILTER));
+    }
+
     // ===== getJobInfo() — SHOW WARM UP JOB output =====
 
     @Test
     public void testGetJobInfoTableLevelJob() {
         // Scenario: user creates a table-level event-driven job and runs SHOW WARM UP JOB
-        String filterExpr = "{\"include\":[\"ods.*\"],\"exclude\":[\"ods.tmp_*\"]}";
         CloudWarmUpJob job = baseBuilder()
-                .setTableFilterExpr(filterExpr)
                 .setTableFilterRules(Arrays.asList(
                         rule("INCLUDE", "ods.*"), rule("EXCLUDE", "ods.tmp_*")))
                 .setSyncEvent(CloudWarmUpJob.SyncEvent.LOAD)
                 .build();
-        // Simulate resolved table IDs
-        Set<Long> tableIds = new HashSet<>(Arrays.asList(1001L, 1002L, 1003L));
-        job.setCurrentTableIds(tableIds);
+        // Simulate resolved table IDs with db.table names
+        Map<Long, String> idNames = new HashMap<>();
+        idNames.put(1001L, "ods.orders");
+        idNames.put(1002L, "ods.products");
+        idNames.put(1003L, "ods.users");
+        job.setCurrentTableIdNames(idNames);
 
         List<String> info = job.getJobInfo();
         Assertions.assertEquals(TOTAL_COLUMNS, info.size());
@@ -176,9 +209,10 @@ public class CloudWarmUpJobTableFilterTest {
         Assertions.assertEquals("PENDING", info.get(COL_STATUS));
         Assertions.assertEquals("CLUSTER", info.get(COL_TYPE));
         Assertions.assertTrue(info.get(COL_SYNC_MODE).contains("EVENT_DRIVEN"));
-        Assertions.assertEquals(filterExpr, info.get(COL_TABLE_FILTER));
-        // MatchedTables should contain sorted table IDs
-        Assertions.assertEquals("1001, 1002, 1003", info.get(COL_MATCHED_TABLES));
+        Assertions.assertEquals("{\"include\":[\"ods.*\"],\"exclude\":[\"ods.tmp_*\"]}",
+                info.get(COL_TABLE_FILTER));
+        // MatchedTables should show sorted db.table names
+        Assertions.assertEquals("ods.orders, ods.products, ods.users", info.get(COL_MATCHED_TABLES));
     }
 
     @Test
@@ -198,11 +232,10 @@ public class CloudWarmUpJobTableFilterTest {
     public void testGetJobInfoMatchedTablesEmpty() {
         // Scenario: all matched tables have been dropped → MatchedTables becomes empty
         CloudWarmUpJob job = baseBuilder()
-                .setTableFilterExpr("{\"include\":[\"ods.*\"]}")
                 .setTableFilterRules(Arrays.asList(rule("INCLUDE", "ods.*")))
                 .build();
         // Initially had tables, now all dropped
-        job.setCurrentTableIds(new HashSet<>());
+        job.setCurrentTableIdNames(new HashMap<>());
 
         List<String> info = job.getJobInfo();
         Assertions.assertEquals("{\"include\":[\"ods.*\"]}", info.get(COL_TABLE_FILTER));
@@ -217,31 +250,40 @@ public class CloudWarmUpJobTableFilterTest {
         // - Initial: tables 1001, 1002 matched
         // - New table 1003 created → next refresh adds it
         // - Table 1001 dropped → next refresh removes it
-        // - Table 1002 renamed (still matches) → stays
         CloudWarmUpJob job = baseBuilder()
                 .setTableFilterRules(Arrays.asList(rule("INCLUDE", "ods.*")))
-                .setTableFilterExpr("{\"include\":[\"ods.*\"]}")
                 .build();
 
         // Phase 1: initial resolution
-        Set<Long> initial = new HashSet<>(Arrays.asList(1001L, 1002L));
-        job.setCurrentTableIds(initial);
+        Map<Long, String> initial = new HashMap<>();
+        initial.put(1001L, "ods.orders");
+        initial.put(1002L, "ods.products");
+        job.setCurrentTableIdNames(initial);
         Assertions.assertEquals(2, job.getCurrentTableIds().size());
         Assertions.assertTrue(job.getCurrentTableIds().contains(1001L));
         Assertions.assertTrue(job.getCurrentTableIds().contains(1002L));
+        // Verify SHOW output shows db.table names
+        List<String> info1 = job.getJobInfo();
+        Assertions.assertEquals("ods.orders, ods.products", info1.get(COL_MATCHED_TABLES));
 
         // Phase 2: new table created + old table dropped (simulate refresh)
-        Set<Long> afterRefresh = new HashSet<>(Arrays.asList(1002L, 1003L));
-        job.setCurrentTableIds(afterRefresh);
+        Map<Long, String> afterRefresh = new HashMap<>();
+        afterRefresh.put(1002L, "ods.products");
+        afterRefresh.put(1003L, "ods.users");
+        job.setCurrentTableIdNames(afterRefresh);
         Assertions.assertEquals(2, job.getCurrentTableIds().size());
         Assertions.assertFalse(job.getCurrentTableIds().contains(1001L));
         Assertions.assertTrue(job.getCurrentTableIds().contains(1003L));
+        List<String> info2 = job.getJobInfo();
+        Assertions.assertEquals("ods.products, ods.users", info2.get(COL_MATCHED_TABLES));
 
         // Phase 3: all tables dropped → empty set (Job stays RUNNING per user guide)
-        job.setCurrentTableIds(new HashSet<>());
+        job.setCurrentTableIdNames(new HashMap<>());
         Assertions.assertTrue(job.getCurrentTableIds().isEmpty());
         // TableFilter expr is still there (job not cancelled)
         Assertions.assertTrue(job.hasTableFilter());
+        List<String> info3 = job.getJobInfo();
+        Assertions.assertEquals("", info3.get(COL_MATCHED_TABLES));
     }
 
     // ===== Builder validation =====

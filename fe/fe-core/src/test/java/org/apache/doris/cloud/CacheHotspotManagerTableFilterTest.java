@@ -36,7 +36,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 /**
  * Tests for CacheHotspotManager's table filter methods:
@@ -100,9 +100,13 @@ public class CacheHotspotManagerTableFilterTest {
 
         OnTablesFilter filter = buildFilter(
                 new TableFilterRule(RuleType.INCLUDE, "ods.*"));
-        Set<Long> ids = manager.resolveTableIds(filter);
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
 
-        Assertions.assertEquals(new HashSet<>(Arrays.asList(1001L, 1002L, 1003L)), ids);
+        Assertions.assertEquals(3, idNames.size());
+        Assertions.assertEquals("ods.orders", idNames.get(1001L));
+        Assertions.assertEquals("ods.users", idNames.get(1002L));
+        Assertions.assertEquals("ods.tmp_staging", idNames.get(1003L));
+        Assertions.assertFalse(idNames.containsKey(2001L));
     }
 
     @Test
@@ -116,9 +120,10 @@ public class CacheHotspotManagerTableFilterTest {
         OnTablesFilter filter = buildFilter(
                 new TableFilterRule(RuleType.INCLUDE, "ods.*"),
                 new TableFilterRule(RuleType.EXCLUDE, "ods.tmp_*"));
-        Set<Long> ids = manager.resolveTableIds(filter);
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
 
-        Assertions.assertEquals(new HashSet<>(Arrays.asList(1001L)), ids);
+        Assertions.assertEquals(1, idNames.size());
+        Assertions.assertEquals("ods.orders", idNames.get(1001L));
     }
 
     @Test
@@ -135,28 +140,31 @@ public class CacheHotspotManagerTableFilterTest {
         OnTablesFilter filter = buildFilter(
                 new TableFilterRule(RuleType.INCLUDE, "ods.*"),
                 new TableFilterRule(RuleType.INCLUDE, "dw.fact_*"));
-        Set<Long> ids = manager.resolveTableIds(filter);
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
 
-        Assertions.assertEquals(
-                new HashSet<>(Arrays.asList(1001L, 1002L, 2001L, 2003L)), ids);
+        Assertions.assertEquals(4, idNames.size());
+        Assertions.assertEquals("ods.orders", idNames.get(1001L));
+        Assertions.assertEquals("ods.users", idNames.get(1002L));
+        Assertions.assertEquals("dw.fact_sales", idNames.get(2001L));
+        Assertions.assertEquals("dw.fact_orders", idNames.get(2003L));
     }
 
     @Test
     public void testResolveTableIdsNoMatch() {
-        // Scenario: pattern matches nothing → empty set
+        // Scenario: pattern matches nothing → empty map
         databases.add(mockDb("ods", mockTable(1001, "orders")));
 
         OnTablesFilter filter = buildFilter(
                 new TableFilterRule(RuleType.INCLUDE, "nonexistent.*"));
-        Set<Long> ids = manager.resolveTableIds(filter);
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
 
-        Assertions.assertTrue(ids.isEmpty());
+        Assertions.assertTrue(idNames.isEmpty());
     }
 
     @Test
     public void testResolveTableIdsNullFilter() {
-        Set<Long> ids = manager.resolveTableIds(null);
-        Assertions.assertTrue(ids.isEmpty());
+        Map<Long, String> idNames = manager.resolveTableIds(null);
+        Assertions.assertTrue(idNames.isEmpty());
     }
 
     @Test
@@ -167,9 +175,10 @@ public class CacheHotspotManagerTableFilterTest {
 
         OnTablesFilter filter = buildFilter(
                 new TableFilterRule(RuleType.INCLUDE, "ods.*"));
-        Set<Long> ids = manager.resolveTableIds(filter);
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
 
-        Assertions.assertEquals(new HashSet<>(Arrays.asList(1001L)), ids);
+        Assertions.assertEquals(1, idNames.size());
+        Assertions.assertEquals("ods.orders", idNames.get(1001L));
     }
 
     // ===== resolveTableIds() with dynamic table changes =====
@@ -183,7 +192,7 @@ public class CacheHotspotManagerTableFilterTest {
         OnTablesFilter filter = buildFilter(
                 new TableFilterRule(RuleType.INCLUDE, "ods.*"));
 
-        Set<Long> ids1 = manager.resolveTableIds(filter);
+        Map<Long, String> ids1 = manager.resolveTableIds(filter);
         Assertions.assertEquals(1, ids1.size());
 
         // Simulate new table created: replace the db mock to include new table
@@ -192,8 +201,10 @@ public class CacheHotspotManagerTableFilterTest {
                 mockTable(1001, "orders"),
                 mockTable(1004, "payments")));
 
-        Set<Long> ids2 = manager.resolveTableIds(filter);
-        Assertions.assertEquals(new HashSet<>(Arrays.asList(1001L, 1004L)), ids2);
+        Map<Long, String> ids2 = manager.resolveTableIds(filter);
+        Assertions.assertEquals(2, ids2.size());
+        Assertions.assertEquals("ods.orders", ids2.get(1001L));
+        Assertions.assertEquals("ods.payments", ids2.get(1004L));
     }
 
     @Test
@@ -206,14 +217,15 @@ public class CacheHotspotManagerTableFilterTest {
         OnTablesFilter filter = buildFilter(
                 new TableFilterRule(RuleType.INCLUDE, "ods.*"));
 
-        Set<Long> ids1 = manager.resolveTableIds(filter);
+        Map<Long, String> ids1 = manager.resolveTableIds(filter);
         Assertions.assertEquals(2, ids1.size());
 
         databases.clear();
         databases.add(mockDb("ods", mockTable(1002, "users")));
 
-        Set<Long> ids2 = manager.resolveTableIds(filter);
-        Assertions.assertEquals(new HashSet<>(Arrays.asList(1002L)), ids2);
+        Map<Long, String> ids2 = manager.resolveTableIds(filter);
+        Assertions.assertEquals(1, ids2.size());
+        Assertions.assertEquals("ods.users", ids2.get(1002L));
     }
 
     @Test
@@ -226,8 +238,8 @@ public class CacheHotspotManagerTableFilterTest {
         OnTablesFilter filter = buildFilter(
                 new TableFilterRule(RuleType.INCLUDE, "db.order_*"));
 
-        Set<Long> ids1 = manager.resolveTableIds(filter);
-        Assertions.assertEquals(new HashSet<>(Arrays.asList(1001L, 1002L)), ids1);
+        Map<Long, String> ids1 = manager.resolveTableIds(filter);
+        Assertions.assertEquals(2, ids1.size());
 
         // Rename order_2024 → archive_2024 (no longer matches order_*)
         databases.clear();
@@ -235,8 +247,9 @@ public class CacheHotspotManagerTableFilterTest {
                 mockTable(1001, "archive_2024"),
                 mockTable(1002, "order_2025")));
 
-        Set<Long> ids2 = manager.resolveTableIds(filter);
-        Assertions.assertEquals(new HashSet<>(Arrays.asList(1002L)), ids2);
+        Map<Long, String> ids2 = manager.resolveTableIds(filter);
+        Assertions.assertEquals(1, ids2.size());
+        Assertions.assertEquals("db.order_2025", ids2.get(1002L));
     }
 
     @Test
@@ -247,13 +260,13 @@ public class CacheHotspotManagerTableFilterTest {
         OnTablesFilter filter = buildFilter(
                 new TableFilterRule(RuleType.INCLUDE, "ods.*"));
 
-        Set<Long> ids1 = manager.resolveTableIds(filter);
+        Map<Long, String> ids1 = manager.resolveTableIds(filter);
         Assertions.assertEquals(1, ids1.size());
 
         databases.clear();
         databases.add(mockDb("ods"));  // empty database
 
-        Set<Long> ids2 = manager.resolveTableIds(filter);
+        Map<Long, String> ids2 = manager.resolveTableIds(filter);
         Assertions.assertTrue(ids2.isEmpty());
     }
 
@@ -277,12 +290,11 @@ public class CacheHotspotManagerTableFilterTest {
                 .setJobType(CloudWarmUpJob.JobType.CLUSTER)
                 .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN)
                 .setTableFilterRules(Arrays.asList(rule))
-                .setTableFilterExpr("{\"include\":[\"ods.*\"]}")
                 .build();
 
         manager.replayCloudWarmUpJob(job);
 
-        // Verify initial resolution picked up 2 tables
+        // Verify initial resolution picked up 2 tables with correct names
         Assertions.assertEquals(
                 new HashSet<>(Arrays.asList(1001L, 1002L)),
                 job.getCurrentTableIds());
@@ -344,7 +356,6 @@ public class CacheHotspotManagerTableFilterTest {
                 .setJobType(CloudWarmUpJob.JobType.CLUSTER)
                 .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN)
                 .setTableFilterRules(Arrays.asList(rule))
-                .setTableFilterExpr("{\"include\":[\"ods.*\"]}")
                 .build();
 
         manager.replayCloudWarmUpJob(job);
