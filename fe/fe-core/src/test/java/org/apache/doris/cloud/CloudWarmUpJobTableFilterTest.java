@@ -18,10 +18,16 @@
 package org.apache.doris.cloud;
 
 import org.apache.doris.cloud.CloudWarmUpJob.PersistedTableFilterRule;
+import org.apache.doris.common.io.Text;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -103,6 +109,26 @@ public class CloudWarmUpJobTableFilterTest {
     }
 
     @Test
+    public void testBuilderNormalizesPersistedTableFilterRules() {
+        CloudWarmUpJob job = baseBuilder()
+                .setTableFilterRules(Arrays.asList(
+                        rule("EXCLUDE", "dw.tmp_*"),
+                        rule("INCLUDE", "ods.*"),
+                        rule("INCLUDE", "dw.*"),
+                        rule("INCLUDE", "ods.*")))
+                .build();
+
+        List<PersistedTableFilterRule> normalizedRules = job.getTableFilterRules();
+        Assertions.assertEquals(3, normalizedRules.size());
+        Assertions.assertEquals("INCLUDE", normalizedRules.get(0).ruleType);
+        Assertions.assertEquals("dw.*", normalizedRules.get(0).pattern);
+        Assertions.assertEquals("INCLUDE", normalizedRules.get(1).ruleType);
+        Assertions.assertEquals("ods.*", normalizedRules.get(1).pattern);
+        Assertions.assertEquals("EXCLUDE", normalizedRules.get(2).ruleType);
+        Assertions.assertEquals("dw.tmp_*", normalizedRules.get(2).pattern);
+    }
+
+    @Test
     public void testCanonicalizeExcludeKeyAbsentWhenNoExcludes() {
         String expr = CloudWarmUpJob.canonicalize(Arrays.asList(rule("INCLUDE", "ods.*")));
         Assertions.assertFalse(expr.contains("exclude"));
@@ -142,6 +168,42 @@ public class CloudWarmUpJobTableFilterTest {
         List<String> info = job.getJobInfo();
         Assertions.assertEquals("{\"include\":[\"ods.*\"],\"exclude\":[\"ods.tmp_*\"]}",
                 info.get(COL_TABLE_FILTER));
+    }
+
+    @Test
+    public void testReadNormalizesPersistedTableFilterRules() throws IOException {
+        String json = "{"
+                + "\"jobId\":1,"
+                + "\"jobState\":\"PENDING\","
+                + "\"srcClusterName\":\"write_cg\","
+                + "\"cloudClusterName\":\"read_cg\","
+                + "\"JobType\":\"CLUSTER\","
+                + "\"syncMode\":\"EVENT_DRIVEN\","
+                + "\"tableFilterRules\":["
+                + "{\"ruleType\":\"EXCLUDE\",\"pattern\":\"dw.tmp_*\"},"
+                + "{\"ruleType\":\"INCLUDE\",\"pattern\":\"ods.*\"},"
+                + "{\"ruleType\":\"INCLUDE\",\"pattern\":\"dw.*\"},"
+                + "{\"ruleType\":\"INCLUDE\",\"pattern\":\"ods.*\"}"
+                + "]"
+                + "}";
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bytes);
+        Text.writeString(out, json);
+        out.flush();
+
+        CloudWarmUpJob job = CloudWarmUpJob.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+
+        List<PersistedTableFilterRule> normalizedRules = job.getTableFilterRules();
+        Assertions.assertEquals(3, normalizedRules.size());
+        Assertions.assertEquals("INCLUDE", normalizedRules.get(0).ruleType);
+        Assertions.assertEquals("dw.*", normalizedRules.get(0).pattern);
+        Assertions.assertEquals("INCLUDE", normalizedRules.get(1).ruleType);
+        Assertions.assertEquals("ods.*", normalizedRules.get(1).pattern);
+        Assertions.assertEquals("EXCLUDE", normalizedRules.get(2).ruleType);
+        Assertions.assertEquals("dw.tmp_*", normalizedRules.get(2).pattern);
+        Assertions.assertEquals("{\"include\":[\"dw.*\",\"ods.*\"],\"exclude\":[\"dw.tmp_*\"]}",
+                job.getTableFilterExpr());
     }
 
     @Test

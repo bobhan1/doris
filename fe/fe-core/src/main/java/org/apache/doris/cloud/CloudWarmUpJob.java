@@ -57,6 +57,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -161,6 +162,10 @@ public class CloudWarmUpJob implements Writable {
         public String pattern;
     }
 
+    private static final Comparator<PersistedTableFilterRule> TABLE_FILTER_RULE_COMPARATOR =
+            Comparator.comparingInt(CloudWarmUpJob::tableFilterRuleTypeOrder)
+                    .thenComparing(rule -> StringUtils.defaultString(rule.pattern));
+
     private Map<Long, Client> beToClient;
 
     private Map<Long, TNetworkAddress> beToAddr;
@@ -242,7 +247,7 @@ public class CloudWarmUpJob implements Writable {
         this.syncMode = builder.syncMode;
         this.syncEvent = builder.syncEvent;
         this.syncInterval = builder.syncInterval;
-        this.tableFilterRules = builder.tableFilterRules;
+        this.tableFilterRules = normalizeTableFilterRules(builder.tableFilterRules);
         this.tableFilterExpr = computeTableFilterExpr();
         this.createTimeMs = System.currentTimeMillis();
     }
@@ -541,10 +546,12 @@ public class CloudWarmUpJob implements Writable {
      * Returns empty string when no table filter rules exist.
      */
     private String computeTableFilterExpr() {
-        if (tableFilterRules == null || tableFilterRules.isEmpty()) {
+        List<PersistedTableFilterRule> normalizedRules = normalizeTableFilterRules(tableFilterRules);
+        tableFilterRules = normalizedRules;
+        if (normalizedRules.isEmpty()) {
             return "";
         }
-        return canonicalize(tableFilterRules);
+        return canonicalizeNormalizedRules(normalizedRules);
     }
 
     /**
@@ -552,17 +559,17 @@ public class CloudWarmUpJob implements Writable {
      * Steps: group by type → sort alphabetically → deduplicate → compact JSON.
      */
     public static String canonicalize(List<PersistedTableFilterRule> rules) {
-        List<String> includes = rules.stream()
+        return canonicalizeNormalizedRules(normalizeTableFilterRules(rules));
+    }
+
+    private static String canonicalizeNormalizedRules(List<PersistedTableFilterRule> normalizedRules) {
+        List<String> includes = normalizedRules.stream()
                 .filter(r -> "INCLUDE".equals(r.ruleType))
                 .map(r -> r.pattern)
-                .distinct()
-                .sorted()
                 .collect(Collectors.toList());
-        List<String> excludes = rules.stream()
+        List<String> excludes = normalizedRules.stream()
                 .filter(r -> "EXCLUDE".equals(r.ruleType))
                 .map(r -> r.pattern)
-                .distinct()
-                .sorted()
                 .collect(Collectors.toList());
 
         JsonObject json = new JsonObject();
@@ -594,6 +601,45 @@ public class CloudWarmUpJob implements Writable {
                         r.pattern))
                 .collect(Collectors.toList());
         this.onTablesFilter = new OnTablesFilter(rules);
+    }
+
+    private static int tableFilterRuleTypeOrder(PersistedTableFilterRule rule) {
+        return "INCLUDE".equals(rule.ruleType) ? 0 : 1;
+    }
+
+    private static String normalizeTableFilterRuleType(String ruleType) {
+        Preconditions.checkNotNull(ruleType, "table filter rule type cannot be null");
+        Preconditions.checkState("INCLUDE".equalsIgnoreCase(ruleType) || "EXCLUDE".equalsIgnoreCase(ruleType),
+                "Unexpected table filter rule type: %s", ruleType);
+        return "INCLUDE".equalsIgnoreCase(ruleType) ? "INCLUDE" : "EXCLUDE";
+    }
+
+    private static PersistedTableFilterRule copyNormalizedTableFilterRule(PersistedTableFilterRule rule) {
+        PersistedTableFilterRule normalizedRule = new PersistedTableFilterRule();
+        normalizedRule.ruleType = normalizeTableFilterRuleType(rule.ruleType);
+        normalizedRule.pattern = rule.pattern;
+        return normalizedRule;
+    }
+
+    private static List<PersistedTableFilterRule> normalizeTableFilterRules(List<PersistedTableFilterRule> rules) {
+        if (rules == null || rules.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<PersistedTableFilterRule> sortedRules = rules.stream()
+                .map(CloudWarmUpJob::copyNormalizedTableFilterRule)
+                .sorted(TABLE_FILTER_RULE_COMPARATOR)
+                .collect(Collectors.toList());
+        List<PersistedTableFilterRule> normalizedRules = new ArrayList<>();
+        String lastRuleKey = null;
+        for (PersistedTableFilterRule rule : sortedRules) {
+            String ruleKey = rule.ruleType + "\0" + StringUtils.defaultString(rule.pattern);
+            if (ruleKey.equals(lastRuleKey)) {
+                continue;
+            }
+            normalizedRules.add(rule);
+            lastRuleKey = ruleKey;
+        }
+        return normalizedRules;
     }
 
     public synchronized void run() {
@@ -1000,6 +1046,8 @@ public class CloudWarmUpJob implements Writable {
 
     public static CloudWarmUpJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CloudWarmUpJob.class);
+        CloudWarmUpJob job = GsonUtils.GSON.fromJson(json, CloudWarmUpJob.class);
+        job.tableFilterExpr = job.computeTableFilterExpr();
+        return job;
     }
 }
