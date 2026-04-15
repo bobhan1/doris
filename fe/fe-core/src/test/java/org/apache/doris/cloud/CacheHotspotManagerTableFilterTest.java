@@ -128,6 +128,38 @@ public class CacheHotspotManagerTableFilterTest {
                 eventDrivenProperties(), rules.length == 0 ? null : Arrays.asList(rules));
     }
 
+    private CloudWarmUpJob createEventDrivenJob(String src, String dst, TableFilterRule... rules) throws Exception {
+        long jobId = manager.createJob(buildEventDrivenStmt(src, dst, rules));
+        CloudWarmUpJob job = manager.getCloudWarmUpJob(jobId);
+        Assertions.assertNotNull(job);
+        return job;
+    }
+
+    private CloudWarmUpJob replayEventDrivenJob(long jobId, String src, String dst, TableFilterRule... rules)
+            throws Exception {
+        CloudWarmUpJob.Builder builder = new CloudWarmUpJob.Builder()
+                .setJobId(jobId)
+                .setSrcClusterName(src)
+                .setDstClusterName(dst)
+                .setJobType(CloudWarmUpJob.JobType.CLUSTER)
+                .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN)
+                .setSyncEvent(CloudWarmUpJob.SyncEvent.LOAD);
+        if (rules.length > 0) {
+            List<CloudWarmUpJob.PersistedTableFilterRule> persistedRules = new ArrayList<>();
+            for (TableFilterRule rule : rules) {
+                CloudWarmUpJob.PersistedTableFilterRule persistedRule =
+                        new CloudWarmUpJob.PersistedTableFilterRule();
+                persistedRule.ruleType = rule.getRuleType().name();
+                persistedRule.pattern = rule.getRawPattern();
+                persistedRules.add(persistedRule);
+            }
+            builder.setTableFilterRules(persistedRules);
+        }
+        CloudWarmUpJob job = builder.build();
+        manager.replayCloudWarmUpJob(job);
+        return job;
+    }
+
     // ===== resolveTableIds() =====
 
     @Test
@@ -316,25 +348,12 @@ public class CacheHotspotManagerTableFilterTest {
 
     @Test
     public void testRefreshAllTableFiltersUpdatesJobTableIds() throws Exception {
-        // Setup: create a job with table filter, add it via replayCloudWarmUpJob
         databases.add(mockDb("ods",
                 mockTable(1001, "orders"),
                 mockTable(1002, "users")));
 
-        CloudWarmUpJob.PersistedTableFilterRule rule = new CloudWarmUpJob.PersistedTableFilterRule();
-        rule.ruleType = "INCLUDE";
-        rule.pattern = "ods.*";
-
-        CloudWarmUpJob job = new CloudWarmUpJob.Builder()
-                .setJobId(100L)
-                .setSrcClusterName("write_cg")
-                .setDstClusterName("read_cg")
-                .setJobType(CloudWarmUpJob.JobType.CLUSTER)
-                .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN)
-                .setTableFilterRules(Arrays.asList(rule))
-                .build();
-
-        manager.replayCloudWarmUpJob(job);
+        CloudWarmUpJob job = createEventDrivenJob("write_cg", "read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
 
         // Verify initial resolution picked up 2 tables with correct names
         Assertions.assertEquals(
@@ -361,15 +380,7 @@ public class CacheHotspotManagerTableFilterTest {
         // Cluster-level job (no table filter) should not be affected by refresh
         databases.add(mockDb("ods", mockTable(1001, "orders")));
 
-        CloudWarmUpJob clusterJob = new CloudWarmUpJob.Builder()
-                .setJobId(200L)
-                .setSrcClusterName("write_cg")
-                .setDstClusterName("read_cg")
-                .setJobType(CloudWarmUpJob.JobType.CLUSTER)
-                .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN)
-                .build();
-
-        manager.replayCloudWarmUpJob(clusterJob);
+        CloudWarmUpJob clusterJob = replayEventDrivenJob(200L, "write_cg", "read_cg");
 
         // currentTableIds should be empty (no table filter)
         Assertions.assertTrue(clusterJob.getCurrentTableIds().isEmpty());
@@ -387,20 +398,8 @@ public class CacheHotspotManagerTableFilterTest {
                 mockTable(1001, "orders"),
                 mockTable(1002, "users")));
 
-        CloudWarmUpJob.PersistedTableFilterRule rule = new CloudWarmUpJob.PersistedTableFilterRule();
-        rule.ruleType = "INCLUDE";
-        rule.pattern = "ods.*";
-
-        CloudWarmUpJob job = new CloudWarmUpJob.Builder()
-                .setJobId(300L)
-                .setSrcClusterName("write_cg")
-                .setDstClusterName("read_cg")
-                .setJobType(CloudWarmUpJob.JobType.CLUSTER)
-                .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN)
-                .setTableFilterRules(Arrays.asList(rule))
-                .build();
-
-        manager.replayCloudWarmUpJob(job);
+        CloudWarmUpJob job = replayEventDrivenJob(300L, "write_cg", "read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
         Assertions.assertEquals(2, job.getCurrentTableIds().size());
 
         // Drop one table
@@ -420,20 +419,8 @@ public class CacheHotspotManagerTableFilterTest {
                 mockTable(1001, "order_2024"),
                 mockTable(1002, "order_2025")));
 
-        CloudWarmUpJob.PersistedTableFilterRule rule = new CloudWarmUpJob.PersistedTableFilterRule();
-        rule.ruleType = "INCLUDE";
-        rule.pattern = "db.order_*";
-
-        CloudWarmUpJob job = new CloudWarmUpJob.Builder()
-                .setJobId(400L)
-                .setSrcClusterName("write_cg")
-                .setDstClusterName("read_cg")
-                .setJobType(CloudWarmUpJob.JobType.CLUSTER)
-                .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN)
-                .setTableFilterRules(Arrays.asList(rule))
-                .build();
-
-        manager.replayCloudWarmUpJob(job);
+        CloudWarmUpJob job = createEventDrivenJob("write_cg", "read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "db.order_*"));
         Assertions.assertEquals("db.order_2024, db.order_2025", job.getJobInfo().get(14));
 
         databases.clear();
