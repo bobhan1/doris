@@ -883,10 +883,10 @@ public class CacheHotspotManager extends MasterDaemon {
             if (warmUpJob.hasTableFilter()) {
                 warmUpJob.rebuildOnTablesFilter();
                 Map<Long, String> initialTableIdNames = resolveTableIds(warmUpJob.getOnTablesFilter());
-                warmUpJob.setCurrentTableIdNames(initialTableIdNames);
                 if (initialTableIdNames.isEmpty()) {
-                    LOG.warn("ON TABLES rules do not match any existing table for job {}", jobId);
+                    throw new AnalysisException("No tables matched the ON TABLES filter");
                 }
+                warmUpJob.setCurrentTableIdNames(initialTableIdNames);
             }
         }
 
@@ -1008,7 +1008,7 @@ public class CacheHotspotManager extends MasterDaemon {
             try {
                 Map<Long, String> newTableIdNames = resolveTableIds(job.getOnTablesFilter());
                 Set<Long> oldTableIds = job.getCurrentTableIds();
-                if (!newTableIdNames.keySet().equals(oldTableIds)) {
+                if (!newTableIdNames.equals(job.getCurrentTableIdNames())) {
                     job.setCurrentTableIdNames(newTableIdNames);
                     LOG.info("refreshed table filter for job {}: {} -> {} tables",
                             job.getJobId(),

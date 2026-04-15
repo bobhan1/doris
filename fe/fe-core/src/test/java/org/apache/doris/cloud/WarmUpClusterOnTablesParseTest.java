@@ -17,8 +17,12 @@
 
 package org.apache.doris.cloud;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
 import org.apache.doris.cloud.OnTablesFilter.TableFilterRule.RuleType;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
@@ -29,9 +33,9 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.List;
 
 /**
@@ -40,18 +44,35 @@ import java.util.List;
  */
 public class WarmUpClusterOnTablesParseTest {
 
-    private static MockedStatic<ConnectContext> connectContextMock;
+    private static ConnectContext connectContext;
+    private static Env env;
+    private static Object originalSystemInfo;
+
+    private static void setField(Object target, Class<?> clazz, String fieldName, Object value) throws Exception {
+        Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private static Object getField(Object target, Class<?> clazz, String fieldName) throws Exception {
+        Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(target);
+    }
 
     @BeforeAll
-    public static void init() {
-        ConnectContext ctx = new ConnectContext();
-        connectContextMock = Mockito.mockStatic(ConnectContext.class);
-        connectContextMock.when(ConnectContext::get).thenReturn(ctx);
+    public static void init() throws Exception {
+        env = Env.getCurrentEnv();
+        originalSystemInfo = getField(env, Env.class, "systemInfo");
+        connectContext = new ConnectContext();
+        connectContext.setEnv(env);
+        connectContext.setThreadLocalInfo();
     }
 
     @AfterAll
-    public static void tearDown() {
-        connectContextMock.close();
+    public static void tearDown() throws Exception {
+        setField(env, Env.class, "systemInfo", originalSystemInfo);
+        ConnectContext.remove();
     }
 
     private WarmUpClusterCommand parse(String sql) {
@@ -59,6 +80,13 @@ public class WarmUpClusterOnTablesParseTest {
         LogicalPlan plan = parser.parseSingle(sql);
         Assertions.assertInstanceOf(WarmUpClusterCommand.class, plan);
         return (WarmUpClusterCommand) plan;
+    }
+
+    private void mockValidateEnv(String srcCluster, String dstCluster) throws Exception {
+        CloudSystemInfoService cloudSys = Mockito.mock(CloudSystemInfoService.class);
+        Mockito.when(cloudSys.containClusterName(srcCluster)).thenReturn(true);
+        Mockito.when(cloudSys.containClusterName(dstCluster)).thenReturn(true);
+        setField(env, Env.class, "systemInfo", cloudSys);
     }
 
     // ===== Valid syntax: ON TABLES clause is parsed correctly =====
@@ -172,5 +200,74 @@ public class WarmUpClusterOnTablesParseTest {
                 + "PROPERTIES('sync_mode'='once')");
         Assertions.assertNotNull(cmd.getOnTablesRules());
         Assertions.assertEquals("once", cmd.getProperties().get("sync_mode"));
+    }
+
+    @Test
+    public void testOnTablesExcludeOnlyValidateFails() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test_cloud";
+        try {
+            mockValidateEnv("src", "dst");
+            WarmUpClusterCommand cmd = parse(
+                    "WARM UP CLUSTER dst WITH CLUSTER src "
+                    + "ON TABLES (EXCLUDE 'ods.tmp_*') "
+                    + "PROPERTIES('sync_mode'='event_driven', 'sync_event'='LOAD')");
+            Assertions.assertThrows(AnalysisException.class, () -> cmd.validate(new ConnectContext()));
+        } catch (Exception e) {
+            Assertions.fail(e);
+        } finally {
+            try {
+                setField(env, Env.class, "systemInfo", originalSystemInfo);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testOnTablesNonEventDrivenValidateFails() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test_cloud";
+        try {
+            mockValidateEnv("src", "dst");
+            WarmUpClusterCommand cmd = parse(
+                    "WARM UP CLUSTER dst WITH CLUSTER src "
+                    + "ON TABLES (INCLUDE 'ods.*') "
+                    + "PROPERTIES('sync_mode'='once')");
+            Assertions.assertThrows(AnalysisException.class, () -> cmd.validate(new ConnectContext()));
+        } catch (Exception e) {
+            Assertions.fail(e);
+        } finally {
+            try {
+                setField(env, Env.class, "systemInfo", originalSystemInfo);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testOnTablesPatternWithoutDbTableFormatValidateFails() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test_cloud";
+        try {
+            mockValidateEnv("src", "dst");
+            WarmUpClusterCommand cmd = parse(
+                    "WARM UP CLUSTER dst WITH CLUSTER src "
+                    + "ON TABLES (INCLUDE 'orders') "
+                    + "PROPERTIES('sync_mode'='event_driven', 'sync_event'='LOAD')");
+            Assertions.assertThrows(AnalysisException.class, () -> cmd.validate(new ConnectContext()));
+        } catch (Exception e) {
+            Assertions.fail(e);
+        } finally {
+            try {
+                setField(env, Env.class, "systemInfo", originalSystemInfo);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
     }
 }

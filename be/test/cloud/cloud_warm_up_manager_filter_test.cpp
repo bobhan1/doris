@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <optional>
 #include <unordered_set>
 #include <vector>
@@ -35,7 +36,15 @@ protected:
     CloudStorageEngine _engine;
 };
 
-// Test EventDrivenJobFilter type alias semantics
+static TReplicaInfo make_replica(int64_t backend_id) {
+    TReplicaInfo replica;
+    replica.__set_backend_id(backend_id);
+    replica.__set_host("127.0.0.1");
+    replica.__set_brpc_port(8000 + backend_id);
+    replica.__set_is_alive(true);
+    return replica;
+}
+
 TEST_F(CloudWarmUpManagerFilterTest, EventDrivenJobFilterNullopt) {
     EventDrivenJobFilter filter = std::nullopt;
     EXPECT_FALSE(filter.has_value());
@@ -57,97 +66,128 @@ TEST_F(CloudWarmUpManagerFilterTest, EventDrivenJobFilterEmpty) {
     EXPECT_EQ(0, filter->size());
 }
 
-// Test set_event with table_ids (cluster-level, no table filter)
-TEST_F(CloudWarmUpManagerFilterTest, SetEventWithoutTableIds) {
+TEST_F(CloudWarmUpManagerFilterTest, SetEventWithoutTableIdsStoresClusterLevelFilter) {
     CloudWarmUpManager manager(_engine);
     int64_t job_id = 1001;
 
     auto st = manager.set_event(job_id, TWarmUpEventType::LOAD, false, nullptr);
     EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(manager._tablet_replica_cache.contains(job_id));
+    auto filter_it = manager._event_driven_filters.find(job_id);
+    ASSERT_NE(filter_it, manager._event_driven_filters.end());
+    EXPECT_FALSE(filter_it->second.has_value());
 }
 
-// Test set_event with table_ids (table-level filter)
-TEST_F(CloudWarmUpManagerFilterTest, SetEventWithTableIds) {
+TEST_F(CloudWarmUpManagerFilterTest, SetEventWithTableIdsStoresFilter) {
     CloudWarmUpManager manager(_engine);
     int64_t job_id = 1002;
     std::vector<int64_t> table_ids = {10, 20, 30};
 
     auto st = manager.set_event(job_id, TWarmUpEventType::LOAD, false, &table_ids);
     EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(manager._tablet_replica_cache.contains(job_id));
+    auto filter_it = manager._event_driven_filters.find(job_id);
+    ASSERT_NE(filter_it, manager._event_driven_filters.end());
+    ASSERT_TRUE(filter_it->second.has_value());
+    EXPECT_EQ(3, filter_it->second->size());
+    EXPECT_TRUE(filter_it->second->contains(10));
+    EXPECT_TRUE(filter_it->second->contains(20));
+    EXPECT_TRUE(filter_it->second->contains(30));
 }
 
-// Test set_event with empty table_ids (should set empty filter, not cluster-level)
-// Scenario: all matched tables were deleted, should warm up nothing
-TEST_F(CloudWarmUpManagerFilterTest, SetEventWithEmptyTableIds) {
+TEST_F(CloudWarmUpManagerFilterTest, SetEventWithEmptyTableIdsStoresEmptyFilter) {
     CloudWarmUpManager manager(_engine);
     int64_t job_id = 1003;
     std::vector<int64_t> table_ids = {};
 
     auto st = manager.set_event(job_id, TWarmUpEventType::LOAD, false, &table_ids);
     EXPECT_TRUE(st.ok());
+    auto filter_it = manager._event_driven_filters.find(job_id);
+    ASSERT_NE(filter_it, manager._event_driven_filters.end());
+    ASSERT_TRUE(filter_it->second.has_value());
+    EXPECT_TRUE(filter_it->second->empty());
 }
 
-// Test set_event clear
-TEST_F(CloudWarmUpManagerFilterTest, SetEventClear) {
+TEST_F(CloudWarmUpManagerFilterTest, SetEventClearRemovesFilterAndCache) {
     CloudWarmUpManager manager(_engine);
     int64_t job_id = 1004;
     std::vector<int64_t> table_ids = {10, 20};
 
-    // Set event first
     auto st = manager.set_event(job_id, TWarmUpEventType::LOAD, false, &table_ids);
     EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(manager._tablet_replica_cache.contains(job_id));
+    EXPECT_TRUE(manager._event_driven_filters.contains(job_id));
 
-    // Clear the event
     st = manager.set_event(job_id, TWarmUpEventType::LOAD, true);
     EXPECT_TRUE(st.ok());
+    EXPECT_FALSE(manager._tablet_replica_cache.contains(job_id));
+    EXPECT_FALSE(manager._event_driven_filters.contains(job_id));
 }
 
-// Test set_event update table_ids for existing job
-TEST_F(CloudWarmUpManagerFilterTest, SetEventUpdateTableIds) {
+TEST_F(CloudWarmUpManagerFilterTest, SetEventUpdateTableIdsReplacesFilter) {
     CloudWarmUpManager manager(_engine);
     int64_t job_id = 1005;
 
-    // Set initial table_ids
     std::vector<int64_t> initial_ids = {10, 20};
     auto st = manager.set_event(job_id, TWarmUpEventType::LOAD, false, &initial_ids);
     EXPECT_TRUE(st.ok());
 
-    // Update table_ids
     std::vector<int64_t> updated_ids = {30, 40, 50};
     st = manager.set_event(job_id, TWarmUpEventType::LOAD, false, &updated_ids);
     EXPECT_TRUE(st.ok());
+    auto filter_it = manager._event_driven_filters.find(job_id);
+    ASSERT_NE(filter_it, manager._event_driven_filters.end());
+    ASSERT_TRUE(filter_it->second.has_value());
+    EXPECT_EQ(3, filter_it->second->size());
+    EXPECT_FALSE(filter_it->second->contains(10));
+    EXPECT_TRUE(filter_it->second->contains(30));
+    EXPECT_TRUE(filter_it->second->contains(40));
+    EXPECT_TRUE(filter_it->second->contains(50));
 }
 
-// Test set_event with unsupported event type
 TEST_F(CloudWarmUpManagerFilterTest, SetEventUnsupportedType) {
     CloudWarmUpManager manager(_engine);
     int64_t job_id = 1006;
 
-    // Use a non-LOAD event type — should fail
     auto st = manager.set_event(job_id, TWarmUpEventType::QUERY, false, nullptr);
     EXPECT_FALSE(st.ok());
 }
 
-// Test multiple jobs with different filters
-TEST_F(CloudWarmUpManagerFilterTest, MultipleJobsDifferentFilters) {
+TEST_F(CloudWarmUpManagerFilterTest, GetReplicaInfoAppliesTableFilter) {
     CloudWarmUpManager manager(_engine);
+    int64_t tablet_id = 3001;
+    auto now = std::chrono::steady_clock::now();
 
-    // Job 1: cluster-level (no filter)
-    auto st = manager.set_event(2001, TWarmUpEventType::LOAD, false, nullptr);
-    EXPECT_TRUE(st.ok());
+    manager._tablet_replica_cache[2001][tablet_id] = {now, make_replica(11)};
+    manager._event_driven_filters[2001] = std::unordered_set<int64_t> {10};
 
-    // Job 2: table-level filter
-    std::vector<int64_t> table_ids = {100, 200};
-    st = manager.set_event(2002, TWarmUpEventType::LOAD, false, &table_ids);
-    EXPECT_TRUE(st.ok());
+    manager._tablet_replica_cache[2002][tablet_id] = {now, make_replica(22)};
+    manager._event_driven_filters[2002] = std::unordered_set<int64_t> {20};
 
-    // Clear job 1
-    st = manager.set_event(2001, TWarmUpEventType::LOAD, true);
-    EXPECT_TRUE(st.ok());
+    bool cache_hit = false;
+    auto replicas = manager.get_replica_info(tablet_id, 20, false, cache_hit);
 
-    // Job 2 should still be active
-    st = manager.set_event(2002, TWarmUpEventType::LOAD, true);
-    EXPECT_TRUE(st.ok());
+    ASSERT_EQ(1, replicas.size());
+    EXPECT_EQ(22, replicas[0].backend_id);
+    EXPECT_TRUE(cache_hit);
+}
+
+TEST_F(CloudWarmUpManagerFilterTest, GetReplicaInfoBypassesFilterWhenTableIdUnknown) {
+    CloudWarmUpManager manager(_engine);
+    int64_t tablet_id = 3002;
+    auto now = std::chrono::steady_clock::now();
+
+    manager._tablet_replica_cache[3001][tablet_id] = {now, make_replica(31)};
+    manager._event_driven_filters[3001] = std::unordered_set<int64_t> {10};
+
+    manager._tablet_replica_cache[3002][tablet_id] = {now, make_replica(32)};
+    manager._event_driven_filters[3002] = std::unordered_set<int64_t> {20};
+
+    bool cache_hit = false;
+    auto replicas = manager.get_replica_info(tablet_id, 0, false, cache_hit);
+
+    ASSERT_EQ(2, replicas.size());
+    EXPECT_TRUE(cache_hit);
 }
 
 } // namespace doris

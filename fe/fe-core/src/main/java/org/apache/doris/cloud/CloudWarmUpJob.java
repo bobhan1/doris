@@ -532,6 +532,10 @@ public class CloudWarmUpJob implements Writable {
         this.currentTableIdNames = idNames;
     }
 
+    public Map<Long, String> getCurrentTableIdNames() {
+        return currentTableIdNames;
+    }
+
     /**
      * Compute the canonical table filter expression from persisted rules.
      * Returns empty string when no table filter rules exist.

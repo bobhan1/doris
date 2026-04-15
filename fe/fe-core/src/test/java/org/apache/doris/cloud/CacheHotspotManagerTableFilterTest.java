@@ -23,17 +23,22 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
 import org.apache.doris.cloud.OnTablesFilter.TableFilterRule.RuleType;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
+import org.apache.doris.persist.EditLog;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -45,16 +50,40 @@ import java.util.Map;
  */
 public class CacheHotspotManagerTableFilterTest {
 
-    private MockedStatic<Env> envMock;
+    private Env env;
+    private CatalogMgr mockCatalogMgr;
     private InternalCatalog mockCatalog;
+    private EditLog mockEditLog;
     private CacheHotspotManager manager;
     private List<DatabaseIf<? extends TableIf>> databases;
+    private Object originalCatalogMgr;
+    private EditLog originalEditLog;
+
+    private static Object getField(Object target, Class<?> clazz, String fieldName) throws Exception {
+        Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(target);
+    }
+
+    private static void setField(Object target, Class<?> clazz, String fieldName, Object value) throws Exception {
+        Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
 
     @BeforeEach
-    public void setUp() {
+    public void setUp() throws Exception {
+        env = Env.getCurrentEnv();
+        mockCatalogMgr = Mockito.mock(CatalogMgr.class);
         mockCatalog = Mockito.mock(InternalCatalog.class);
-        envMock = Mockito.mockStatic(Env.class);
-        envMock.when(Env::getCurrentInternalCatalog).thenReturn(mockCatalog);
+        mockEditLog = Mockito.mock(EditLog.class);
+
+        originalCatalogMgr = getField(env, Env.class, "catalogMgr");
+        originalEditLog = env.getEditLog();
+
+        setField(env, Env.class, "catalogMgr", mockCatalogMgr);
+        env.setEditLog(mockEditLog);
+        Mockito.when(mockCatalogMgr.getInternalCatalog()).thenReturn(mockCatalog);
 
         databases = new ArrayList<>();
         Mockito.when(mockCatalog.getAllDbs()).thenAnswer(inv -> databases);
@@ -63,8 +92,9 @@ public class CacheHotspotManagerTableFilterTest {
     }
 
     @AfterEach
-    public void tearDown() {
-        envMock.close();
+    public void tearDown() throws Exception {
+        setField(env, Env.class, "catalogMgr", originalCatalogMgr);
+        env.setEditLog(originalEditLog);
     }
 
     @SuppressWarnings("unchecked")
@@ -84,6 +114,18 @@ public class CacheHotspotManagerTableFilterTest {
 
     private OnTablesFilter buildFilter(TableFilterRule... rules) {
         return new OnTablesFilter(Arrays.asList(rules));
+    }
+
+    private Map<String, String> eventDrivenProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("sync_mode", "event_driven");
+        properties.put("sync_event", "load");
+        return properties;
+    }
+
+    private WarmUpClusterCommand buildEventDrivenStmt(String src, String dst, TableFilterRule... rules) {
+        return new WarmUpClusterCommand(null, src, dst, false, false,
+                eventDrivenProperties(), rules.length == 0 ? null : Arrays.asList(rules));
     }
 
     // ===== resolveTableIds() =====
@@ -370,5 +412,89 @@ public class CacheHotspotManagerTableFilterTest {
         Assertions.assertEquals(
                 new HashSet<>(Arrays.asList(1002L)),
                 job.getCurrentTableIds());
+    }
+
+    @Test
+    public void testRefreshAllTableFiltersUpdatesMatchedNamesAfterRenameStillMatches() throws Exception {
+        databases.add(mockDb("db",
+                mockTable(1001, "order_2024"),
+                mockTable(1002, "order_2025")));
+
+        CloudWarmUpJob.PersistedTableFilterRule rule = new CloudWarmUpJob.PersistedTableFilterRule();
+        rule.ruleType = "INCLUDE";
+        rule.pattern = "db.order_*";
+
+        CloudWarmUpJob job = new CloudWarmUpJob.Builder()
+                .setJobId(400L)
+                .setSrcClusterName("write_cg")
+                .setDstClusterName("read_cg")
+                .setJobType(CloudWarmUpJob.JobType.CLUSTER)
+                .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN)
+                .setTableFilterRules(Arrays.asList(rule))
+                .build();
+
+        manager.replayCloudWarmUpJob(job);
+        Assertions.assertEquals("db.order_2024, db.order_2025", job.getJobInfo().get(14));
+
+        databases.clear();
+        databases.add(mockDb("db",
+                mockTable(1001, "order_2024_v2"),
+                mockTable(1002, "order_2025")));
+
+        manager.refreshAllTableFilters();
+
+        Assertions.assertEquals(new HashSet<>(Arrays.asList(1001L, 1002L)), job.getCurrentTableIds());
+        Assertions.assertEquals("db.order_2024_v2, db.order_2025", job.getJobInfo().get(14));
+    }
+
+    @Test
+    public void testCreateJobRejectsOnTablesWithoutInitialMatches() {
+        databases.add(mockDb("ods", mockTable(1001, "orders")));
+
+        WarmUpClusterCommand stmt = buildEventDrivenStmt("write_cg", "read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "dw.*"));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> manager.createJob(stmt));
+        Assertions.assertTrue(exception.getMessage().contains("No tables matched the ON TABLES filter"));
+    }
+
+    @Test
+    public void testCreateJobRejectsEquivalentDuplicateTableFilter() throws Exception {
+        databases.add(mockDb("ods", mockTable(1001, "orders")));
+        databases.add(mockDb("dw",
+                mockTable(2001, "fact_sales"),
+                mockTable(2002, "tmp_staging")));
+
+        WarmUpClusterCommand first = buildEventDrivenStmt("write_cg", "read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"),
+                new TableFilterRule(RuleType.INCLUDE, "dw.*"),
+                new TableFilterRule(RuleType.EXCLUDE, "dw.tmp_*"));
+        WarmUpClusterCommand second = buildEventDrivenStmt("write_cg", "read_cg",
+                new TableFilterRule(RuleType.EXCLUDE, "dw.tmp_*"),
+                new TableFilterRule(RuleType.INCLUDE, "dw.*"),
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"),
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
+
+        manager.createJob(first);
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> manager.createJob(second));
+        Assertions.assertTrue(exception.getMessage().contains("already has a runnable job"));
+    }
+
+    @Test
+    public void testCreateJobAllowsClusterLevelAndTableLevelToCoexist() throws Exception {
+        databases.add(mockDb("ods", mockTable(1001, "orders")));
+
+        WarmUpClusterCommand clusterLevel = buildEventDrivenStmt("write_cg", "read_cg");
+        WarmUpClusterCommand tableLevel = buildEventDrivenStmt("write_cg", "read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
+
+        long clusterJobId = manager.createJob(clusterLevel);
+        long tableJobId = manager.createJob(tableLevel);
+
+        Assertions.assertNotEquals(clusterJobId, tableJobId);
+        Assertions.assertEquals(2, manager.getAllJobInfos(10).size());
     }
 }
