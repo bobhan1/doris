@@ -114,8 +114,7 @@ private:
                               int64_t sync_wait_timeout_ms, bool skip_existence_check);
 
     std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id, int64_t table_id,
-                                               bool bypass_cache,
-                                               bool& cache_hit);
+                                               bool bypass_cache, bool& cache_hit);
 
     void _warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id, int64_t sync_wait_timeout_ms);
     void _recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);

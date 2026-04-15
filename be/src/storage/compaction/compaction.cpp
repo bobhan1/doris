@@ -1636,7 +1636,7 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     update_compaction_level();
 
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), _uuid,
-                                                    nullptr, _tablet->table_id()));
+                                                     nullptr, _tablet->table_id()));
 
     // 4. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());

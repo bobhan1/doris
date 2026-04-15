@@ -501,8 +501,7 @@ Status CloudWarmUpManager::set_event(int64_t job_id, TWarmUpEventType::type even
 }
 
 std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id, int64_t table_id,
-                                                               bool bypass_cache,
-                                                               bool& cache_hit) {
+                                                               bool bypass_cache, bool& cache_hit) {
     std::vector<TReplicaInfo> replicas;
     std::vector<int64_t> cancelled_jobs;
     std::lock_guard<std::mutex> lock(_mtx);

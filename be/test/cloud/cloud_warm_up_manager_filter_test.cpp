@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cloud/cloud_warm_up_manager.h"
-
 #include <gtest/gtest.h>
 
 #include <optional>
@@ -24,6 +22,7 @@
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "gen_cpp/AgentService_types.h"
 
 namespace doris {
