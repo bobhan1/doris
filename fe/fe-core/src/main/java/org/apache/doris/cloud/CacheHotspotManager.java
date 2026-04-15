@@ -84,6 +84,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 public class CacheHotspotManager extends MasterDaemon {
     public static final int MAX_SHOW_ENTRIES = 2000;
@@ -883,6 +884,7 @@ public class CacheHotspotManager extends MasterDaemon {
             if (warmUpJob.hasTableFilter()) {
                 warmUpJob.rebuildOnTablesFilter();
                 Map<Long, String> initialTableIdNames = resolveTableIds(warmUpJob.getOnTablesFilter());
+                logMatchedTables("created table filter for job " + jobId, initialTableIdNames);
                 if (initialTableIdNames.isEmpty()) {
                     throw new AnalysisException("No tables matched the ON TABLES filter");
                 }
@@ -996,6 +998,15 @@ public class CacheHotspotManager extends MasterDaemon {
         return result;
     }
 
+    private void logMatchedTables(String action, Map<Long, String> tableIdNames) {
+        String matchedTables = tableIdNames.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> entry.getKey() + ":" + entry.getValue())
+                .collect(Collectors.joining(", "));
+        LOG.info("{}: matched_table_count={}, matched_tables=[{}]",
+                action, tableIdNames.size(), matchedTables);
+    }
+
     /**
      * Periodically refresh table IDs for all running event-driven jobs with ON TABLES filter.
      * Called from the daemon loop to pick up newly created/dropped tables matching glob patterns.
@@ -1007,6 +1018,7 @@ public class CacheHotspotManager extends MasterDaemon {
             }
             try {
                 Map<Long, String> newTableIdNames = resolveTableIds(job.getOnTablesFilter());
+                logMatchedTables("refreshed table filter for job " + job.getJobId(), newTableIdNames);
                 Set<Long> oldTableIds = job.getCurrentTableIds();
                 if (!newTableIdNames.equals(job.getCurrentTableIdNames())) {
                     job.setCurrentTableIdNames(newTableIdNames);
