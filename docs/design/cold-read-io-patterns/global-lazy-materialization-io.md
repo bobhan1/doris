@@ -1,5 +1,7 @@
 # TopN 全局延迟物化和 Rowid 二阶段读取
 
+本文解释 TopN 全局延迟物化的二阶段 rowid 读取逻辑。二阶段复用的 `.dat` footer、column meta、ordinal index、data page、dict page 等 `read_at` 明细见 [文件格式排布和 `read_at` 清单](file-layout-and-read-at-inventory.md)。
+
 ## 与普通 scan 延迟物化的区别
 
 普通 `SegmentIterator` 延迟物化发生在同一个 scan pipeline 内。它先读谓词列，过滤后用 selected rowids 读取非谓词列，所有逻辑都在 `SegmentIterator::_next_batch_internal()` 内完成。

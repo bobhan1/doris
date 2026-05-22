@@ -1,5 +1,7 @@
 # `.dat` 数据文件读路径和 I/O Pattern
 
+本文按 scan 逻辑解释 `.dat` 读路径。物理文件排布、V3 external column meta、以及每个 `read_at` 触发点的完整清单见 [文件格式排布和 `read_at` 清单](file-layout-and-read-at-inventory.md)。
+
 ## 文件结构和读粒度
 
 Doris beta rowset 的 segment 数据文件是 `{rowset_id}_{segment_id}.dat`。一个 segment 文件包含列数据页、列级索引页、短 key 或主键索引、footer protobuf、footer 长度、footer checksum 和 magic number。

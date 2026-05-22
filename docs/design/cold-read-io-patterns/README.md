@@ -11,8 +11,11 @@
 - [`.dat` 数据文件读路径和 I/O Pattern](dat-file-io-patterns.md)
 - [倒排索引 `.idx` 文件读路径和 I/O Pattern](inverted-index-io-patterns.md)
 - [TopN 全局延迟物化和 rowid 二阶段读取](global-lazy-materialization-io.md)
+- [文件格式排布和 `read_at` 清单](file-layout-and-read-at-inventory.md)
 
 ## 宏观读路径
+
+更细的文件格式和 `read_at` 级别清单见 [文件格式排布和 `read_at` 清单](file-layout-and-read-at-inventory.md)。该文档按 `.dat`、V3 external column meta、`.idx` V1/V2、ANN `.idx` sub-file、file cache local/remote fallback 分别列出物理排布和实际 `read_at` 触发点。
 
 普通内表扫描的主要链路是：
 

@@ -1,5 +1,7 @@
 # 倒排索引 `.idx` 文件读路径和 I/O Pattern
 
+本文按倒排索引查询逻辑解释 `.idx` 读路径。V1/V2 compound 文件排布、ANN sub-file、以及 CLucene `readBytes()` 到 Doris `read_at` 的完整映射见 [文件格式排布和 `read_at` 清单](file-layout-and-read-at-inventory.md)。
+
 ## 文件和缓存边界
 
 Doris 倒排索引文件由 `IndexFileReader` 和 CLucene 目录抽象读取。当前有两种存储格式：
