@@ -48,7 +48,7 @@
 | `.dat` PageIO page | page 随机或顺序读 | `PagePointer{offset,size}` | `PagePointer.size`，包含 compressed body、page footer、footer size、checksum | cold miss 通常至少读覆盖该 page 的 cache block；默认 block 是 `file_cache_each_block_size=1MB` |
 | `.idx` header/directory | buffered 顺序读 | 打开 index file | CLucene buffer refill，默认 `inverted_index_read_buffer_size=4096` | 按 file-cache block 对齐 |
 | `.idx` sub-file | term/posting/tree/list 驱动，可能随机 | compound directory 给出 sub-file offset/length | CLucene/FAISS reader 本次请求长度 | `CSIndexInput` 映射到 compound file offset 后按 file-cache block 对齐 |
-| warm-up file/range read | 任务给定的 `.dat` / `.idx` 文件区间 | 通常按 offset 递增分块读取 | 依赖 warm-up 任务中的 path、offset、size、cache type | 上层按 `s3_write_buffer_size` 分片读，底层仍按 file-cache block 处理 |
+| warm-up file/range read | 任务给定的 `.dat` / `.idx` 文件区间 | 通常按 offset 递增分块读取 | 依赖 warm-up 任务中的 path、offset、size、cache type | 上层按 `s3_write_buffer_size=5MB` 分片读，底层仍按 `file_cache_each_block_size=1MB` 处理 |
 | local file cache hit | 本地 cache file slice | cache block 已下载 | caller request slice | 本地 `FileBlock::read()`，不访问远端 |
 
 `.dat` page 的 `PagePointer.size` 是压缩后 page 在文件中的物理大小，不是解压后的列值大小。page 读完后 `PageIO` 才解析 page footer、校验 checksum、必要时解压。`StoragePageCache` 命中会跳过底层 file `read_at`，但不会改变逻辑上的 page 依赖关系。
@@ -165,10 +165,15 @@ second read:
 
 ### 微观读模式
 
-`_read_columns_by_index()` 先从 `_range_iter` 拿一批 rowids：
+`_read_columns_by_index()` 先从 `_range_iter` 拿一批 rowids。这里的“一批”不是固定常量，而是 `_next_batch_internal()` 传入的 `nrows_read_limit`：query scan 中 `OlapScanner` 把 `RuntimeState::batch_size()` 传给 `BlockReader`，再进入 `StorageReadOptions::block_row_max`；`RuntimeState::batch_size()` 会 clamp 到 `[1,65535]`。`StorageReadOptions` 自身默认是 `4096 - 32 = 4064`，`RowsetReaderContext` 默认 `batch_size=1024`，但普通 query scan 会被 runtime batch size 覆盖。若启用 adaptive batch size，`enable_adaptive_batch_size` 默认 true，`preferred_block_size_bytes` 默认 8MB 且 clamp 到 `[1MB,512MB]`，`SegmentIterator::next_batch()` 会在每轮预测 `_opts.block_row_max`，预测值不超过 init 时的 `_initial_block_row_max`；没有历史样本时，首次探测最多 `AdaptiveBlockSizePredictor::kDefaultProbeRows=4096` 行。随后 `_next_batch_internal()` 取 `min(_row_bitmap.cardinality(), _opts.block_row_max)` 作为初始 `nrows_read_limit`；如果 `read_limit` 可在读前下压，则再用剩余 limit 截断。`_range_iter->read_batch_rowids()` 实际返回的 `nrows_read` 小于等于这个 limit，bitmap 剩余行数不足或接近 EOF 时会更小。
 
-- 连续 rowids：每列一次 `seek_to_ordinal(first)`，再 `next_batch(n)` 顺序解码；跨 page 时读下一 data page。
-- 非连续 rowids：按 range iterator batch 切小批；小批连续则仍走 `seek_to_ordinal + next_batch`，否则走 `ColumnIterator::read_by_rowids()`。
+拿到这一批 rowids 后再分流：
+
+- 整批连续：每列一次 `seek_to_ordinal(first)`，再 `next_batch(nrows_read)` 顺序解码；跨 page 时读下一 data page。
+- 整批非连续：按 `BitmapRangeIterator::kBatchSize=256` 切内部分片。每个分片再判断是否连续；连续分片走 `seek_to_ordinal + next_batch(current_batch_size)`，非连续分片走 `ColumnIterator::read_by_rowids(rowids, current_batch_size)`。因此固定 256 只用于非连续 rowids 的内部分片，不是外层 scan batch size。
+- 反向 key TopN 使用 `BackwardBitmapRangeIterator` 时，外层 `nrows_read_limit` 规则相同；区别是每轮从 bitmap 尾部取一段 rowids，但写入 `_block_rowids` 时仍保持该段内部升序，后续若 `read_orderby_key_reverse=true` 再把输出 block 反转成需要的顺序。
+
+`_read_columns_by_rowids()` 负责 second read 的 common-expr-only 列和非谓词输出列。它的 `select_size` 是本轮 first read 经过 vectorized predicate、short-circuit predicate、delete condition、common expr 和可能的 `read_limit` 后剩下的行数，因此运行时动态变化，最大不超过本轮 `nrows_read`。函数会按 selector 从 `_block_rowids` 组装一个长度正好等于 `select_size` 的 rowid 数组，然后对每个待读列调用一次 `read_by_rowids(rowids.data(), select_size, column)`；这里没有固定 256 分片。
 
 `FileColumnIterator::seek_to_ordinal()` 是 rowid 到 page 的转换点：
 
@@ -182,7 +187,7 @@ seek_to_ordinal(rowid)
        -> PageIO::read_and_decompress_page()
 ```
 
-`FileColumnIterator::read_by_rowids()` 要求 rowids 单调。它会按 page 聚合能覆盖的 rowids：dense rowids 多个值共享一个 data page；sparse rowids 接近“一个 rowid 触发一个 page”。Nullable 列还会按 null run 跳过或读取 nested data。
+`FileColumnIterator::read_by_rowids()` 要求 rowids 单调。它的循环每次先 `seek_to_ordinal(rowids[total_read_count])`，再以当前 data page 剩余行数作为 decoder 读取上限；dense rowids 多个值共享一个已加载 data page，sparse rowids 会频繁跳到新的 page，接近“一个 rowid 触发一个 page”。Nullable 列还会按 null run 跳过或读取 nested data。每次新 page miss 的文件读大小仍是该 page 的 `PagePointer.size`，进入 file cache 后再按 cache block 放大。
 
 复杂类型会把一次逻辑列读放大成多个物理子列读：
 
@@ -337,14 +342,15 @@ FE 的 `PhysicalStorageLayerAggregate` 会把无 group-by 的聚合翻译成 `TP
 ```text
 target rows = segment->num_rows()
 next_batch:
-  insert_many_defaults(batch_size)
+  size = min(target rows - output rows, MAX_ROW_SIZE_IN_COUNT)
+  insert_many_defaults(size)
 ```
 
-冷读 I/O 基本只剩 segment open、footer、column meta、short-key / PK root/index load 和 segment cache miss 相关读；不读 ordinary data page，也不因 `COUNT` 本身读取 PK data page。
+其中 `MAX_ROW_SIZE_IN_COUNT=65535`，所以 `COUNT` 的输出 batch 是固定上限 65535 行的 metadata batch，不受 query scan 的 `RuntimeState::batch_size()` 控制。冷读 I/O 基本只剩 segment open、footer、column meta、short-key / PK root/index load 和 segment cache miss 相关读；不读 ordinary data page，也不因 `COUNT` 本身读取 PK data page。
 
 ### MINMAX / MIX
 
-`MINMAX` 和 `MIX` 通过 `ColumnIterator::next_batch_of_zone_map()` 读取 segment-level zone map 里的 min/max，生成上层聚合输入。segment zone map 来自 column meta，不需要逐个 data page 解码，也不需要 page-zone-map indexed-column。CHAR 类型会做尾部 padding 处理。和 `COUNT` 一样，它仍会经过 `Segment::new_iterator()` 前置的 short-key / PK index load。
+`MINMAX` 和 `MIX` 通过 `ColumnIterator::next_batch_of_zone_map()` 读取 segment-level zone map 里的 min/max，生成上层聚合输入。`MINMAX` 每个 segment 固定输出 2 行；`MIX` 仍按 `min(segment remaining rows, 65535)` 推进。segment zone map 来自 column meta，不需要逐个 data page 解码，也不需要 page-zone-map indexed-column。CHAR 类型会做尾部 padding 处理。和 `COUNT` 一样，它仍会经过 `Segment::new_iterator()` 前置的 short-key / PK index load。
 
 ### COUNT_ON_INDEX
 
@@ -384,7 +390,7 @@ index metadata / query sub-file
 - session 允许 `enable_segment_limit_pushdown`；
 - storage no-merge，即 storage 层不需要为了语义做跨 rowset merge。
 
-普通 LIMIT 会设置 `general_read_limit`，由 `VCollectIterator::add_child()` 转为 rowset reader 的 `_topn_limit`，再进入 `SegmentIterator::_opts.read_limit`。`SegmentIterator` 在 predicate/common expr 之后应用 limit；当没有任何 SegmentIterator 侧过滤时，`_can_opt_limit_reads()` 还会直接缩小 first read 的 `nrows_read_limit`。
+普通 LIMIT 会设置 `general_read_limit`，由 `VCollectIterator::add_child()` 转为 rowset reader 的 `_topn_limit`，再进入 `SegmentIterator::_opts.read_limit`。这个 limit 是 query 运行时值，不是固定 batch 大小。`SegmentIterator` 在 predicate/common expr 之后应用 limit；当没有任何 SegmentIterator 侧过滤时，`_can_opt_limit_reads()` 还会直接用剩余 limit 缩小 first read 的 `nrows_read_limit`。如果存在 vectorized predicate、short-circuit predicate、common expr 或 delete condition，raw read 不能提前按 limit 截断，只能先读当前 `nrows_read_limit`，过滤后再由 `_apply_read_limit_to_selected_rows()` 裁剪 survivors。
 
 key TopN 会设置 `read_orderby_key_limit` 和 `read_orderby_key_reverse`。宏观路径是：
 
@@ -456,7 +462,7 @@ BE `MaterializationOperator` 对 TopN winners 执行 rowid expr，把请求按 b
 ```text
 RowIdStorageReader::read_by_rowids(PMultiGetRequestV2)
   -> read_batch_doris_format_row()
-     -> group by file_id -> tablet_id,rowset_id,segment_id
+     -> group all rowids by tablet_id,rowset_id,segment_id
      -> per segment sort row_ids ascending
      -> deduplicate equal row_ids
      -> read_doris_format_row()
@@ -485,9 +491,9 @@ for each row_id:
 
 第二阶段的微观特征：
 
-- rowids 在每个 segment 内会先排序、去重，后续再按原请求位置 scatter 回结果 block。
-- column-store path 对每个 lazy slot 调用一次 `Segment::seek_and_read_by_rowid(..., sorted_unique_rowids, ...)`，column iterator 可以按 sorted rowids 单调前进。winners dense 时，多行共享 data page；winners sparse 时，lazy 列表现为随机 page 读。
-- row-store path 当前对每个 rowid 逐行调用 `BaseTablet::lookup_row_data()`，每次读取 hidden row-store column 的一个 rowid。dense rowids 的 page 复用主要依赖 `StoragePageCache`、file cache 和底层 column reader/page cache 状态，而不是一次批量 `ColumnIterator::read_by_rowids()`。
+- rowids 在每个 segment 内会先排序、去重，后续再按原请求位置 scatter 回结果 block。每个 segment 的 rowid batch 大小是该 segment 在本次 TopN winners 中的 unique rowid 数，运行时动态变化；它不是固定常量，上限由本次 materialization request 的 winner 数决定。
+- column-store path 对每个 lazy slot 调用一次 `Segment::seek_and_read_by_rowid(..., sorted_unique_rowids, ...)`，传入的 count 就是该 segment 的 unique rowid 数。`Segment::seek_and_read_by_rowid()` 要求 rowids 已排序且无重复，然后复用同一个 column iterator 调用 `read_by_rowids(row_ids.data(), row_ids.size(), result)`；winners dense 时，多行共享 data page；winners sparse 时，lazy 列表现为随机 page 读。
+- row-store path 当前仍对每个 rowid 逐行调用 `BaseTablet::lookup_row_data()`，每次读取 hidden row-store column 的一个 rowid，即 `read_by_rowids(rowids.data(), 1, column)`。因此 row-store TopN 二阶段的逻辑 rowid 已按 segment 分组排序，但 hidden-column 文件读取不是一次 segment 级批量 `read_by_rowids()`；dense rowids 的 page 复用主要依赖 `StoragePageCache`、file cache 和底层 column reader/page cache 状态。
 - row store 把多列读取压到 hidden row-store string column，但每个 rowid 仍要落到其所在 data page；如果 row store 不覆盖输出列，还要补 column-store path。
 - column-store path 对复杂/variant lazy slot 仍会展开为 offsets、child、path 等子列。
 
@@ -557,7 +563,12 @@ specified rowsets sorted by end_version desc
 
 row cache 命中时，不需要读 segment 文件。row cache miss 时：
 
-1. segment load 读取 footer、PK meta，并加载 PK index / PK bloom。2. segment key bounds 在 rowset meta 中先排除不可能的 segment。3. `Segment::lookup_row_key()` 先用 PK bloom `check_present()`，不命中直接返回 `KEY_NOT_FOUND`。4. PK indexed-column iterator `seek_at_or_after(key)` 定位 ordinal。5. `next_batch(1)` 读出 encoded key，校验 sequence / rowid 语义，得到 `RowLocation{rowset_id,segment_id,row_id}`。6. delete bitmap 聚合缓存判断该 row 是否已被新版本删除。
+1. segment load 读取 footer、PK meta，并加载 PK index / PK bloom。
+2. segment key bounds 在 rowset meta 中先排除不可能的 segment。
+3. `Segment::lookup_row_key()` 先用 PK bloom `check_present()`，不命中直接返回 `KEY_NOT_FOUND`。
+4. PK indexed-column iterator `seek_at_or_after(key)` 定位 ordinal。
+5. `next_batch(1)` 固定读 1 个 encoded key，校验 sequence / rowid 语义，得到 `RowLocation{rowset_id,segment_id,row_id}`。
+6. delete bitmap 聚合缓存判断该 row 是否已被新版本删除。
 
 这条链路里的 PK 文件读要拆开看：`load_pk_index_and_bf()` 先调用 `load_index()`，PK `load_index()` 只加载 primary-key indexed-column 的 ordinal/value root/index page；如果 PK 只有一个 data page，则 root 直接指向 data page，这一步不读 index page。随后 `_load_pk_bloom_filter()` 加载单值 PK bloom 并读出 ordinal 0 的 bloom value。真正的 PK key data page 发生在 `seek_at_or_after(key)` 时：value root/index 先给出候选 PK data page，然后一次 `PageIO` 读取该 PK data page，`next_batch(1)` 在同一页内读 encoded key 做精确校验。因此点查访问一个候选 segment 时，典型冷读是 footer/meta + PK root/index page + PK bloom value page + 1 个 PK data page；如果 bloom miss，则省掉 PK data page；如果 segment key bounds 先排除，则连 PK bloom/index 都不会读。
 
@@ -571,7 +582,7 @@ BaseTablet::lookup_row_data()
   -> RowCache insert if enabled
 ```
 
-如果查询输出列不完全在 row store 中，且 session 允许访问 column store，`PointQueryExecutor::_lookup_row_data()` 会对 missing columns 调用 `Segment::seek_and_read_by_rowid()`。此时模式和 TopN 二阶段的 column-store path 一样，只是 rowids 通常只有一个。
+如果查询输出列不完全在 row store 中，且 session 允许访问 column store，`PointQueryExecutor::_lookup_row_data()` 会对 missing columns 调用 `Segment::seek_and_read_by_rowid()`。此时模式和 TopN 二阶段的 column-store path 一样，只是 rowids 固定为长度 1 的 vector，每个 missing column 各读一次。
 
 点查 cold read 通常是高随机、小范围 I/O：少量 PK root/index/bloom page、一个 PK data page、一个 row-store data page，以及可能的少量 missing column data pages。它不走普通 `SegmentIterator` 的谓词列/非谓词列二段读。PK root/index page 在同一 segment 内可复用，但 rowset version 从新到旧搜索会把这个小随机读模式重复到多个候选 rowset/segment 上。
 
@@ -672,12 +683,12 @@ warm-up task
   -> file-cache block state update
 ```
 
-它不依赖 `_row_bitmap`、predicate result、TopN winners 或 PK row location，也不会读取列值后再交给表达式计算。它的 I/O pattern 由任务给出的文件区间决定：
+它不依赖 `_row_bitmap`、predicate result、TopN winners 或 PK row location，也不会读取列值后再交给表达式计算。`FileCacheBlockDownloader::download_segment_file()` 把 `download_size` 按 `s3_write_buffer_size=5MB` 切成 `ceil(download_size / 5MB)` 个同步 `read_at`；每次 offset 为 `meta.offset + i * 5MB`，size 为本片剩余长度和 5MB 的较小值。BE 启动时要求 `file_cache_each_block_size=1MB` 小于等于 `s3_write_buffer_size`，且 `s3_write_buffer_size` 必须是 file-cache block size 的整数倍，所以默认一个 warm-up 分片覆盖 5 个 file-cache blocks。它的 I/O pattern 由任务给出的文件区间决定：
 
 | warm-up 形态 | 读文件内容 | 顺序性 | 依赖关系 | I/O 大小特征 |
 | --- | --- | --- | --- | --- |
 | `WARM UP SELECT` | SELECT 实际触碰的 `.dat` / `.idx` page 和 sub-file | 与对应 query scan 相同 | 依赖 scan 的 row bitmap、predicate、index 等路径 | 与普通 scan 相同，只是 sink 丢弃结果 |
-| rowset / segment file warm-up | segment `.dat`、inverted index `.idx` 的整文件或大区间 | 按 offset 递增分片读 | 依赖 rowset file metadata 和任务范围 | 上层按 `s3_write_buffer_size` 分片；底层按 file-cache block 处理 |
+| rowset / segment file warm-up | segment `.dat`、inverted index `.idx` 的整文件或大区间 | 按 offset 递增分片读 | 依赖 rowset file metadata 和任务范围 | 上层默认 5MB 一片；底层默认 1MB 一个 file-cache block |
 | hot block warm-up | 来源 BE 反馈的 hot cache block ranges | block range 通常离散，按任务列表读取 | 依赖 source/destination BE 的 block meta 交换 | 每个 range 落到一个或多个 file-cache blocks |
 
 这个场景和维护类读者的区别是：维护类读者通常通过 tablet/rowset iterator 读取并消费行数据；block/file-shaped warm-up 只消费文件字节和 cache block 状态，不需要解码 column page。
@@ -728,6 +739,26 @@ delete bitmap 是内存/metadata 过滤，不直接读 `.dat` data page，但它
 | ordinary data page reads | 实际触碰的 column data pages | row bitmap 密度、列数、row store 覆盖情况、complex/variant 展开 |
 | cache block reads | 远端或本地 cache block 数 | file-cache block size、page offset 分布、多个 page 是否落在同一 block |
 | warm-up extent reads | warm-up 任务显式要求读取的文件区间 | rowset/segment/index file 数、任务 offset/size、hot block ranges |
+
+常见运行时批量和固定阈值如下：
+
+| 位置 | 批量/阈值 | 固定还是动态 |
+| --- | --- | --- |
+| query scan first read | `nrows_read_limit = min(_row_bitmap.cardinality(), current block_row_max)`，可再被剩余 `read_limit` 截断 | 动态；`block_row_max` 来自 runtime batch size，adaptive batch size 开启时每轮可能变化 |
+| `_read_columns_by_index()` 非连续 rowids 分片 | `BitmapRangeIterator::kBatchSize=256` | 固定常量，只用于外层 batch 非连续时的内部分片 |
+| second read / `_read_columns_by_rowids()` | `select_size`，即 first read 后本轮 survivors 数 | 动态，最大不超过本轮 `nrows_read` |
+| TopN 二阶段 column-store rowid batch | 当前 materialization request 中同一 segment 的 sorted unique rowids 数 | 动态，上限是本次 TopN winners 数 |
+| TopN 二阶段 row-store hidden column | 每次 `lookup_row_data()` 读 1 个 rowid | 固定单行循环 |
+| point query PK 精确校验 | `next_batch(1)` 读 1 个 encoded PK value | 固定单行 |
+| point query missing column-store 补列 | 长度 1 的 rowid vector | 固定单行 |
+| `VStatisticsIterator` `COUNT` / `MIX` | `min(segment remaining rows, 65535)` | 固定上限 65535 |
+| `VStatisticsIterator` `MINMAX` | 每 segment 2 行 | 固定 |
+| short-key block 采样 | `num_rows_per_block=1024` | writer option 默认值，写入后记录在 short-key footer |
+| ordinary data page builder | 未压缩 page body 目标 64KB | 默认值，可由 schema/tablet storage page size 影响 |
+| primary-key data page builder | 未压缩 page body 目标 32KB | `primary_key_data_page_size` 默认值 |
+| `.idx` buffered read | CLucene/index reader buffer 默认 4096 bytes | `inverted_index_read_buffer_size` 默认值 |
+| file-cache block | 默认 1MB | `file_cache_each_block_size` |
+| block/file warm-up 分片 | 默认 5MB | `s3_write_buffer_size`，且必须是 file-cache block size 的整数倍 |
 
 逻辑返回行数只影响其中一部分。对 cold read 更直接的是：
 
