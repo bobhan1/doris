@@ -18,6 +18,124 @@ string/fulltext 索引的物理结构可以拆成三层。第一层是 term dict
 
 BKD 索引的物理结构也可以拆成三层。`bkd_index` 保存 tree metadata、min/max、split values、leaf block file pointers 或 packed index；`bkd_meta` 保存 field type 和 root data pointer；`bkd_data` 保存叶子块中的 docids 和 encoded values。查询先在内存中的 `bkd_index` tree 上判断一个 subtree 和 query range 的关系，完全不相交的 subtree 不读 `bkd_data`，完全包含或部分相交的 leaf 才会读取 data leaf。它的依赖链是 `bkd_index` 全量加载 -> 内存 tree traversal -> 被选中的 `bkd_data` leaf block reads。
 
+倒排索引有三个容易混淆的边界。第一，docid 是 segment 内局部编号，不是 tablet 全局 rowid，也不是主键；跨 segment 或跨 rowset 后，同一个数字 docid 表示不同 segment 的行。第二，Doris 的每个 inverted index 只负责一个 indexed column 或 ARRAY 元素列；下面例子为了并排说明会把多列放在一张表里，但实际 title、sku、tags、price 会分别有自己的 index writer、reader 和 `.idx` sub-file group，它们只是都用相同的 segment-local rowid/docid 编号。第三，倒排索引结果只说明“哪些 rowid 命中”，不携带输出列值；命中后仍要回到 `.dat` 读取 SELECT 需要的列。
+
+最小例子如下，假设一个 segment 里有三行：
+
+```text
+rowid | title(fulltext) | sku(exact string) | tags(array string) | price(int)
+----- | --------------- | ----------------- | ------------------ | ----------
+0     | red apple       | A-1               | [fruit, red]       | 10
+1     | green apple     | A-2               | [fruit, green]     | 12
+2     | red phone       | P-1               | [device, red]      | 800
+```
+
+如果对 `title` 建 fulltext inverted index，Doris 写入 CLucene 时可以理解成下面的 document 和 term：
+
+```text
+title index documents
+
+docid(rowid)=0
+  field title -> term red   at position 0
+              -> term apple at position 1
+
+docid(rowid)=1
+  field title -> term green at position 0
+              -> term apple at position 1
+
+docid(rowid)=2
+  field title -> term red   at position 0
+              -> term phone at position 1
+```
+
+对应的倒排表直观上是：
+
+```text
+term dictionary       postings(docids)        optional positions
+---------------       ----------------        ------------------
+title:apple     ->    [0, 1]                  0:[1], 1:[1]
+title:green     ->    [1]                     1:[0]
+title:phone     ->    [2]                     2:[1]
+title:red       ->    [0, 2]                  0:[0], 2:[0]
+```
+
+因此 `title MATCH 'red'` 只需要查 `title:red`，得到 bitmap `{0,2}`。如果是 phrase 查询 `title MATCH_PHRASE 'red apple'`，只读 postings 还不够，因为 `red` 命中 `{0,2}`、`apple` 命中 `{0,1}`，docid 0 和 docid 2 是否满足 phrase 取决于 token position；读取 `.prx` 后能看到 docid 0 中 `red` 在 0、`apple` 在 1，二者相邻，所以 phrase 命中 `{0}`。
+
+如果对 `sku` 建不分词 string index，每个完整字符串就是一个 term：
+
+```text
+sku:A-1 -> [0]
+sku:A-2 -> [1]
+sku:P-1 -> [2]
+```
+
+`sku = 'A-1'` 直接得到 bitmap `{0}`。如果对 `tags` 建 ARRAY string index，一行里的多个元素共享同一个 docid：
+
+```text
+tags:device -> [2]
+tags:fruit  -> [0, 1]
+tags:green  -> [1]
+tags:red    -> [0, 2]
+```
+
+`array_contains(tags, 'red')` 或等价索引条件得到 `{0,2}`，表示 rowid 0 和 2 至少有一个数组元素是 `red`。这里不是把数组元素展开成多行；倒排索引中的多个 field/value 最终仍指向同一个 Doris rowid。
+
+如果对 `price` 建 numeric inverted index，写入的是 BKD point：
+
+```text
+encoded price point -> rowid/docid
+10                  -> 0
+12                  -> 1
+800                 -> 2
+```
+
+BKD tree 的形状可以简化理解为：
+
+```text
+             [10, 800]
+             split: 12
+             /       \
+       leaf [10,12]  leaf [800]
+        docs 0,1      doc 2
+```
+
+`price < 100` 在 tree 上判断右侧 `[800]` 完全不相交，不读右侧 leaf，只读左侧 leaf 得到 bitmap `{0,1}`。真实实现中的 tree 由 `bkd_index` 中的 split values、min/max 和 leaf block pointers 驱动，leaf 数据在 `bkd_data` 中，查询会读取命中的 leaf block。
+
+多个索引条件会在 segment 内组合 bitmap，然后再决定 `.dat` 读哪些行。以上面数据为例：
+
+```text
+title MATCH 'red'     -> {0,2}
+price < 100           -> {0,1}
+bitmap intersection   -> {0}
+
+surviving rowids {0}
+  -> use .dat ordinal index to locate data pages
+  -> read output columns' data pages that cover rowid 0
+```
+
+完整的数据流可以画成：
+
+```text
+SQL predicates
+    |
+    v
+per-column inverted index readers
+    |
+    +-- title:red postings       -> bitmap {0,2}
+    +-- price BKD range < 100    -> bitmap {0,1}
+    |
+    v
+SegmentIterator row bitmap       -> bitmap {0}
+    |
+    v
+.dat column readers
+    |
+    +-- ordinal index locates PagePointer
+    +-- PageIO reads data page containing rowid 0
+```
+
+从 I/O 角度看，这个例子也说明了两个阶段的读。第一阶段读 `.idx`：fulltext term query 会按 `.tii -> .tis -> .frq` 找到 `red` 的 postings，BKD range 会按 `bkd_index -> bkd_data leaf` 找到 `< 100` 的 docids；第二阶段读 `.dat`：只对 bitmap `{0}` 覆盖到的 data page 做列读取。倒排索引越能把 bitmap 收窄，第二阶段读到的 data page 越少；但如果 bitmap 很稠密，第一阶段 `.idx` 读可能只是额外前置 I/O。
+
 倒排索引和普通 page index 的根本差异是过滤粒度。ordinary zone map / bloom filter 仍然以 `.dat` data page 为单位过滤，结果是 row ranges；倒排索引直接以 rowid/docid 为单位返回 bitmap，可以表达稀疏命中。这个优势也带来 I/O 形态差异：`.idx` 会先读 dictionary/tree/posting/leaf，命中稀疏时 `.dat` 第二阶段通常变成按 rowid 的随机 data page 读取；命中稠密时 `.idx` 读可能成为额外前置成本。
 
 ## Doris 中的倒排索引类型
