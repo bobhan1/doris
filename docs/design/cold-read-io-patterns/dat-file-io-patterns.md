@@ -2,7 +2,9 @@
 
 本文只描述 Doris 内表 beta rowset 的 segment 数据文件，也就是
 `{rowset_id}_{segment_id}.dat`。倒排索引 `.idx` 文件单独见
-`inverted-index-io-patterns.md`。
+`inverted-index-io-patterns.md`。如果要按执行场景理解普通 scan、TopN 二阶段、
+点查、存储层聚合和维护类读者的整体 read pattern，见
+`scenario-read-patterns.md`。
 
 这里的 `read_at` 分两层：
 

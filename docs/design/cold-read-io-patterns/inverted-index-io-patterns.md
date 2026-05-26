@@ -2,6 +2,8 @@
 
 本文只描述 Doris 内表倒排索引文件，也就是 `.idx`。`.dat` 数据文件、普通列
 data page、TopN 全局延迟物化二阶段 rowid fetch 见 `dat-file-io-patterns.md`。
+按普通 scan、索引辅助 scan、TopN 二阶段、点查等执行场景串起 `.idx` 与 `.dat`
+读模式的说明见 `scenario-read-patterns.md`。
 
 倒排索引读路径和 `.dat` 最大的区别是：Doris 只实现 compound 文件封装、Doris
 FileReader 桥接、cache context 传递和部分 query reader；term dictionary、
