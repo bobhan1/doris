@@ -37,6 +37,8 @@ enum class ReaderType : uint8_t {
 
 namespace io {
 
+class RemoteScanCacheWriteLimiter;
+
 enum class FileCacheMissPolicy : uint8_t {
     READ_THROUGH_AND_WRITE_BACK = 0,
     REMOTE_ONLY_ON_MISS = 1,
@@ -89,6 +91,8 @@ struct FileCacheStatistics {
     int64_t segment_footer_index_local_io_timer = 0;
     int64_t segment_footer_index_remote_io_timer = 0;
     int64_t segment_footer_index_peer_io_timer = 0;
+    int64_t remote_only_on_miss_triggered = 0;
+    int64_t remote_only_on_miss_threshold_bytes = 0;
 };
 
 struct IOContext {
@@ -113,6 +117,7 @@ struct IOContext {
     bool is_warmup {false};
     int64_t condition_cache_filtered_rows = 0;
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+    RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
 };
 
 } // namespace io

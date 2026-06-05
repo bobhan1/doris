@@ -46,6 +46,7 @@
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/peer_file_cache_reader.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
@@ -88,6 +89,14 @@ bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_total_bytes_1min_windo
         60);
 bvar::Adder<uint64_t> g_failed_get_peer_addr_counter(
         "cached_remote_reader_failed_get_peer_addr_counter");
+
+static bool use_remote_only_on_cache_miss(const IOContext* io_ctx) {
+    if (io_ctx->file_cache_miss_policy == FileCacheMissPolicy::REMOTE_ONLY_ON_MISS) {
+        return true;
+    }
+    auto* limiter = io_ctx->remote_scan_cache_write_limiter;
+    return limiter != nullptr && limiter->remote_only_on_miss();
+}
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -426,11 +435,19 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                             : (io_ctx->is_index_data ? FileCacheReadType::SEGMENT_FOOTER_INDEX
                                                      : FileCacheReadType::DATA);
             _update_stats(stats, io_ctx->file_cache_stats, file_cache_read_type);
+            auto* limiter = io_ctx->remote_scan_cache_write_limiter;
+            if (limiter != nullptr) {
+                io_ctx->file_cache_stats->remote_only_on_miss_triggered =
+                        io_ctx->file_cache_stats->remote_only_on_miss_triggered ||
+                        limiter->remote_only_on_miss();
+                io_ctx->file_cache_stats->remote_only_on_miss_threshold_bytes =
+                        limiter->threshold_bytes();
+            }
         }
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));
 
-    if (io_ctx->file_cache_miss_policy == FileCacheMissPolicy::REMOTE_ONLY_ON_MISS) {
+    if (use_remote_only_on_cache_miss(io_ctx)) {
         RETURN_IF_ERROR(_read_remote_only_on_cache_miss(offset, result, bytes_read, bytes_req,
                                                         stats, io_ctx, is_dryrun));
         read_success = true;
