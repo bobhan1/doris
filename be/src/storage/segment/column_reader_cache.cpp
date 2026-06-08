@@ -31,7 +31,8 @@ namespace doris::segment_v2 {
 ColumnReaderCache::ColumnReaderCache(
         ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
         io::FileReaderSPtr file_reader, uint64_t num_rows,
-        std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)>
+        std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*,
+                             const io::IOContext*)>
                 get_footer_cb)
         : _accessor(accessor),
           _tablet_schema(std::move(tablet_schema)),
@@ -94,7 +95,8 @@ std::map<int32_t, std::shared_ptr<ColumnReader>> ColumnReaderCache::get_availabl
 
 Status ColumnReaderCache::get_column_reader(int32_t col_uid,
                                             std::shared_ptr<ColumnReader>* column_reader,
-                                            OlapReaderStatistics* stats) {
+                                            OlapReaderStatistics* stats,
+                                            const io::IOContext* source_io_ctx) {
     // Attempt to find in cache
     if (auto cached = _lookup({col_uid, {}})) {
         *column_reader = cached;
@@ -104,7 +106,7 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     {
         std::lock_guard<std::mutex> lock(_cache_mutex);
-        RETURN_IF_ERROR(_get_footer_cb(footer_pb_shared, stats));
+        RETURN_IF_ERROR(_get_footer_cb(footer_pb_shared, stats, source_io_ctx));
     }
 
     // Lookup column meta by uid via ColumnMetaAccessor. If not initialized or not found, return NOT_FOUND.
@@ -143,7 +145,8 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
 Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData relative_path,
                                                  std::shared_ptr<ColumnReader>* column_reader,
                                                  OlapReaderStatistics* stats,
-                                                 const SubcolumnColumnMetaInfo::Node* node_hint) {
+                                                 const SubcolumnColumnMetaInfo::Node* node_hint,
+                                                 const io::IOContext* source_io_ctx) {
     // Attempt to find in cache first
     if (auto cached = _lookup({col_uid, relative_path})) {
         *column_reader = cached;
@@ -160,7 +163,7 @@ Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData rel
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     {
         std::lock_guard<std::mutex> lock(_cache_mutex);
-        RETURN_IF_ERROR(_get_footer_cb(footer_pb_shared, stats));
+        RETURN_IF_ERROR(_get_footer_cb(footer_pb_shared, stats, source_io_ctx));
     }
 
     // Ensure variant root reader is available in cache.
@@ -168,7 +171,7 @@ Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData rel
                               .be_exec_version = _be_exec_version,
                               .tablet_schema = _tablet_schema};
     std::shared_ptr<ColumnReader> variant_column_reader;
-    RETURN_IF_ERROR(get_column_reader(col_uid, &variant_column_reader, stats));
+    RETURN_IF_ERROR(get_column_reader(col_uid, &variant_column_reader, stats, source_io_ctx));
 
     if (relative_path.empty()) {
         *column_reader = std::move(variant_column_reader);
