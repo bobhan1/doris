@@ -766,7 +766,8 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                                   int64_t& num_peer_io_total, int64_t& bytes_read_from_local,
                                   int64_t& bytes_read_from_remote, int64_t& bytes_read_from_peer,
                                   int64_t& local_io_timer, int64_t& remote_io_timer,
-                                  int64_t& peer_io_timer) {
+                                  int64_t& peer_io_timer, int64_t& write_cache_io_timer,
+                                  int64_t& bytes_write_into_cache) {
         if (read_stats.bytes_read_from_local > 0) {
             num_local_io_total++;
             bytes_read_from_local += read_stats.bytes_read_from_local;
@@ -782,6 +783,8 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
             peer_io_timer += read_stats.peer_read_timer;
         }
         local_io_timer += read_stats.local_read_timer;
+        write_cache_io_timer += read_stats.local_write_timer;
+        bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
     };
 
     switch (read_type) {
@@ -795,7 +798,9 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                 statis->inverted_index_bytes_read_from_local,
                 statis->inverted_index_bytes_read_from_remote,
                 statis->inverted_index_bytes_read_from_peer, statis->inverted_index_local_io_timer,
-                statis->inverted_index_remote_io_timer, statis->inverted_index_peer_io_timer);
+                statis->inverted_index_remote_io_timer, statis->inverted_index_peer_io_timer,
+                statis->inverted_index_write_cache_io_timer,
+                statis->inverted_index_bytes_write_into_cache);
         break;
     case FileCacheReadType::SEGMENT_FOOTER_INDEX:
         update_index_stats(statis->segment_footer_index_num_local_io_total,
@@ -806,7 +811,9 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                            statis->segment_footer_index_bytes_read_from_peer,
                            statis->segment_footer_index_local_io_timer,
                            statis->segment_footer_index_remote_io_timer,
-                           statis->segment_footer_index_peer_io_timer);
+                           statis->segment_footer_index_peer_io_timer,
+                           statis->segment_footer_index_write_cache_io_timer,
+                           statis->segment_footer_index_bytes_write_into_cache);
         break;
     }
 
