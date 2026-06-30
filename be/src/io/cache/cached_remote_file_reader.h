@@ -88,6 +88,10 @@ private:
                                 size_t& size, std::unique_ptr<char[]>& buffer,
                                 ReadStatistics& stats, const IOContext* io_ctx);
 
+    Status _read_remote_only_on_cache_miss(size_t offset, Slice result, size_t* bytes_read,
+                                           size_t bytes_req, ReadStatistics& stats,
+                                           const IOContext* io_ctx, bool is_dryrun);
+
     void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
                        FileCacheReadType read_type) const;
 
