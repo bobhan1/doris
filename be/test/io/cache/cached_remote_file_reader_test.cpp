@@ -921,7 +921,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest, concurrent_cold_reads_publish_only_one_a
     SyncPoint::CallbackGuard insert_guard;
     SyncPoint::CallbackGuard worker_guard;
     sync_point->set_call_back(
-            "CachedRemoteFileReader::_submit_async_write_tasks:before_inflight_insert",
+            "FixedBlockAsyncWriteSubmitter::try_submit:before_inflight_insert",
             [&](auto&&) {
                 std::unique_lock lock(insert_mutex);
                 ++insert_arrivals;

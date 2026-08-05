@@ -31,6 +31,7 @@
 #include "io/cache/async_cache_write_service.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cached_remote_file_reader.h"
+#include "io/cache/fixed_block_async_write_submitter.h"
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
@@ -603,8 +604,8 @@ Status CachedRemoteFileReader::_read_async_remote_range(
     return Status::OK();
 }
 
-// Submit exactly the real cache misses contained in the remote span. Inflight insertion happens after
-// remote IO and immediately before enqueueing, so a concurrent owner wins without duplicate work.
+// Submit exactly the real cache misses contained in the remote span. The fixed-block helper owns
+// allocation, final probing, inflight insertion, enqueueing, and rejection rollback.
 void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan,
                                                        const std::unique_ptr<char[]>& remote_buffer,
                                                        const IOContext* io_ctx,
@@ -614,10 +615,6 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
         g_cached_remote_reader_async_write_submission_latency
                 << (MonotonicMicros() - submission_start_us);
     }};
-    auto* service = _cache->async_write_service();
-    auto* inflight_index = _cache->inflight_write_buffer_index();
-    DORIS_CHECK(service != nullptr);
-    DORIS_CHECK(inflight_index != nullptr);
     DORIS_CHECK(remote_buffer != nullptr);
 
     CacheContext cache_context(io_ctx);
@@ -635,75 +632,47 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
     const size_t remote_left = plan.blocks[plan.first_remote_block].range.left;
     const size_t remote_right = plan.blocks[remote_end - 1].range.right;
     const size_t remote_size = remote_right - remote_left + 1;
-    const size_t cache_block_size = static_cast<size_t>(config::file_cache_each_block_size);
-    DORIS_CHECK(cache_block_size > 0);
     for (size_t index = plan.first_remote_block; index < remote_end; ++index) {
         const auto& read_block = plan.blocks[index];
         if (!read_block.submit_write) {
             continue;
         }
         DORIS_CHECK(read_block.source == AsyncReadBlock::Source::REMOTE);
-        DORIS_CHECK(read_block.range.left % cache_block_size == 0);
-        DORIS_CHECK(read_block.range.size() <= cache_block_size);
         DORIS_CHECK(read_block.range.left >= remote_left);
         DORIS_CHECK(read_block.range.right <= remote_right);
-        if (!service->is_current_write_epoch(plan.write_epoch)) {
-            ++stats.async_cache_write_drop_stale_epoch;
-            continue;
-        }
-
-        AsyncCacheWriteBufferPtr tracked_buffer;
-        Status status = service->allocate_tracked_buffer(cache_block_size, &tracked_buffer);
-        if (!status.ok()) {
-            ++stats.async_cache_write_buffer_alloc_fail;
-            continue;
-        }
-        DORIS_CHECK(tracked_buffer->size() == cache_block_size);
-        DORIS_CHECK(read_block.range.size() <= tracked_buffer->size());
         const size_t remote_buffer_offset = read_block.range.left - remote_left;
         DORIS_CHECK(remote_buffer_offset <= remote_size);
         DORIS_CHECK(read_block.range.size() <= remote_size - remote_buffer_offset);
-        memcpy(tracked_buffer->data(), remote_buffer.get() + remote_buffer_offset,
-               read_block.range.size());
-
-        AsyncCacheWriteTask task {
+        const FixedBlockSubmitRequest request {
+                .cache = _cache,
                 .cache_hash = _cache_hash,
-                .file_offset = read_block.range.left,
-                .write_size = read_block.range.size(),
-                .buffer = tracked_buffer,
+                .block_offset = read_block.range.left,
+                .valid_size = read_block.range.size(),
+                .file_size = size(),
+                .complete_payload =
+                        Slice(remote_buffer.get() + remote_buffer_offset, read_block.range.size()),
                 .admission_ctx = admission_context,
-                .submit_ts_us = MonotonicMicros(),
                 .write_epoch = plan.write_epoch,
-                .on_finalized = nullptr,
         };
-        std::shared_ptr<InflightWriteBufferEntry> entry;
-        if (config::enable_async_file_cache_write_inflight_write_buffer_index) {
-            entry = std::make_shared<InflightWriteBufferEntry>(
-                    tracked_buffer, read_block.range.left, read_block.range.size(),
-                    task.submit_ts_us, plan.write_epoch);
-            TEST_SYNC_POINT_CALLBACK(
-                    "CachedRemoteFileReader::_submit_async_write_tasks:before_inflight_insert",
-                    &task);
-            auto existing =
-                    inflight_index->insert_if_absent(_cache_hash, read_block.range.left, entry);
-            if (existing) {
-                g_cached_remote_reader_async_skip_existing << 1;
-                continue;
-            }
-            task.on_finalized = [cache_hash = _cache_hash, offset = read_block.range.left,
-                                 inflight_index, entry](const AsyncCacheWriteTask&) {
-                inflight_index->remove_if(cache_hash, offset, entry);
-            };
-        }
-
-        if (!service->try_submit(std::move(task))) {
-            if (entry) {
-                inflight_index->remove_if(_cache_hash, read_block.range.left, entry);
-                inflight_index->record_backpressure_rollback();
-            }
-            ++stats.async_cache_write_rejected;
-        } else {
+        switch (FixedBlockAsyncWriteSubmitter::try_submit(request)) {
+        case FixedBlockSubmitResult::SUBMITTED:
             ++stats.async_cache_write_submitted;
+            break;
+        case FixedBlockSubmitResult::STALE_EPOCH:
+            ++stats.async_cache_write_drop_stale_epoch;
+            break;
+        case FixedBlockSubmitResult::ALLOC_FAILED:
+            ++stats.async_cache_write_buffer_alloc_fail;
+            break;
+        case FixedBlockSubmitResult::EXISTING_INFLIGHT:
+            g_cached_remote_reader_async_skip_existing << 1;
+            break;
+        case FixedBlockSubmitResult::BACKPRESSURE:
+            ++stats.async_cache_write_rejected;
+            break;
+        case FixedBlockSubmitResult::ALREADY_DOWNLOADED:
+        case FixedBlockSubmitResult::CACHE_DOWNLOADING:
+            break;
         }
     }
 }
